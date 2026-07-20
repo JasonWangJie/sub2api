@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -285,6 +286,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
+	if capturePreparedUsageBilling(ctx, cmd, usageLog, p) {
+		return false, nil
+	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps)
 		return true, nil
@@ -721,6 +725,21 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if isUsageBillingPreparation(ctx) {
+			platform := input.QuotaPlatform
+			if platform == "" {
+				platform = PlatformFromAPIKey(apiKey)
+			}
+			if !capturePreparedNotBillableUsageBilling(ctx, usageLog.RequestID, usageLog, &postUsageBillingParams{
+				Cost: cost, User: user, APIKey: apiKey, Account: account,
+				Subscription: subscription, IsSubscriptionBill: isSubscriptionBilling,
+				AccountRateMultiplier: accountRateMultiplier, APIKeyService: input.APIKeyService,
+				Platform: platform,
+			}) {
+				return errors.New("simple-mode usage billing preparation failed")
+			}
+			return nil
+		}
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -750,6 +769,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	if billingErr != nil {
 		return billingErr
+	}
+	if isUsageBillingPreparation(ctx) {
+		return nil
 	}
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 

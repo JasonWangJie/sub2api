@@ -140,6 +140,85 @@ func TestAsyncImageSuccessfulPrecheckIsNotRepeatedByDetachedExecution(t *testing
 	executionMu.Unlock()
 }
 
+func TestDurableAsyncImagePromptGuardUsesPlatformHandlerAndResponseDialect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name               string
+		platform           string
+		responseProtocol   string
+		moderationProtocol string
+		model              string
+		body               []byte
+		wantBodyFragment   string
+	}{
+		{
+			name:               "OpenAI BB",
+			platform:           service.PlatformOpenAI,
+			responseProtocol:   service.AsyncImageProtocolBB,
+			moderationProtocol: service.ContentModerationProtocolOpenAIImages,
+			model:              "gpt-image-2",
+			body:               []byte(`{"prompt":"blocked durable OpenAI prompt"}`),
+			wantBodyFragment:   `"error"`,
+		},
+		{
+			name:               "Gemini SC",
+			platform:           service.PlatformGemini,
+			responseProtocol:   service.AsyncImageProtocolSC,
+			moderationProtocol: service.ContentModerationProtocolGemini,
+			model:              "gemini-image-test",
+			body: asyncImageGeminiModerationBody(&service.AsyncImageNormalizedRequest{Parts: []service.AsyncImageInputPart{
+				{Type: "text", Text: "blocked durable Gemini prompt"},
+			}}),
+			wantBodyFragment: `"code":403`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine := blockingHandlerPromptEngine()
+			coordinator := securityaudit.NewCoordinator(nil, engine)
+			h := &DurableAsyncImageHandler{
+				gateway: &GatewayHandler{securityAuditCoordinator: coordinator},
+				openAI:  &OpenAIGatewayHandler{securityAuditCoordinator: coordinator},
+			}
+			groupID := int64(3)
+			apiKey := &service.APIKey{
+				ID: 9, UserID: 7, User: &service.User{ID: 7, Username: "media-user"}, GroupID: &groupID,
+				Group: &service.Group{ID: groupID, Platform: test.platform, AllowImageGeneration: true, AllowAsyncImageGeneration: true},
+			}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/durable-image-test", strings.NewReader(string(test.body)))
+			c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+			c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: apiKey.UserID, Concurrency: 2})
+
+			allowed := h.checkSecurityAuditBeforeSubmit(
+				c, apiKey, test.responseProtocol, test.platform, test.moderationProtocol, test.model, test.body,
+			)
+
+			require.False(t, allowed)
+			require.Equal(t, http.StatusForbidden, recorder.Code)
+			require.Contains(t, recorder.Body.String(), test.wantBodyFragment)
+			evaluated, _, requests := engine.snapshot()
+			require.Equal(t, 1, evaluated)
+			require.Len(t, requests, 1)
+			require.Equal(t, test.moderationProtocol, requests[0].Protocol)
+			require.Contains(t, string(requests[0].Body), "blocked durable")
+		})
+	}
+}
+
+func TestAsyncImageGeminiModerationBodyPreservesPromptAndReference(t *testing.T) {
+	body := asyncImageGeminiModerationBody(&service.AsyncImageNormalizedRequest{Parts: []service.AsyncImageInputPart{
+		{Type: "image_url", URL: "https://images.example.test/reference.png"},
+		{Type: "text", Text: "render the reference in watercolor"},
+	}})
+
+	input := service.ExtractContentModerationInput(service.ContentModerationProtocolGemini, body)
+	require.Equal(t, "render the reference in watercolor", input.Text)
+	require.Equal(t, []string{"https://images.example.test/reference.png"}, input.Images)
+}
+
 func TestBatchImagePromptGuardRunsBeforePersistenceOrBilling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := blockingHandlerPromptEngine()

@@ -71,12 +71,22 @@
           </label>
         </div>
 
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input v-model="imageStorageForm.reuse_backup_s3" type="checkbox" />
-          <span>{{ t('admin.backup.imageStorage.reuseBackupS3') }}</span>
-        </label>
-
-        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.provider') }}</label>
+            <select v-model="imageStorageForm.provider" class="input w-full">
+              <option value="qiniu">{{ t('admin.backup.imageStorage.providers.qiniu') }}</option>
+              <option value="aliyun">{{ t('admin.backup.imageStorage.providers.aliyun') }}</option>
+              <option value="tencent">{{ t('admin.backup.imageStorage.providers.tencent') }}</option>
+              <option value="custom_s3">{{ t('admin.backup.imageStorage.providers.custom_s3') }}</option>
+            </select>
+          </div>
+          <div v-if="imageStorageForm.provider === 'custom_s3'" class="flex items-end pb-2">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input v-model="imageStorageForm.reuse_backup_s3" type="checkbox" />
+              <span>{{ t('admin.backup.imageStorage.reuseBackupS3') }}</span>
+            </label>
+          </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.bucket') }}</label>
             <input v-model="imageStorageForm.bucket" class="input w-full" :placeholder="imageStorageForm.reuse_backup_s3 ? t('admin.backup.imageStorage.bucketInherited') : ''" />
@@ -89,11 +99,12 @@
           <template v-if="!imageStorageForm.reuse_backup_s3">
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.endpoint') }}</label>
-              <input v-model="imageStorageForm.endpoint" class="input w-full" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
+              <input v-model="imageStorageForm.endpoint" class="input w-full" :placeholder="t('admin.backup.imageStorage.endpointPlaceholder')" />
+              <p class="mt-1 text-xs text-gray-400">{{ t('admin.backup.imageStorage.endpointHint') }}</p>
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.region') }}</label>
-              <input v-model="imageStorageForm.region" class="input w-full" placeholder="auto" />
+              <input v-model="imageStorageForm.region" class="input w-full" :placeholder="imageStorageForm.provider === 'custom_s3' ? 'auto' : t('admin.backup.imageStorage.regionPlaceholder')" />
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.accessKeyId') }}</label>
@@ -110,13 +121,102 @@
           </template>
 
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.publicBaseUrl') }}</label>
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.objectPublicBaseUrl') }}</label>
             <input v-model="imageStorageForm.public_base_url" class="input w-full" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.presignExpiryHours') }}</label>
             <input v-model.number="imageStorageForm.presign_expiry_hours" type="number" min="1" class="input w-full" />
           </div>
+        </div>
+
+        <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.backup.imageStorage.runtimeTitle') }}</h4>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.backup.imageStorage.runtimeDescription') }}</p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div class="md:col-span-2 lg:col-span-3">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.asyncPublicBaseUrl') }}</label>
+              <input v-model="imageStorageForm.async_image.public_base_url" type="url" class="input w-full" placeholder="https://api.example.com" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.workerConcurrency') }}</label>
+              <input v-model.number="imageStorageForm.async_image.worker_concurrency" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.executionTimeoutSeconds') }}</label>
+              <input v-model.number="imageStorageForm.async_image.execution_timeout_seconds" type="number" min="30" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.signedUrlExpirySeconds') }}</label>
+              <input v-model.number="imageStorageForm.async_image.signed_url_expiry_seconds" type="number" min="60" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.inputRetentionHours') }}</label>
+              <input v-model.number="imageStorageForm.async_image.input_retention_hours" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.taskRetentionDays') }}</label>
+              <input v-model.number="imageStorageForm.async_image.task_retention_days" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.resultRetentionDays') }}</label>
+              <input v-model.number="imageStorageForm.async_image.result_retention_days" type="number" min="1" class="input w-full" />
+            </div>
+          </div>
+
+          <details class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+            <summary class="cursor-pointer text-sm font-medium text-gray-700 marker:text-gray-400 dark:text-gray-300">
+              {{ t('admin.backup.imageStorage.advancedRuntime') }}
+            </summary>
+            <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.workerLeaseSeconds') }}</label>
+                <input v-model.number="imageStorageForm.async_image.worker_lease_seconds" type="number" min="30" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.recoveryIntervalSeconds') }}</label>
+                <input v-model.number="imageStorageForm.async_image.recovery_interval_seconds" type="number" min="5" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.retryBackoffSeconds') }}</label>
+                <input v-model.number="imageStorageForm.async_image.retry_backoff_seconds" type="number" min="1" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.storageRetryAttempts') }}</label>
+                <input v-model.number="imageStorageForm.async_image.storage_retry_attempts" type="number" min="0" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.billingRetryAttempts') }}</label>
+                <input v-model.number="imageStorageForm.async_image.billing_retry_attempts" type="number" min="0" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxBytes') }}</label>
+                <input v-model.number="imageStorageForm.async_image.download_max_bytes" type="number" min="1048576" step="1048576" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadTimeoutSeconds') }}</label>
+                <input v-model.number="imageStorageForm.async_image.download_timeout_seconds" type="number" min="1" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxRedirects') }}</label>
+                <input v-model.number="imageStorageForm.async_image.download_max_redirects" type="number" min="0" max="10" class="input w-full" />
+              </div>
+			  <div class="md:col-span-2">
+				<label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.geminiHalfKModels') }}</label>
+				<input v-model="geminiHalfKModelsText" class="input w-full" :placeholder="t('admin.backup.imageStorage.geminiHalfKModelsPlaceholder')" />
+			  </div>
+			  <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+				<input v-model="imageStorageForm.async_image.prompt_preview_enabled" type="checkbox" />
+				<span>{{ t('admin.backup.imageStorage.promptPreviewEnabled') }}</span>
+			  </label>
+			  <div>
+				<label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.promptPreviewMaxChars') }}</label>
+				<input v-model.number="imageStorageForm.async_image.prompt_preview_max_chars" type="number" min="16" max="500" class="input w-full" />
+			  </div>
+            </div>
+          </details>
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2">
@@ -355,7 +455,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -401,6 +501,7 @@ const testingS3 = ref(false)
 // to reuse the credentials configured above and only differ by prefix.
 const imageStorageForm = ref<ImageStorageConfig>({
   enabled: false,
+  provider: 'custom_s3',
   reuse_backup_s3: true,
   bucket: '',
   prefix: 'images/',
@@ -412,6 +513,36 @@ const imageStorageForm = ref<ImageStorageConfig>({
   access_key_id: '',
   secret_access_key: '',
   force_path_style: false,
+  async_image: {
+    public_base_url: '',
+    worker_concurrency: 4,
+    worker_lease_seconds: 120,
+    recovery_interval_seconds: 30,
+    execution_timeout_seconds: 900,
+    storage_retry_attempts: 5,
+    billing_retry_attempts: 10,
+    retry_backoff_seconds: 30,
+    download_max_bytes: 33554432,
+    download_timeout_seconds: 30,
+    download_max_redirects: 3,
+    signed_url_expiry_seconds: 3600,
+    input_retention_hours: 24,
+    task_retention_days: 90,
+    result_retention_days: 90,
+	gemini_half_k_models: [],
+	prompt_preview_enabled: true,
+	prompt_preview_max_chars: 160,
+  },
+})
+
+const geminiHalfKModelsText = computed({
+	get: () => imageStorageForm.value.async_image.gemini_half_k_models.join(', '),
+	set: (value: string) => {
+		imageStorageForm.value.async_image.gemini_half_k_models = value
+			.split(',')
+			.map(model => model.trim())
+			.filter(Boolean)
+	},
 })
 const imageStorageSecretConfigured = ref(false)
 const savingImageStorage = ref(false)
@@ -589,10 +720,16 @@ async function loadImageStorageConfig() {
   try {
     const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
     imageStorageForm.value = {
+      ...imageStorageForm.value,
       ...config,
+      provider: config.provider || 'custom_s3',
       prefix: config.prefix || 'images/',
-      region: config.region || 'auto',
+      region: config.region || ((config.provider || 'custom_s3') === 'custom_s3' ? 'auto' : ''),
       secret_access_key: '',
+      async_image: {
+        ...imageStorageForm.value.async_image,
+        ...(config.async_image || {}),
+      },
     }
     imageStorageSecretConfigured.value = secret_configured
   } catch (error) {
@@ -600,7 +737,20 @@ async function loadImageStorageConfig() {
   }
 }
 
+watch(
+  () => imageStorageForm.value.provider,
+  (provider) => {
+    if (provider !== 'custom_s3') {
+      imageStorageForm.value.reuse_backup_s3 = false
+      if (imageStorageForm.value.region === 'auto') imageStorageForm.value.region = ''
+      return
+    }
+    if (!imageStorageForm.value.region) imageStorageForm.value.region = 'auto'
+  },
+)
+
 async function saveImageStorageConfig() {
+  if (!validateImageStorageConfig()) return
   savingImageStorage.value = true
   try {
     await backupStepUp.run(() => adminAPI.backup.updateImageStorageConfig(imageStorageForm.value))
@@ -618,6 +768,7 @@ async function saveImageStorageConfig() {
 }
 
 async function testImageStorage() {
+  if (!validateImageStorageConfig()) return
   testingImageStorage.value = true
   try {
     const result = await adminAPI.backup.testImageStorageConnection(imageStorageForm.value)
@@ -631,6 +782,17 @@ async function testImageStorage() {
   } finally {
     testingImageStorage.value = false
   }
+}
+
+function validateImageStorageConfig(): boolean {
+  if (
+    imageStorageForm.value.provider !== 'custom_s3' &&
+    !imageStorageForm.value.region.trim()
+  ) {
+    appStore.showError(t('admin.backup.imageStorage.regionRequired'))
+    return false
+  }
+  return true
 }
 
 async function testS3() {

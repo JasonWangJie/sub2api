@@ -58,6 +58,8 @@ const (
 	FieldAllowImageGeneration = "allow_image_generation"
 	// FieldAllowBatchImageGeneration holds the string denoting the allow_batch_image_generation field in the database.
 	FieldAllowBatchImageGeneration = "allow_batch_image_generation"
+	// FieldAllowAsyncImageGeneration holds the string denoting the allow_async_image_generation field in the database.
+	FieldAllowAsyncImageGeneration = "allow_async_image_generation"
 	// FieldImageRateIndependent holds the string denoting the image_rate_independent field in the database.
 	FieldImageRateIndependent = "image_rate_independent"
 	// FieldImageRateMultiplier holds the string denoting the image_rate_multiplier field in the database.
@@ -210,6 +212,7 @@ var Columns = []string{
 	FieldDefaultValidityDays,
 	FieldAllowImageGeneration,
 	FieldAllowBatchImageGeneration,
+	FieldAllowAsyncImageGeneration,
 	FieldImageRateIndependent,
 	FieldImageRateMultiplier,
 	FieldImagePrice1k,
@@ -311,6 +314,8 @@ var (
 	DefaultAllowImageGeneration bool
 	// DefaultAllowBatchImageGeneration holds the default value on creation for the "allow_batch_image_generation" field.
 	DefaultAllowBatchImageGeneration bool
+	// DefaultAllowAsyncImageGeneration holds the default value on creation for the "allow_async_image_generation" field.
+	DefaultAllowAsyncImageGeneration bool
 	// DefaultImageRateIndependent holds the default value on creation for the "image_rate_independent" field.
 	DefaultImageRateIndependent bool
 	// DefaultImageRateMultiplier holds the default value on creation for the "image_rate_multiplier" field.
@@ -462,6 +467,11 @@ func ByAllowImageGeneration(opts ...sql.OrderTermOption) OrderOption {
 // ByAllowBatchImageGeneration orders the results by the allow_batch_image_generation field.
 func ByAllowBatchImageGeneration(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAllowBatchImageGeneration, opts...).ToFunc()
+}
+
+// ByAllowAsyncImageGeneration orders the results by the allow_async_image_generation field.
+func ByAllowAsyncImageGeneration(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAllowAsyncImageGeneration, opts...).ToFunc()
 }
 
 // ByImageRateIndependent orders the results by the image_rate_independent field.

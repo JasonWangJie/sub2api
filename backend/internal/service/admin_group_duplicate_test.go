@@ -140,6 +140,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		DefaultValidityDays:             91,
 		AllowImageGeneration:            true,
 		AllowBatchImageGeneration:       true,
+		AllowAsyncImageGeneration:       true,
 		ImageRateIndependent:            true,
 		ImageRateMultiplier:             1.4,
 		ImagePrice1K:                    groupDuplicateTestPointer(0.01),
@@ -201,6 +202,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.PeakRateMultiplier, duplicate.PeakRateMultiplier)
 	require.Equal(t, source.DefaultValidityDays, duplicate.DefaultValidityDays)
 	require.Equal(t, source.ImagePrice4K, duplicate.ImagePrice4K)
+	require.Equal(t, source.AllowAsyncImageGeneration, duplicate.AllowAsyncImageGeneration)
 	require.Equal(t, source.WebSearchPricePerCall, duplicate.WebSearchPricePerCall)
 	require.Equal(t, source.FallbackGroupID, duplicate.FallbackGroupID)
 	require.Equal(t, source.ModelRouting, duplicate.ModelRouting)

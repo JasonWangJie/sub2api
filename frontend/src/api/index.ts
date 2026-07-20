@@ -23,6 +23,15 @@ export * as imagePlazaAPI from './imagePlaza'
 export { totpAPI } from './totp'
 export { default as announcementsAPI } from './announcements'
 export { channelMonitorUserAPI } from './channelMonitor'
+export { asyncImageTasksAPI } from '@/features/async-image-tasks/api'
+export type {
+  AsyncImageTask,
+  AsyncImageTaskEvent,
+  AsyncImageTaskListParams,
+  AsyncImageTaskListResponse,
+  AsyncImageTaskResult,
+  AsyncImageTaskStatus,
+} from '@/features/async-image-tasks/types'
 
 // Admin APIs
 export { adminAPI } from './admin'

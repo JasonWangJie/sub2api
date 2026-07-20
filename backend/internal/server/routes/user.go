@@ -104,6 +104,16 @@ func RegisterUserRoutes(
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
+		// Durable asynchronous image task center (site session only).
+		if h.AsyncImageTasks != nil {
+			tasks := authenticated.Group("/user/async-image-tasks")
+			{
+				tasks.GET("", h.AsyncImageTasks.ListForUser)
+				tasks.GET("/:task_id", h.AsyncImageTasks.GetForUser)
+				tasks.GET("/:task_id/results/:image_index/view", h.AsyncImageTasks.ViewResultForUser)
+			}
+		}
+
 		// 公告（用户可见）
 		announcements := authenticated.Group("/announcements")
 		{

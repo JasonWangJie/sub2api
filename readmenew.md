@@ -2,7 +2,17 @@
 
 **AI API 网关平台 — 订阅配额分发与统一接入**
 
-[官方 README](README.md) · [中文](README_CN.md) · [日本語](README_JA.md) · [开发指南](DEV_GUIDE.md) · [**Wiki 文档**](wiki/Home.md)
+[官方 README](README.md) · [中文](README_CN.md) · [日本語](README_JA.md) · [开发指南](DEV_GUIDE.md) · [**Wiki 文档**](wiki/Home.md) · [**异步生图二开交接**](wiki-new/README.md)
+
+---
+
+## 当前二次开发交接
+
+2026-07-21 已在 `0.1.162` 基线上完成“持久化异步生图兼容层与任务中心”的代码实现。该功能新增 BB/SC 下游协议、Gemini/OpenAI 异步执行、PostgreSQL 持久任务、Redis 可靠队列、固定账单重试、七牛/阿里/腾讯/custom S3 存储和用户/管理员任务页面，同时保持原同步接口与旧 Redis 异步接口不变。
+
+换电脑或交给新的 AI 继续开发时，从 [wiki-new/README.md](wiki-new/README.md) 开始。那里明确记录了完成范围、核心不变量、部署和验证命令、尚未完成的真实云厂商联调与浏览器视觉验收，以及后续工作的优先级。对外协议的权威说明见 [docs/DURABLE_ASYNC_IMAGE_API.md](docs/DURABLE_ASYNC_IMAGE_API.md)。
+
+> 本交接目录是 Fork 的二次开发资料，不替代原作者的 `README*.md`、`docs/` 或 `wiki/`。项目发布版本号仍为 `0.1.162`；当前精确提交以 `git rev-parse HEAD` 为准。
 
 ---
 
@@ -526,6 +536,16 @@ git push origin main
 ---
 
 ## 二次开发提交日志
+
+### 2026-07-21：新增持久化异步生图兼容层与任务中心
+
+- 基线：`0.1.162`，开发前 HEAD 为 `6a57b47d7`，已包含原作者 `upstream/main` 的更新。
+- 协议：新增 Gemini BB、OpenAI BB 和 Gemini SC 共 7 条固定下游接口；BB 与 SC 独立渲染响应。
+- 可靠性：PostgreSQL 保存任务事实与 Outbox，Redis 承担 ready/delayed/inflight 投递，Worker 使用租约、心跳和 CAS 恢复。
+- 计费：复用现有分组和账号计费公式，上游成功后固化账单命令；后处理重试不重新生成、不重算价格、不重复扣费。
+- 存储：支持七牛云、阿里云、腾讯云和 `custom_s3`，成功结果必须完成 OSS 持久化和计费后才对普通用户可见。
+- 前端：分组新增“异步生图”开关，新增用户与管理员任务中心，并在备份页加入图片存储与异步运行参数配置。
+- 交接：完整状态、架构、部署、测试和遗留事项见 [wiki-new/README.md](wiki-new/README.md)。
 
 ### 2026-07-20：新增图片工作台、图片广场及界面定制
 

@@ -26,6 +26,47 @@ type ImageStorage interface {
 	Save(ctx context.Context, key, contentType string, data []byte) (url string, err error)
 }
 
+// ObjectRef is a durable object-storage identity. Unlike a presigned URL it can
+// be persisted safely and resolved into a fresh URL whenever a client reads a
+// task record.
+type ObjectRef struct {
+	Provider       string `json:"provider"`
+	Bucket         string `json:"bucket"`
+	ObjectKey      string `json:"object_key"`
+	ContentType    string `json:"content_type,omitempty"`
+	SizeBytes      int64  `json:"size_bytes,omitempty"`
+	ChecksumSHA256 string `json:"checksum_sha256,omitempty"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+}
+
+// ObjectMetadata is returned by Head and contains server-observed object
+// attributes. ETag is informational and must not be treated as a SHA-256 hash.
+type ObjectMetadata struct {
+	ObjectRef
+	ETag         string    `json:"etag,omitempty"`
+	LastModified time.Time `json:"last_modified,omitempty"`
+}
+
+// ObjectAccess is a freshly resolved public or signed object URL. ExpiresAt is
+// zero for a permanent public-base URL.
+type ObjectAccess struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+}
+
+// DurableImageStorage extends the legacy Save-only interface for persistent
+// async task records. Implementations must address objects by ObjectRef rather
+// than storing expiring URLs in the database.
+type DurableImageStorage interface {
+	ImageStorage
+	SaveObject(ctx context.Context, key, contentType string, data []byte) (ObjectRef, error)
+	SignURL(ctx context.Context, ref ObjectRef, expiry time.Duration) (ObjectAccess, error)
+	Read(ctx context.Context, ref ObjectRef) (io.ReadCloser, error)
+	Head(ctx context.Context, ref ObjectRef) (ObjectMetadata, error)
+	Delete(ctx context.Context, ref ObjectRef) error
+}
+
 // ImageResultUploader 是 ImageStorage 的上层编排器（与具体厂商无关）：
 // 把上游生图响应里的每张图片（b64_json 解码 / url 下载）转存到对象存储，
 // 并把响应结果改写为只含短链接的紧凑 JSON，从而避免大 base64 落 Redis。

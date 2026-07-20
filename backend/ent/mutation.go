@@ -20821,6 +20821,7 @@ type GroupMutation struct {
 	adddefault_validity_days                *int
 	allow_image_generation                  *bool
 	allow_batch_image_generation            *bool
+	allow_async_image_generation            *bool
 	image_rate_independent                  *bool
 	image_rate_multiplier                   *float64
 	addimage_rate_multiplier                *float64
@@ -21942,6 +21943,42 @@ func (m *GroupMutation) OldAllowBatchImageGeneration(ctx context.Context) (v boo
 // ResetAllowBatchImageGeneration resets all changes to the "allow_batch_image_generation" field.
 func (m *GroupMutation) ResetAllowBatchImageGeneration() {
 	m.allow_batch_image_generation = nil
+}
+
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (m *GroupMutation) SetAllowAsyncImageGeneration(b bool) {
+	m.allow_async_image_generation = &b
+}
+
+// AllowAsyncImageGeneration returns the value of the "allow_async_image_generation" field in the mutation.
+func (m *GroupMutation) AllowAsyncImageGeneration() (r bool, exists bool) {
+	v := m.allow_async_image_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAllowAsyncImageGeneration returns the old "allow_async_image_generation" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAllowAsyncImageGeneration(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAllowAsyncImageGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAllowAsyncImageGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAllowAsyncImageGeneration: %w", err)
+	}
+	return oldValue.AllowAsyncImageGeneration, nil
+}
+
+// ResetAllowAsyncImageGeneration resets all changes to the "allow_async_image_generation" field.
+func (m *GroupMutation) ResetAllowAsyncImageGeneration() {
+	m.allow_async_image_generation = nil
 }
 
 // SetImageRateIndependent sets the "image_rate_independent" field.
@@ -23764,7 +23801,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 49)
+	fields := make([]string, 0, 50)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -23827,6 +23864,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.allow_batch_image_generation != nil {
 		fields = append(fields, group.FieldAllowBatchImageGeneration)
+	}
+	if m.allow_async_image_generation != nil {
+		fields = append(fields, group.FieldAllowAsyncImageGeneration)
 	}
 	if m.image_rate_independent != nil {
 		fields = append(fields, group.FieldImageRateIndependent)
@@ -23962,6 +24002,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.AllowImageGeneration()
 	case group.FieldAllowBatchImageGeneration:
 		return m.AllowBatchImageGeneration()
+	case group.FieldAllowAsyncImageGeneration:
+		return m.AllowAsyncImageGeneration()
 	case group.FieldImageRateIndependent:
 		return m.ImageRateIndependent()
 	case group.FieldImageRateMultiplier:
@@ -24069,6 +24111,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldAllowImageGeneration(ctx)
 	case group.FieldAllowBatchImageGeneration:
 		return m.OldAllowBatchImageGeneration(ctx)
+	case group.FieldAllowAsyncImageGeneration:
+		return m.OldAllowAsyncImageGeneration(ctx)
 	case group.FieldImageRateIndependent:
 		return m.OldImageRateIndependent(ctx)
 	case group.FieldImageRateMultiplier:
@@ -24280,6 +24324,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAllowBatchImageGeneration(v)
+		return nil
+	case group.FieldAllowAsyncImageGeneration:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAllowAsyncImageGeneration(v)
 		return nil
 	case group.FieldImageRateIndependent:
 		v, ok := value.(bool)
@@ -24942,6 +24993,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldAllowBatchImageGeneration:
 		m.ResetAllowBatchImageGeneration()
+		return nil
+	case group.FieldAllowAsyncImageGeneration:
+		m.ResetAllowAsyncImageGeneration()
 		return nil
 	case group.FieldImageRateIndependent:
 		m.ResetImageRateIndependent()

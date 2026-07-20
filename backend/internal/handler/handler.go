@@ -14,6 +14,7 @@ type AdminHandlers struct {
 	Announcement           *admin.AnnouncementHandler
 	DataManagement         *admin.DataManagementHandler
 	Backup                 *admin.BackupHandler
+	AsyncImageTasks        *AsyncImageTaskCenterHandler
 	OAuth                  *admin.OAuthHandler
 	OpenAIOAuth            *admin.OpenAIOAuthHandler
 	GeminiOAuth            *admin.GeminiOAuthHandler
@@ -45,25 +46,27 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	Auth             *AuthHandler
-	User             *UserHandler
-	APIKey           *APIKeyHandler
-	Usage            *UsageHandler
-	Redeem           *RedeemHandler
-	Subscription     *SubscriptionHandler
-	Announcement     *AnnouncementHandler
-	ChannelMonitor   *ChannelMonitorUserHandler
-	Admin            *AdminHandlers
-	Gateway          *GatewayHandler
-	OpenAIGateway    *OpenAIGatewayHandler
-	Setting          *SettingHandler
-	Totp             *TotpHandler
-	Payment          *PaymentHandler
-	PaymentWebhook   *PaymentWebhookHandler
-	AvailableChannel *AvailableChannelHandler
-	AsyncImage       *AsyncImageHandler
-	BatchImage       *BatchImageHandler
-	ImagePlaza       *ImagePlazaHandler
+	Auth              *AuthHandler
+	User              *UserHandler
+	APIKey            *APIKeyHandler
+	Usage             *UsageHandler
+	Redeem            *RedeemHandler
+	Subscription      *SubscriptionHandler
+	Announcement      *AnnouncementHandler
+	ChannelMonitor    *ChannelMonitorUserHandler
+	Admin             *AdminHandlers
+	Gateway           *GatewayHandler
+	OpenAIGateway     *OpenAIGatewayHandler
+	Setting           *SettingHandler
+	Totp              *TotpHandler
+	Payment           *PaymentHandler
+	PaymentWebhook    *PaymentWebhookHandler
+	AvailableChannel  *AvailableChannelHandler
+	AsyncImageTasks   *AsyncImageTaskCenterHandler
+	AsyncImage        *AsyncImageHandler
+	DurableAsyncImage *DurableAsyncImageHandler
+	BatchImage        *BatchImageHandler
+	ImagePlaza        *ImagePlazaHandler
 }
 
 // BuildInfo contains build-time information

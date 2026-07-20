@@ -156,6 +156,7 @@ export default {
     imageWorkbench: 'Image Workbench',
     imagePlaza: 'Image Plaza',
     batchImage: 'Batch Images',
+    asyncImageTasks: 'Async Image Tasks',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
@@ -199,6 +200,7 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+    adminAsyncImageTasks: 'Image Task Center',
   },
 
   // Auth

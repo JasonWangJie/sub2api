@@ -87,6 +87,25 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 	return apiKeyEntityToService(m), nil
 }
 
+// GetByIDIncludeDeleted is intentionally not part of the general repository
+// interface. It exists only for settling an immutable billing command that was
+// prepared while the key was active; authentication and normal API-key reads
+// must continue to exclude tombstones.
+func (r *apiKeyRepository) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.APIKey, error) {
+	m, err := r.client.APIKey.Query().
+		Where(apikey.IDEQ(id)).
+		WithUser().
+		WithGroup().
+		Only(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return apiKeyEntityToService(m), nil
+}
+
 // GetKeyAndOwnerID 根据 API Key ID 获取其 key 与所有者（用户）ID。
 // 相比 GetByID，此方法性能更优，因为：
 //   - 使用 Select() 只查询必要字段，减少数据传输量
@@ -180,6 +199,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldMonthlyLimitUsd,
 				group.FieldAllowImageGeneration,
 				group.FieldAllowBatchImageGeneration,
+				group.FieldAllowAsyncImageGeneration,
 				group.FieldImageRateIndependent,
 				group.FieldImageRateMultiplier,
 				group.FieldImagePrice1k,
@@ -923,6 +943,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		MonthlyLimitUSD:                 g.MonthlyLimitUsd,
 		AllowImageGeneration:            g.AllowImageGeneration,
 		AllowBatchImageGeneration:       g.AllowBatchImageGeneration,
+		AllowAsyncImageGeneration:       g.AllowAsyncImageGeneration,
 		ImageRateIndependent:            g.ImageRateIndependent,
 		ImageRateMultiplier:             g.ImageRateMultiplier,
 		ImagePrice1K:                    g.ImagePrice1k,

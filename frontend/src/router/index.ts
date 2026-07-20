@@ -243,6 +243,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/async-image-tasks',
+    name: 'AsyncImageTasks',
+    component: () => import('@/features/async-image-tasks/AsyncImageTasksView.vue'),
+    props: { admin: false },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Async Image Tasks',
+      titleKey: 'asyncImageTasks.title',
+      descriptionKey: 'asyncImageTasks.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
@@ -473,6 +486,19 @@ const routes: RouteRecordRaw[] = [
       title: 'Group Management',
       titleKey: 'admin.groups.title',
       descriptionKey: 'admin.groups.description'
+    }
+  },
+  {
+    path: '/admin/async-image-tasks',
+    name: 'AdminAsyncImageTasks',
+    component: () => import('@/features/async-image-tasks/AsyncImageTasksView.vue'),
+    props: { admin: true },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Async Image Task Center',
+      titleKey: 'asyncImageTasks.adminTitle',
+      descriptionKey: 'asyncImageTasks.adminDescription'
     }
   },
   {

@@ -1,0 +1,704 @@
+package handler
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"github.com/gin-gonic/gin"
+)
+
+const (
+	asyncImageBBTaskPath = "/v1/images/tasks_async/"
+	asyncImageSCTaskPath = "/v1/tasks_sc/"
+)
+
+type durableAsyncImagePayload struct {
+	SourcePath  string                               `json:"source_path"`
+	ContentType string                               `json:"content_type"`
+	Body        []byte                               `json:"body,omitempty"`
+	Normalized  *service.AsyncImageNormalizedRequest `json:"normalized,omitempty"`
+}
+
+// DurableAsyncImageHandler implements the new BB/SC compatibility surface.
+// The legacy Redis-only AsyncImageHandler remains separately wired and keeps
+// its routes and response contracts unchanged.
+type DurableAsyncImageHandler struct {
+	tasks         *service.AsyncImageTaskService
+	queue         service.AsyncImageQueue
+	storage       *service.ImageStorageSettingService
+	encryptor     service.SecretEncryptor
+	gateway       *GatewayHandler
+	openAI        *OpenAIGatewayHandler
+	apiKeys       *service.APIKeyService
+	subscriptions *service.SubscriptionService
+	accounts      *service.AccountService
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+	stop      context.CancelFunc
+}
+
+func NewDurableAsyncImageHandler(
+	tasks *service.AsyncImageTaskService,
+	queue service.AsyncImageQueue,
+	storage *service.ImageStorageSettingService,
+	encryptor service.SecretEncryptor,
+	gateway *GatewayHandler,
+	openAI *OpenAIGatewayHandler,
+	apiKeys *service.APIKeyService,
+	subscriptions *service.SubscriptionService,
+	accounts *service.AccountService,
+) *DurableAsyncImageHandler {
+	h := &DurableAsyncImageHandler{
+		tasks: tasks, queue: queue, storage: storage, encryptor: encryptor,
+		gateway: gateway, openAI: openAI, apiKeys: apiKeys,
+		subscriptions: subscriptions, accounts: accounts,
+	}
+	h.Start()
+	return h
+}
+
+// Start launches the durable outbox dispatcher, queue workers, and recovery
+// scanner. It is idempotent so tests and alternate server bootstraps may call
+// it safely.
+func (h *DurableAsyncImageHandler) Start() {
+	if h == nil || h.tasks == nil || h.queue == nil || h.storage == nil {
+		return
+	}
+	h.startOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		h.stop = cancel
+		h.startRuntime(ctx)
+	})
+}
+
+func (h *DurableAsyncImageHandler) Stop() {
+	if h == nil {
+		return
+	}
+	h.stopOnce.Do(func() {
+		if h.stop != nil {
+			h.stop()
+		}
+	})
+}
+
+func (h *DurableAsyncImageHandler) SubmitGeminiBB(c *gin.Context) {
+	h.submit(c, service.AsyncImageProtocolBB, service.PlatformGemini)
+}
+
+func (h *DurableAsyncImageHandler) SubmitOpenAIBB(c *gin.Context) {
+	h.submit(c, service.AsyncImageProtocolBB, service.PlatformOpenAI)
+}
+
+func (h *DurableAsyncImageHandler) SubmitGeminiSC(c *gin.Context) {
+	h.submit(c, service.AsyncImageProtocolSC, service.PlatformGemini)
+}
+
+func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlatform string) {
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.User == nil || apiKey.Group == nil {
+		h.writeError(c, protocol, service.ErrAsyncImageTaskNotFound)
+		return
+	}
+	if err := validateAsyncImageGroup(apiKey, expectedPlatform); err != nil {
+		h.writeError(c, protocol, err)
+		return
+	}
+	if h == nil || h.tasks == nil || h.storage == nil || h.encryptor == nil {
+		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "async_image_unavailable", "asynchronous image generation is unavailable")
+		return
+	}
+	if _, enabled, err := h.storage.DurableStorage(c.Request.Context()); err != nil || !enabled {
+		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "storage_unavailable", "image result storage is not configured")
+		return
+	}
+	runtimeCfg, err := h.storage.RuntimeConfig(c.Request.Context())
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "configuration_unavailable", "asynchronous image configuration is unavailable")
+		return
+	}
+
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		status := http.StatusBadRequest
+		if _, ok := extractMaxBytesError(err); ok {
+			status = http.StatusRequestEntityTooLarge
+		}
+		h.writeProtocolError(c, protocol, status, "invalid_request", "failed to read request body")
+		return
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		h.writeProtocolError(c, protocol, http.StatusBadRequest, "invalid_request", "request body is empty")
+		return
+	}
+
+	payload := durableAsyncImagePayload{
+		SourcePath:  c.Request.URL.Path,
+		ContentType: strings.TrimSpace(c.GetHeader("Content-Type")),
+	}
+	var model, kind, requestedSize, aspectRatio, prompt string
+	var moderationBody []byte
+	moderationProtocol := service.ContentModerationProtocolOpenAIImages
+	var inputReferenceURLs []string
+	imageCount := 1
+	switch expectedPlatform {
+	case service.PlatformGemini:
+		moderationProtocol = service.ContentModerationProtocolGemini
+		var normalized *service.AsyncImageNormalizedRequest
+		if protocol == service.AsyncImageProtocolSC {
+			normalized, err = service.ParseSCGeminiImageRequest(body, c.Request.URL.Path)
+		} else {
+			normalized, err = service.ParseBBGeminiImageRequest(body, c.Request.URL.Path)
+		}
+		if err == nil {
+			payload.Normalized = normalized
+			model, kind, requestedSize, aspectRatio, prompt = normalized.Model, normalized.Kind, normalized.ImageSize, normalized.AspectRatio, normalized.Prompt
+			moderationBody = asyncImageGeminiModerationBody(normalized)
+			if protocol == service.AsyncImageProtocolSC {
+				for _, part := range normalized.Parts {
+					if part.Type == "image_url" && strings.TrimSpace(part.URL) != "" {
+						inputReferenceURLs = append(inputReferenceURLs, part.URL)
+					}
+				}
+			}
+		}
+	case service.PlatformOpenAI:
+		if h.openAI == nil || h.openAI.gatewayService == nil {
+			err = errors.New("OpenAI image gateway is unavailable")
+			break
+		}
+		var parsed *service.OpenAIImagesRequest
+		parsed, err = h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
+		if err == nil && parsed.Stream {
+			err = errors.New("stream must be false for asynchronous image generation")
+		}
+		if err == nil {
+			payload.Body = append([]byte(nil), body...)
+			model, requestedSize, prompt, imageCount = parsed.Model, parsed.Size, parsed.Prompt, parsed.N
+			moderationBody = parsed.ModerationBody()
+			kind = service.AsyncImageRequestTypeTextToImage
+			if parsed.IsEdits() {
+				kind = service.AsyncImageRequestTypeImageToImage
+			}
+		}
+	default:
+		err = errors.New("unsupported image platform")
+	}
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusBadRequest, asyncImageRequestErrorCode(err), err.Error())
+		return
+	}
+	if !h.checkSecurityAuditBeforeSubmit(c, apiKey, protocol, expectedPlatform, moderationProtocol, model, moderationBody) {
+		return
+	}
+	inputObjectIDs, err := h.tasks.ResolveOwnedInputObjectIDs(c.Request.Context(), apiKey.ID, inputReferenceURLs, time.Now().UTC())
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusBadRequest, "invalid_reference_image", "uploaded reference image is unavailable")
+		return
+	}
+	if requestedSize == "0.5K" {
+		if expectedPlatform != service.PlatformGemini || !service.AsyncImageGeminiModelSupportsHalfK(runtimeCfg, model) {
+			h.writeProtocolError(c, protocol, http.StatusBadRequest, "unsupported_image_dimensions", "unsupported_image_dimensions: 0.5K is not enabled for this Gemini model")
+			return
+		}
+	}
+
+	plainPayload, err := json.Marshal(payload)
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusInternalServerError, "request_persistence_failed", "failed to normalize image request")
+		return
+	}
+	ciphertext, err := h.encryptor.Encrypt(string(plainPayload))
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "request_encryption_failed", "image request encryption is not configured")
+		return
+	}
+	expiresAt := time.Now().UTC().Add(time.Duration(runtimeCfg.TaskRetentionDays) * 24 * time.Hour)
+	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	var idempotencyKeyPtr *string
+	if idempotencyKey != "" {
+		if len(idempotencyKey) > 255 {
+			h.writeProtocolError(c, protocol, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key must not exceed 255 bytes")
+			return
+		}
+		idempotencyKeyPtr = &idempotencyKey
+	}
+	requestHash := service.AsyncImageTaskRequestHash(expectedPlatform, protocol, c.Request.URL.Path, body)
+	promptPreview := asyncImagePromptPreview(prompt, runtimeCfg)
+	params := service.CreateAsyncImageTaskParams{
+		UserID: apiKey.UserID, APIKeyID: apiKey.ID, GroupID: apiKey.Group.ID,
+		Protocol: protocol, Platform: expectedPlatform, RequestType: kind,
+		Model: model, ImageCount: imageCount, IdempotencyKey: idempotencyKeyPtr,
+		RequestHash: requestHash, RequestPayload: []byte(ciphertext), ExpiresAt: &expiresAt,
+		OutboxPayload:  json.RawMessage(`{"source":"public_submit"}`),
+		InputObjectIDs: inputObjectIDs,
+	}
+	if requestedSize != "" {
+		params.RequestedImageSize = &requestedSize
+	}
+	if aspectRatio != "" {
+		params.AspectRatio = &aspectRatio
+	}
+	if promptPreview != "" {
+		params.PromptPreview = &promptPreview
+	}
+	task, _, err := h.tasks.Create(c.Request.Context(), params)
+	if err != nil {
+		h.writeError(c, protocol, err)
+		return
+	}
+	h.writeSubmitResponse(c, protocol, task, runtimeCfg)
+}
+
+func asyncImageGeminiModerationBody(request *service.AsyncImageNormalizedRequest) []byte {
+	if request == nil {
+		return nil
+	}
+	parts := make([]map[string]any, 0, len(request.Parts))
+	for _, part := range request.Parts {
+		switch part.Type {
+		case "text":
+			if text := strings.TrimSpace(part.Text); text != "" {
+				parts = append(parts, map[string]any{"text": text})
+			}
+		case "image_url":
+			if imageURL := strings.TrimSpace(part.URL); imageURL != "" {
+				parts = append(parts, map[string]any{"fileData": map[string]any{"fileUri": imageURL}})
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"contents": []any{map[string]any{"role": "user", "parts": parts}},
+	})
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+func (h *DurableAsyncImageHandler) checkSecurityAuditBeforeSubmit(
+	c *gin.Context,
+	apiKey *service.APIKey,
+	responseProtocol string,
+	platform string,
+	moderationProtocol string,
+	model string,
+	body []byte,
+) bool {
+	if len(body) == 0 {
+		c.Set(securityAuditCompletedContextKey, true)
+		return true
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		h.writeProtocolError(c, responseProtocol, http.StatusInternalServerError, "api_error", "user context not found")
+		return false
+	}
+	if platform == service.PlatformGemini {
+		if h == nil || h.gateway == nil {
+			return true
+		}
+		result := h.gateway.checkSecurityAudit(c, nil, apiKey, subject, moderationProtocol, model, body)
+		if result == nil || result.AllowNextStage {
+			return true
+		}
+		h.writeProtocolError(c, responseProtocol, securityAuditStatus(result), securityAuditErrorCode(result), securityAuditMessage(result))
+		return false
+	}
+	if h == nil || h.openAI == nil {
+		return true
+	}
+	result := h.openAI.checkSecurityAudit(c, nil, apiKey, subject, moderationProtocol, model, body)
+	if result == nil || result.AllowNextStage {
+		return true
+	}
+	h.writeProtocolError(c, responseProtocol, securityAuditStatus(result), securityAuditErrorCode(result), securityAuditMessage(result))
+	return false
+}
+
+func validateAsyncImageGroup(apiKey *service.APIKey, expectedPlatform string) error {
+	if apiKey == nil || apiKey.Group == nil || apiKey.GroupID == nil || *apiKey.GroupID != apiKey.Group.ID {
+		return infraerrors.New(http.StatusForbidden, "group_required", "an assigned image group is required")
+	}
+	if apiKey.Group.Platform != expectedPlatform {
+		return infraerrors.New(http.StatusForbidden, "group_platform_mismatch", "the API key group does not support this asynchronous image endpoint")
+	}
+	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		return infraerrors.New(http.StatusForbidden, "image_generation_disabled", service.ImageGenerationPermissionMessage())
+	}
+	if !apiKey.Group.AllowAsyncImageGeneration {
+		return infraerrors.New(http.StatusForbidden, "async_image_generation_disabled", "asynchronous image generation is not enabled for this group")
+	}
+	return nil
+}
+
+func (h *DurableAsyncImageHandler) writeSubmitResponse(c *gin.Context, protocol string, task *service.AsyncImageTask, cfg service.AsyncImageRuntimeConfig) {
+	queryPath := asyncImageBBTaskPath + task.TaskID
+	if protocol == service.AsyncImageProtocolSC {
+		queryPath = asyncImageSCTaskPath + task.TaskID
+	}
+	queryURL := asyncImageAbsoluteURL(cfg.PublicBaseURL, queryPath)
+	c.Header("Cache-Control", "no-store")
+	c.Header("Location", queryURL)
+	c.Header("Retry-After", "3")
+	if protocol == service.AsyncImageProtocolSC {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 200, "message": "success",
+			"data": gin.H{"id": task.TaskID, "status": "pending", "type": "image", "progress": 0},
+		})
+		return
+	}
+	if task.Platform == service.PlatformOpenAI {
+		c.JSON(http.StatusAccepted, gin.H{"task_id": task.TaskID, "query_url": queryURL})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{
+		"id": task.TaskID, "task_id": task.TaskID, "object": "image.task",
+		"status": "queued", "query_url": queryURL,
+	})
+}
+
+func (h *DurableAsyncImageHandler) GetBB(c *gin.Context) {
+	h.get(c, service.AsyncImageProtocolBB)
+}
+
+func (h *DurableAsyncImageHandler) GetSC(c *gin.Context) {
+	h.get(c, service.AsyncImageProtocolSC)
+}
+
+func (h *DurableAsyncImageHandler) get(c *gin.Context, protocol string) {
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || h == nil || h.tasks == nil {
+		h.writeProtocolError(c, protocol, http.StatusNotFound, "task_not_found", "asynchronous image task not found")
+		return
+	}
+	details, err := h.tasks.GetForAPIKey(c.Request.Context(), apiKey.ID, c.Param("task_id"))
+	if err != nil || details == nil || details.Task == nil || details.Task.Protocol != protocol {
+		h.writeProtocolError(c, protocol, http.StatusNotFound, "task_not_found", "asynchronous image task not found")
+		return
+	}
+	runtimeCfg, err := h.storage.RuntimeConfig(c.Request.Context())
+	if err != nil {
+		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "configuration_unavailable", "asynchronous image configuration is unavailable")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	if protocol == service.AsyncImageProtocolSC {
+		h.writeSCQuery(c, details, runtimeCfg)
+		return
+	}
+	h.writeBBQuery(c, details, runtimeCfg)
+}
+
+func (h *DurableAsyncImageHandler) writeBBQuery(c *gin.Context, details *service.AsyncImageTaskDetails, cfg service.AsyncImageRuntimeConfig) {
+	task := details.Task
+	switch asyncImagePublicStatus(task, cfg) {
+	case "succeeded":
+		accesses, err := h.resolveResultAccess(c.Request.Context(), details.Results, cfg)
+		if err != nil {
+			h.writeProtocolError(c, service.AsyncImageProtocolBB, http.StatusServiceUnavailable, "storage_unavailable", "image results are temporarily unavailable")
+			return
+		}
+		data := make([]gin.H, 0, len(accesses))
+		for _, access := range accesses {
+			data = append(data, gin.H{"url": access.URL})
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "succeeded", "task_id": task.TaskID, "data": data})
+	case "failed":
+		c.JSON(http.StatusOK, gin.H{"status": "failed", "fail_reason": asyncImageFailureMessage(task)})
+	case "queued":
+		c.Header("Retry-After", "3")
+		c.JSON(http.StatusOK, gin.H{"status": "queued", "task_id": task.TaskID})
+	default:
+		c.Header("Retry-After", "3")
+		c.JSON(http.StatusOK, gin.H{"status": "processing", "task_id": task.TaskID})
+	}
+}
+
+func (h *DurableAsyncImageHandler) writeSCQuery(c *gin.Context, details *service.AsyncImageTaskDetails, cfg service.AsyncImageRuntimeConfig) {
+	task := details.Task
+	status := asyncImagePublicStatus(task, cfg)
+	data := gin.H{"id": task.TaskID, "status": status, "progress": task.Progress, "type": "image"}
+	switch status {
+	case "succeeded":
+		accesses, err := h.resolveResultAccess(c.Request.Context(), details.Results, cfg)
+		if err != nil {
+			h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "storage_unavailable", "image results are temporarily unavailable")
+			return
+		}
+		images := make([]gin.H, 0, len(accesses))
+		for _, access := range accesses {
+			expiresAt := int64(0)
+			if !access.ExpiresAt.IsZero() {
+				expiresAt = access.ExpiresAt.Unix()
+			}
+			images = append(images, gin.H{"url": []string{access.URL}, "expires_at": expiresAt})
+		}
+		data["status"], data["progress"] = "completed", 100
+		data["result"] = gin.H{"images": images, "videos": []any{}}
+	case "failed":
+		message := asyncImageFailureMessage(task)
+		data["error"] = gin.H{"message": message, "type": "task_failed"}
+		data["failReason"] = message
+	case "queued":
+		data["status"] = "pending"
+		c.Header("Retry-After", "3")
+	default:
+		data["status"] = "processing"
+		c.Header("Retry-After", "3")
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
+}
+
+func (h *DurableAsyncImageHandler) resolveResultAccess(ctx context.Context, results []service.AsyncImageResult, cfg service.AsyncImageRuntimeConfig) ([]service.ObjectAccess, error) {
+	if len(results) == 0 || h == nil || h.storage == nil {
+		return nil, errors.New("image result manifest is empty")
+	}
+	storage, enabled, err := h.storage.DurableStorage(ctx)
+	if err != nil || !enabled || storage == nil {
+		return nil, errors.New("image storage is unavailable")
+	}
+	expiry := time.Duration(cfg.SignedURLExpirySeconds) * time.Second
+	accesses := make([]service.ObjectAccess, 0, len(results))
+	for _, result := range results {
+		width, height := 0, 0
+		if result.Width != nil {
+			width = *result.Width
+		}
+		if result.Height != nil {
+			height = *result.Height
+		}
+		access, signErr := storage.SignURL(ctx, service.ObjectRef{
+			Provider: result.Provider, Bucket: result.Bucket, ObjectKey: result.ObjectKey,
+			ContentType: result.ContentType, SizeBytes: result.ByteSize,
+			ChecksumSHA256: result.Checksum, Width: width, Height: height,
+		}, expiry)
+		if signErr != nil {
+			return nil, signErr
+		}
+		accesses = append(accesses, access)
+	}
+	return accesses, nil
+}
+
+func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusUnauthorized, "authentication_error", "invalid API key")
+		return
+	}
+	if err := validateAsyncImageGroup(apiKey, service.PlatformGemini); err != nil {
+		h.writeError(c, service.AsyncImageProtocolSC, err)
+		return
+	}
+	storage, enabled, err := h.storage.DurableStorage(c.Request.Context())
+	if err != nil || !enabled || storage == nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "storage_unavailable", "image input storage is not configured")
+		return
+	}
+	cfg, err := h.storage.RuntimeConfig(c.Request.Context())
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "configuration_unavailable", "asynchronous image configuration is unavailable")
+		return
+	}
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_upload", "multipart field file is required")
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_upload", "failed to read uploaded image")
+		return
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, cfg.DownloadMaxBytes+1))
+	if err != nil || int64(len(data)) > cfg.DownloadMaxBytes {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusRequestEntityTooLarge, "upload_too_large", "uploaded image exceeds the configured size limit")
+		return
+	}
+	declaredType := fileHeader.Header.Get("Content-Type")
+	validated, err := (service.AsyncImageReferenceDownloader{MaxBytes: cfg.DownloadMaxBytes}).ValidateBytes(data, declaredType)
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_upload", err.Error())
+		return
+	}
+	settings, err := h.storage.Get(c.Request.Context())
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "configuration_unavailable", "image storage configuration is unavailable")
+		return
+	}
+	uploadID, err := service.NewAsyncImageTaskID()
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to allocate uploaded image")
+		return
+	}
+	key := strings.TrimSuffix(settings.Prefix, "/") + "/inputs/" + fmt.Sprintf("%d/%s%s", apiKey.ID, uploadID, asyncImageExtension(validated.MIMEType))
+	ref, err := storage.SaveObject(c.Request.Context(), key, validated.MIMEType, validated.Data)
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "failed to store uploaded image")
+		return
+	}
+	ref.Width, ref.Height = validated.Width, validated.Height
+	retention := time.Duration(cfg.InputRetentionHours) * time.Hour
+	access, err := storage.SignURL(c.Request.Context(), ref, retention)
+	if err != nil {
+		_ = storage.Delete(context.Background(), ref)
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "failed to create uploaded image URL")
+		return
+	}
+	filename := filepath.Base(strings.TrimSpace(fileHeader.Filename))
+	if filename == "." || filename == "" {
+		filename = "image" + asyncImageExtension(validated.MIMEType)
+	}
+	createdAt := time.Now().UTC()
+	_, err = h.tasks.RegisterInputObject(c.Request.Context(), service.RegisterAsyncImageInputObjectParams{
+		UploadID: uploadID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
+		ObjectRef: ref, URLHash: service.AsyncImageInputURLHash(access.URL),
+		Filename: filename, ExpiresAt: createdAt.Add(retention),
+	})
+	if err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = storage.Delete(cleanupCtx, ref)
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to persist uploaded image")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"url": access.URL, "filename": filename, "content_type": validated.MIMEType,
+		"bytes": len(validated.Data), "created_at": createdAt.Unix(),
+	})
+}
+
+func asyncImagePublicStatus(task *service.AsyncImageTask, cfg service.AsyncImageRuntimeConfig) string {
+	if task == nil {
+		return "failed"
+	}
+	switch task.Status {
+	case service.AsyncImageTaskStatusQueued:
+		return "queued"
+	case service.AsyncImageTaskStatusSucceeded:
+		if asyncImageResultsReleasable(task) {
+			return "succeeded"
+		}
+	case service.AsyncImageTaskStatusFailed, service.AsyncImageTaskStatusExecutionUnknown, service.AsyncImageTaskStatusExpired:
+		return "failed"
+	case service.AsyncImageTaskStatusStorageFailed:
+		if task.StorageRetryCount >= cfg.StorageRetryAttempts {
+			return "failed"
+		}
+	case service.AsyncImageTaskStatusBillingFailed:
+		if task.BillingRetryCount >= cfg.BillingRetryAttempts {
+			return "failed"
+		}
+	}
+	return "processing"
+}
+
+// Result objects are customer-visible only after both the task state and the
+// durable billing state confirm completion. Keeping this check independent of
+// the normal state-transition invariant prevents a partial or manually
+// repaired row from exposing an unbilled image.
+func asyncImageResultsReleasable(task *service.AsyncImageTask) bool {
+	return task != nil &&
+		task.Status == service.AsyncImageTaskStatusSucceeded &&
+		(task.BillingStatus == service.AsyncImageBillingStatusSucceeded ||
+			task.BillingStatus == service.AsyncImageBillingStatusNotBillable)
+}
+
+func asyncImageFailureMessage(task *service.AsyncImageTask) string {
+	if task != nil && task.ErrorMessage != nil && strings.TrimSpace(*task.ErrorMessage) != "" {
+		return strings.TrimSpace(*task.ErrorMessage)
+	}
+	if task != nil && task.Status == service.AsyncImageTaskStatusExecutionUnknown {
+		return "generation outcome is unknown after an interrupted upstream request"
+	}
+	return "image generation failed"
+}
+
+func asyncImageAbsoluteURL(baseURL, path string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return path
+	}
+	return baseURL + path
+}
+
+func asyncImagePromptPreview(prompt string, cfg service.AsyncImageRuntimeConfig) string {
+	if !cfg.PromptPreviewEnabled {
+		return ""
+	}
+	prompt = logredact.RedactText(strings.Join(strings.Fields(strings.TrimSpace(prompt)), " "), "api_key", "secret", "token", "authorization")
+	runes := []rune(prompt)
+	maxChars := cfg.PromptPreviewMaxChars
+	if maxChars <= 0 {
+		maxChars = 160
+	}
+	if len(runes) > maxChars {
+		runes = runes[:maxChars]
+	}
+	return string(runes)
+}
+
+func asyncImageRequestErrorCode(err error) string {
+	if err != nil && strings.Contains(err.Error(), "unsupported_image_dimensions") {
+		return "unsupported_image_dimensions"
+	}
+	return "invalid_request"
+}
+
+func asyncImageExtension(contentType string) string {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ".png"
+	}
+}
+
+func (h *DurableAsyncImageHandler) writeError(c *gin.Context, protocol string, err error) {
+	status := infraerrors.Code(err)
+	if status <= 0 {
+		status = http.StatusInternalServerError
+	}
+	code := strings.ToLower(strings.TrimSpace(infraerrors.Reason(err)))
+	if code == "" {
+		code = "async_image_error"
+	}
+	message := strings.TrimSpace(infraerrors.Message(err))
+	if message == "" {
+		message = "asynchronous image request failed"
+	}
+	h.writeProtocolError(c, protocol, status, code, message)
+}
+
+func (h *DurableAsyncImageHandler) writeProtocolError(c *gin.Context, protocol string, status int, code, message string) {
+	c.Header("Cache-Control", "no-store")
+	if protocol == service.AsyncImageProtocolSC {
+		c.JSON(status, gin.H{"code": status, "message": message, "data": nil, "error": gin.H{"type": code, "message": message}})
+		return
+	}
+	c.JSON(status, gin.H{"error": gin.H{"type": code, "code": code, "message": message}})
+}

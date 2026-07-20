@@ -31,6 +31,11 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 	switch normalized {
 	case "", "auto":
 		return "", false
+	case "0.5k", "512x512":
+		// Groups intentionally keep the existing 1K/2K/4K tariff. Gemini's
+		// optional 0.5K capability therefore belongs to the lowest existing
+		// tier instead of silently falling through to the 2K default.
+		return ImageBillingSize1K, true
 	case "1k":
 		return ImageBillingSize1K, true
 	case "2k":

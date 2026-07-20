@@ -91,6 +91,10 @@ type APIKeyRepository interface {
 	GetRateLimitData(ctx context.Context, id int64) (*APIKeyRateLimitData, error)
 }
 
+type apiKeyBillingTombstoneReader interface {
+	GetByIDIncludeDeleted(ctx context.Context, id int64) (*APIKey, error)
+}
+
 type apiKeyAllByUserIDLister interface {
 	ListAllByUserID(ctx context.Context, userID int64, filters APIKeyListFilters) ([]APIKey, error)
 }
@@ -635,6 +639,24 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 		apiKey.CurrentConcurrency = s.currentConcurrencyForAPIKey(ctx, apiKey.ID)
 	}
 	return apiKey, nil
+}
+
+// GetByIDForPreparedBilling may load a soft-deleted key so an already prepared
+// immutable usage command cannot be evaded by deleting the credential after
+// the upstream request started. It is never used for authentication or
+// preflight eligibility.
+func (s *APIKeyService) GetByIDForPreparedBilling(ctx context.Context, id int64) (*APIKey, error) {
+	if s == nil || s.apiKeyRepo == nil {
+		return nil, ErrAPIKeyNotFound
+	}
+	if reader, ok := s.apiKeyRepo.(apiKeyBillingTombstoneReader); ok {
+		apiKey, err := reader.GetByIDIncludeDeleted(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("get api key for prepared billing: %w", err)
+		}
+		return apiKey, nil
+	}
+	return s.GetByID(ctx, id)
 }
 
 // GetByKey 根据Key字符串获取API Key（用于认证）

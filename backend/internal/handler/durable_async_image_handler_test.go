@@ -1,0 +1,134 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+const durableAsyncImageOnePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+func TestAsyncImagePublicStatus(t *testing.T) {
+	cfg := service.AsyncImageRuntimeConfig{StorageRetryAttempts: 3, BillingRetryAttempts: 4}
+	tests := []struct {
+		name          string
+		status        string
+		billingStatus string
+		retries       int
+		want          string
+	}{
+		{"queued", service.AsyncImageTaskStatusQueued, service.AsyncImageBillingStatusPending, 0, "queued"},
+		{"invoking", service.AsyncImageTaskStatusInvoking, service.AsyncImageBillingStatusPending, 0, "processing"},
+		{"upstream_succeeded", service.AsyncImageTaskStatusUpstreamSucceeded, service.AsyncImageBillingStatusPrepared, 0, "processing"},
+		{"storage_retrying", service.AsyncImageTaskStatusStorageFailed, service.AsyncImageBillingStatusPrepared, 2, "processing"},
+		{"storage_exhausted", service.AsyncImageTaskStatusStorageFailed, service.AsyncImageBillingStatusPrepared, 3, "failed"},
+		{"billing_retrying", service.AsyncImageTaskStatusBillingFailed, service.AsyncImageBillingStatusFailed, 3, "processing"},
+		{"billing_exhausted", service.AsyncImageTaskStatusBillingFailed, service.AsyncImageBillingStatusFailed, 4, "failed"},
+		{"execution_unknown", service.AsyncImageTaskStatusExecutionUnknown, service.AsyncImageBillingStatusPending, 0, "failed"},
+		{"succeeded_and_billed", service.AsyncImageTaskStatusSucceeded, service.AsyncImageBillingStatusSucceeded, 0, "succeeded"},
+		{"succeeded_not_billable", service.AsyncImageTaskStatusSucceeded, service.AsyncImageBillingStatusNotBillable, 0, "succeeded"},
+		{"succeeded_but_billing_prepared", service.AsyncImageTaskStatusSucceeded, service.AsyncImageBillingStatusPrepared, 0, "processing"},
+		{"succeeded_but_billing_failed", service.AsyncImageTaskStatusSucceeded, service.AsyncImageBillingStatusFailed, 0, "processing"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, asyncImagePublicStatus(&service.AsyncImageTask{
+				Status: test.status, BillingStatus: test.billingStatus, RetryCount: test.retries,
+				StorageRetryCount: test.retries, BillingRetryCount: test.retries,
+			}, cfg))
+		})
+	}
+}
+
+func TestAsyncImagePublicQueriesDoNotReleaseResultsBeforeBillingSucceeds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &DurableAsyncImageHandler{}
+	details := &service.AsyncImageTaskDetails{
+		Task: &service.AsyncImageTask{
+			TaskID: "asyncimg_unbilled", Status: service.AsyncImageTaskStatusSucceeded,
+			BillingStatus: service.AsyncImageBillingStatusPrepared, Progress: 95,
+		},
+		Results: []service.AsyncImageResult{{TaskID: "asyncimg_unbilled", ImageIndex: 0, ObjectKey: "must-not-leak.png"}},
+	}
+	cfg := service.AsyncImageRuntimeConfig{}
+
+	bbRecorder := httptest.NewRecorder()
+	bbContext, _ := gin.CreateTestContext(bbRecorder)
+	h.writeBBQuery(bbContext, details, cfg)
+	require.Equal(t, http.StatusOK, bbRecorder.Code)
+	require.JSONEq(t, `{"status":"processing","task_id":"asyncimg_unbilled"}`, bbRecorder.Body.String())
+
+	scRecorder := httptest.NewRecorder()
+	scContext, _ := gin.CreateTestContext(scRecorder)
+	h.writeSCQuery(scContext, details, cfg)
+	require.Equal(t, http.StatusOK, scRecorder.Code)
+	require.NotContains(t, scRecorder.Body.String(), "result")
+	require.NotContains(t, scRecorder.Body.String(), "must-not-leak")
+	var sc struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(scRecorder.Body.Bytes(), &sc))
+	require.Equal(t, "processing", sc.Data.Status)
+}
+
+func TestAsyncImageAbsoluteURL(t *testing.T) {
+	require.Equal(t, "https://api.example.com/v1/tasks_sc/task_1", asyncImageAbsoluteURL("https://api.example.com/", "/v1/tasks_sc/task_1"))
+	require.Equal(t, "/v1/tasks_sc/task_1", asyncImageAbsoluteURL("", "/v1/tasks_sc/task_1"))
+}
+
+func TestAsyncImagePromptPreviewRedactsAndCanBeDisabled(t *testing.T) {
+	cfg := service.AsyncImageRuntimeConfig{PromptPreviewEnabled: true, PromptPreviewMaxChars: 80}
+	preview := asyncImagePromptPreview("draw this api_key=sk-secret-value with clean lines", cfg)
+	require.NotContains(t, preview, "sk-secret-value")
+	require.NotEmpty(t, preview)
+	require.Empty(t, asyncImagePromptPreview("private prompt", service.AsyncImageRuntimeConfig{}))
+}
+
+func TestExtractOpenAIAsyncImageOutputsB64(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"data": []any{map[string]any{"b64_json": durableAsyncImageOnePixelPNG}},
+	})
+	require.NoError(t, err)
+
+	outputs, err := extractOpenAIAsyncImageOutputs(context.Background(), body, service.AsyncImageRuntimeConfig{DownloadMaxBytes: 1 << 20})
+	require.NoError(t, err)
+	require.Len(t, outputs, 1)
+	require.Equal(t, "image/png", outputs[0].ContentType)
+	require.Equal(t, 1, outputs[0].Width)
+	require.Equal(t, 1, outputs[0].Height)
+	require.NotEmpty(t, outputs[0].Checksum)
+}
+
+func TestWriteAsyncImageSubmitResponsesKeepDialectsSeparate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &DurableAsyncImageHandler{}
+	task := &service.AsyncImageTask{TaskID: "asyncimg_abc", Platform: service.PlatformGemini}
+	cfg := service.AsyncImageRuntimeConfig{PublicBaseURL: "https://api.example.com"}
+
+	bbRecorder := httptest.NewRecorder()
+	bbContext, _ := gin.CreateTestContext(bbRecorder)
+	h.writeSubmitResponse(bbContext, service.AsyncImageProtocolBB, task, cfg)
+	require.Equal(t, http.StatusAccepted, bbRecorder.Code)
+	var bb map[string]any
+	require.NoError(t, json.Unmarshal(bbRecorder.Body.Bytes(), &bb))
+	require.Equal(t, "asyncimg_abc", bb["task_id"])
+	require.Equal(t, "https://api.example.com/v1/images/tasks_async/asyncimg_abc", bb["query_url"])
+	require.NotContains(t, bb, "code")
+
+	scRecorder := httptest.NewRecorder()
+	scContext, _ := gin.CreateTestContext(scRecorder)
+	h.writeSubmitResponse(scContext, service.AsyncImageProtocolSC, task, cfg)
+	require.Equal(t, http.StatusOK, scRecorder.Code)
+	var sc map[string]any
+	require.NoError(t, json.Unmarshal(scRecorder.Body.Bytes(), &sc))
+	require.Equal(t, float64(200), sc["code"])
+	require.NotContains(t, sc, "task_id")
+}

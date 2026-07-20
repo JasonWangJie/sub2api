@@ -116,6 +116,26 @@ func TestGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T) {
 	require.NoError(t, quotaSvc.lastQuotaCtxErr)
 }
 
+func TestGatewayServicePrepareRecordUsage_SimpleModeCreatesNotBillableCommand(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	svc.cfg.RunMode = config.RunModeSimple
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "async-image:simple-gemini")
+
+	prepared, err := svc.PrepareRecordUsage(ctx, &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "resp_simple_prepare", Model: "gemini-image", ImageCount: 1, ImageSize: "1K", Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 1002}, User: &User{ID: 2002}, Account: &Account{ID: 3002},
+	})
+
+	require.NoError(t, err)
+	require.True(t, prepared.NotBillable)
+	require.Zero(t, prepared.ActualCost())
+	require.Equal(t, "client:async-image:simple-gemini", prepared.Command.RequestID)
+	require.Zero(t, usageRepo.calls, "prepare must defer the usage-log write until post-processing")
+}
+
 func TestGatewayServiceRecordUsage_BillingFingerprintIncludesRequestPayloadHash(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

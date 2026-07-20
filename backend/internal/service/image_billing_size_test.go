@@ -13,6 +13,8 @@ func TestClassifyImageBillingTier(t *testing.T) {
 		wantTier string
 		wantOK   bool
 	}{
+		{name: "gemini half k uses existing one k tariff", size: "0.5K", wantTier: ImageBillingSize1K, wantOK: true},
+		{name: "half k dimensions use existing one k tariff", size: "512x512", wantTier: ImageBillingSize1K, wantOK: true},
 		{name: "explicit 2k square", size: "2048x2048", wantTier: "2K", wantOK: true},
 		{name: "explicit 2k landscape", size: "2048x1152", wantTier: "2K", wantOK: true},
 		{name: "explicit 4k landscape", size: "3840x2160", wantTier: "4K", wantOK: true},

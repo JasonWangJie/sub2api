@@ -366,6 +366,20 @@ func (_u *GroupUpdate) SetNillableAllowBatchImageGeneration(v *bool) *GroupUpdat
 	return _u
 }
 
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (_u *GroupUpdate) SetAllowAsyncImageGeneration(v bool) *GroupUpdate {
+	_u.mutation.SetAllowAsyncImageGeneration(v)
+	return _u
+}
+
+// SetNillableAllowAsyncImageGeneration sets the "allow_async_image_generation" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAllowAsyncImageGeneration(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetAllowAsyncImageGeneration(*v)
+	}
+	return _u
+}
+
 // SetImageRateIndependent sets the "image_rate_independent" field.
 func (_u *GroupUpdate) SetImageRateIndependent(v bool) *GroupUpdate {
 	_u.mutation.SetImageRateIndependent(v)
@@ -1321,6 +1335,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AllowBatchImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowBatchImageGeneration, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.AllowAsyncImageGeneration(); ok {
+		_spec.SetField(group.FieldAllowAsyncImageGeneration, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.ImageRateIndependent(); ok {
 		_spec.SetField(group.FieldImageRateIndependent, field.TypeBool, value)
 	}
@@ -2125,6 +2142,20 @@ func (_u *GroupUpdateOne) SetAllowBatchImageGeneration(v bool) *GroupUpdateOne {
 func (_u *GroupUpdateOne) SetNillableAllowBatchImageGeneration(v *bool) *GroupUpdateOne {
 	if v != nil {
 		_u.SetAllowBatchImageGeneration(*v)
+	}
+	return _u
+}
+
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (_u *GroupUpdateOne) SetAllowAsyncImageGeneration(v bool) *GroupUpdateOne {
+	_u.mutation.SetAllowAsyncImageGeneration(v)
+	return _u
+}
+
+// SetNillableAllowAsyncImageGeneration sets the "allow_async_image_generation" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAllowAsyncImageGeneration(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAllowAsyncImageGeneration(*v)
 	}
 	return _u
 }
@@ -3113,6 +3144,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AllowBatchImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowBatchImageGeneration, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AllowAsyncImageGeneration(); ok {
+		_spec.SetField(group.FieldAllowAsyncImageGeneration, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.ImageRateIndependent(); ok {
 		_spec.SetField(group.FieldImageRateIndependent, field.TypeBool, value)

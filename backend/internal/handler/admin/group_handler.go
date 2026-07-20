@@ -97,6 +97,7 @@ type CreateGroupRequest struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
+	AllowAsyncImageGeneration       bool     `json:"allow_async_image_generation"`
 	ImageRateIndependent            bool     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
@@ -151,6 +152,7 @@ type UpdateGroupRequest struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool    `json:"allow_image_generation"`
 	AllowBatchImageGeneration       *bool    `json:"allow_batch_image_generation"`
+	AllowAsyncImageGeneration       *bool    `json:"allow_async_image_generation"`
 	ImageRateIndependent            *bool    `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
@@ -323,6 +325,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		AllowAsyncImageGeneration:       req.AllowAsyncImageGeneration,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
@@ -439,6 +442,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:            req.AllowImageGeneration,
 		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
+		AllowAsyncImageGeneration:       req.AllowAsyncImageGeneration,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,

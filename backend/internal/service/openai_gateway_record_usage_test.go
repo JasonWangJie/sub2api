@@ -1667,6 +1667,26 @@ func TestOpenAIGatewayServiceRecordUsage_SimpleModeSkipsBillingAfterPersist(t *t
 	require.Equal(t, 0, subRepo.incrementCalls)
 }
 
+func TestOpenAIGatewayServicePrepareRecordUsage_SimpleModeCreatesNotBillableCommand(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.cfg.RunMode = config.RunModeSimple
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "async-image:simple-openai")
+
+	prepared, err := svc.PrepareRecordUsage(ctx, &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_simple_prepare", Model: "gpt-image-1", ImageCount: 1, ImageSize: "1K", Duration: time.Second,
+		},
+		APIKey: &APIKey{ID: 1001}, User: &User{ID: 2001}, Account: &Account{ID: 3001},
+	})
+
+	require.NoError(t, err)
+	require.True(t, prepared.NotBillable)
+	require.Zero(t, prepared.ActualCost())
+	require.Equal(t, "client:async-image:simple-openai", prepared.Command.RequestID)
+	require.Zero(t, usageRepo.calls, "prepare must defer the usage-log write until post-processing")
+}
+
 func TestOpenAIGatewayServiceRecordUsage_ImageOnlyUsageStillPersists(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

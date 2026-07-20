@@ -259,3 +259,43 @@ func TestReleaseUsageBillingBatchImageBalance_SkipsWhenHoldNeverReserved(t *test
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestIncrementUsageBillingAPIKeyQuotaSettlesSoftDeletedKey(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectQuery(`(?s)UPDATE api_keys.*WHERE id = \$2\s+RETURNING`).
+		WithArgs(1.5, int64(7), service.StatusAPIKeyActive, service.StatusAPIKeyQuotaExhausted).
+		WillReturnRows(sqlmock.NewRows([]string{"exhausted"}).AddRow(false))
+	mock.ExpectCommit()
+
+	_, err = incrementUsageBillingAPIKeyQuota(ctx, tx, 7, 1.5)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestIncrementUsageBillingAPIKeyRateLimitSettlesSoftDeletedKey(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectExec(`(?s)UPDATE api_keys SET.*WHERE id = \$2\s*$`).
+		WithArgs(0.75, int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = incrementUsageBillingAPIKeyRateLimit(ctx, tx, 7, 0.75)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}

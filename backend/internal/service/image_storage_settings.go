@@ -1,12 +1,18 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -14,6 +20,72 @@ import (
 )
 
 const settingKeyImageStorageConfig = "image_storage_config"
+
+const (
+	ImageStorageProviderCustomS3 = config.ImageStorageProviderCustomS3
+	ImageStorageProviderQiniu    = config.ImageStorageProviderQiniu
+	ImageStorageProviderAliyun   = config.ImageStorageProviderAliyun
+	ImageStorageProviderTencent  = config.ImageStorageProviderTencent
+)
+
+// ResolveImageStorageProvider applies vendor endpoint presets while preserving
+// an explicit endpoint override. Empty providers retain the legacy custom_s3
+// behavior so existing stored settings need no migration.
+func ResolveImageStorageProvider(cfg *config.ImageStorageConfig) error {
+	if cfg == nil {
+		return errors.New("image storage config is nil")
+	}
+	cfg.Provider = strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if cfg.Provider == "" || cfg.Provider == "s3" {
+		cfg.Provider = ImageStorageProviderCustomS3
+	}
+	cfg.Region = strings.TrimSpace(cfg.Region)
+	cfg.Endpoint = strings.TrimSpace(strings.TrimRight(cfg.Endpoint, "/"))
+
+	switch cfg.Provider {
+	case ImageStorageProviderCustomS3:
+		if cfg.Region == "" {
+			cfg.Region = "auto"
+		}
+	case ImageStorageProviderQiniu, ImageStorageProviderAliyun, ImageStorageProviderTencent:
+		if cfg.Region == "" || cfg.Region == "auto" {
+			return fmt.Errorf("region is required for image storage provider %s", cfg.Provider)
+		}
+		if !validImageStorageRegion(cfg.Region) {
+			return fmt.Errorf("invalid image storage region %q", cfg.Region)
+		}
+		if cfg.Endpoint == "" {
+			switch cfg.Provider {
+			case ImageStorageProviderQiniu:
+				cfg.Endpoint = "https://s3-" + cfg.Region + ".qiniucs.com"
+			case ImageStorageProviderAliyun:
+				cfg.Endpoint = "https://oss-" + cfg.Region + ".aliyuncs.com"
+			case ImageStorageProviderTencent:
+				cfg.Endpoint = "https://cos." + cfg.Region + ".myqcloud.com"
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported image storage provider %q", cfg.Provider)
+	}
+
+	if cfg.Endpoint != "" {
+		u, err := url.Parse(cfg.Endpoint)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+			return fmt.Errorf("invalid image storage endpoint %q", cfg.Endpoint)
+		}
+	}
+	return nil
+}
+
+func validImageStorageRegion(region string) bool {
+	for _, r := range region {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return false
+	}
+	return region != ""
+}
 
 // ErrImageStorageIncomplete 表示开关已打开但凭证不全，无法启用异步生图。
 var ErrImageStorageIncomplete = errors.New("image storage is enabled but bucket/access_key_id/secret_access_key are incomplete")
@@ -27,8 +99,9 @@ type ImageStorageFactory func(ctx context.Context, cfg *config.ImageStorageConfi
 // ReuseBackupS3 为真时不保存自己的凭证，直接借用数据库备份已配置的 S3 端点与密钥，
 // 只用自己的 Bucket/Prefix 区分对象；这样"数据走 backups/、图片走 images/"无需重复配置。
 type ImageStorageSettings struct {
-	Enabled       bool `json:"enabled"`
-	ReuseBackupS3 bool `json:"reuse_backup_s3"`
+	Enabled       bool   `json:"enabled"`
+	ReuseBackupS3 bool   `json:"reuse_backup_s3"`
+	Provider      string `json:"provider"`
 
 	Bucket           string `json:"bucket"` // 留空且复用备份时，沿用备份桶
 	Prefix           string `json:"prefix"`
@@ -42,6 +115,31 @@ type ImageStorageSettings struct {
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
 	ForcePathStyle  bool   `json:"force_path_style"`
+
+	AsyncImage AsyncImageRuntimeConfig `json:"async_image"`
+}
+
+// AsyncImageRuntimeConfig is stored with image-storage settings so operational
+// changes take effect without restarting the API service.
+type AsyncImageRuntimeConfig struct {
+	PublicBaseURL           string   `json:"public_base_url"`
+	WorkerConcurrency       int      `json:"worker_concurrency"`
+	WorkerLeaseSeconds      int      `json:"worker_lease_seconds"`
+	RecoveryIntervalSeconds int      `json:"recovery_interval_seconds"`
+	ExecutionTimeoutSeconds int      `json:"execution_timeout_seconds"`
+	StorageRetryAttempts    int      `json:"storage_retry_attempts"`
+	BillingRetryAttempts    int      `json:"billing_retry_attempts"`
+	RetryBackoffSeconds     int      `json:"retry_backoff_seconds"`
+	DownloadMaxBytes        int64    `json:"download_max_bytes"`
+	DownloadTimeoutSeconds  int      `json:"download_timeout_seconds"`
+	DownloadMaxRedirects    int      `json:"download_max_redirects"`
+	SignedURLExpirySeconds  int      `json:"signed_url_expiry_seconds"`
+	InputRetentionHours     int      `json:"input_retention_hours"`
+	TaskRetentionDays       int      `json:"task_retention_days"`
+	ResultRetentionDays     int      `json:"result_retention_days"`
+	GeminiHalfKModels       []string `json:"gemini_half_k_models"`
+	PromptPreviewEnabled    bool     `json:"prompt_preview_enabled"`
+	PromptPreviewMaxChars   int      `json:"prompt_preview_max_chars"`
 }
 
 // ImageStorageSettingService 读写后台设置，并把结果解析成一个可直接使用的 uploader。
@@ -56,12 +154,15 @@ type ImageStorageSettingService struct {
 
 	// fallback 是 config.yaml 里的配置。后台从未保存过设置时沿用它，
 	// 保证升级前已用配置文件开启该功能的部署不被打断。
-	fallback config.ImageStorageConfig
+	fallback      config.ImageStorageConfig
+	asyncFallback config.AsyncImageConfig
 
-	mu       sync.Mutex
-	resolved bool
-	uploader *ImageResultUploader
-	enabled  bool
+	mu         sync.Mutex
+	resolved   bool
+	uploader   *ImageResultUploader
+	durable    DurableImageStorage
+	enabled    bool
+	resolveErr error
 }
 
 func NewImageStorageSettingService(
@@ -70,13 +171,19 @@ func NewImageStorageSettingService(
 	backup *BackupService,
 	factory ImageStorageFactory,
 	fallback config.ImageStorageConfig,
+	asyncFallback ...config.AsyncImageConfig,
 ) *ImageStorageSettingService {
+	var asyncCfg config.AsyncImageConfig
+	if len(asyncFallback) > 0 {
+		asyncCfg = asyncFallback[0]
+	}
 	return &ImageStorageSettingService{
-		settingRepo: settingRepo,
-		encryptor:   encryptor,
-		backup:      backup,
-		factory:     factory,
-		fallback:    fallback,
+		settingRepo:   settingRepo,
+		encryptor:     encryptor,
+		backup:        backup,
+		factory:       factory,
+		fallback:      fallback,
+		asyncFallback: asyncCfg,
 	}
 }
 
@@ -93,36 +200,62 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.resolved {
-		return s.uploader, s.enabled
-	}
+	s.resolveLocked(context.Background())
+	return s.uploader, s.enabled
+}
 
-	ctx := context.Background()
+func (s *ImageStorageSettingService) resolveLocked(ctx context.Context) {
+	if s.resolved {
+		return
+	}
 	s.resolved = true
-	s.uploader, s.enabled = nil, false
+	s.uploader, s.durable, s.enabled, s.resolveErr = nil, nil, false, nil
 
 	cfg, err := s.effectiveConfig(ctx)
 	if err != nil {
+		s.resolveErr = err
 		logger.L().Warn("image_storage.settings_load_failed; async image tasks stay disabled", zap.Error(err))
-		return nil, false
+		return
 	}
 	if !cfg.Enabled {
-		return nil, false
+		return
 	}
 	if !cfg.IsConfigured() {
 		logger.L().Warn("image_storage is enabled but not fully configured; async image tasks are disabled",
 			zap.Strings("missing_keys", cfg.MissingCredentialKeys()))
-		return nil, false
+		return
 	}
 
 	storage, err := s.factory(ctx, cfg)
 	if err != nil {
+		s.resolveErr = err
 		logger.L().Error("image_storage.client_build_failed; async image tasks stay disabled", zap.Error(err))
-		return nil, false
+		return
 	}
 	s.uploader = NewImageResultUploader(storage, cfg.Prefix, cfg.MaxDownloadByte, nil)
+	s.durable, _ = storage.(DurableImageStorage)
 	s.enabled = true
-	return s.uploader, true
+}
+
+// DurableStorage returns the current hot-reloaded durable object store. The
+// boolean is false when storage is disabled or incomplete.
+func (s *ImageStorageSettingService) DurableStorage(ctx context.Context) (DurableImageStorage, bool, error) {
+	if s == nil {
+		return nil, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resolveLocked(ctx)
+	if s.resolveErr != nil {
+		return nil, false, s.resolveErr
+	}
+	if !s.enabled {
+		return nil, false, nil
+	}
+	if s.durable == nil {
+		return nil, false, errors.New("configured image storage does not implement durable object operations")
+	}
+	return s.durable, true, nil
 }
 
 // Invalidate 丢弃缓存，使下一次请求按最新设置重新解析。
@@ -133,7 +266,9 @@ func (s *ImageStorageSettingService) Invalidate() {
 	s.mu.Lock()
 	s.resolved = false
 	s.uploader = nil
+	s.durable = nil
 	s.enabled = false
+	s.resolveErr = nil
 	s.mu.Unlock()
 }
 
@@ -144,10 +279,32 @@ func (s *ImageStorageSettingService) Get(ctx context.Context) (*ImageStorageSett
 		return nil, err
 	}
 	if settings == nil {
-		settings = settingsFromConfig(s.fallback)
+		settings = settingsFromConfig(s.fallback, s.asyncFallback)
 	}
+	normalizeImageStorageSettings(settings)
 	settings.SecretAccessKey = ""
 	return settings, nil
+}
+
+// RuntimeConfig returns the hot asynchronous-image runtime settings. Stored
+// admin settings take precedence over the config-file/environment fallback.
+func (s *ImageStorageSettingService) RuntimeConfig(ctx context.Context) (AsyncImageRuntimeConfig, error) {
+	if s == nil {
+		cfg := defaultAsyncImageRuntimeConfig()
+		return cfg, nil
+	}
+	settings, err := s.load(ctx)
+	if err != nil {
+		return AsyncImageRuntimeConfig{}, err
+	}
+	var out AsyncImageRuntimeConfig
+	if settings == nil {
+		out = asyncRuntimeFromConfig(s.asyncFallback)
+	} else {
+		out = settings.AsyncImage
+	}
+	normalizeAsyncImageRuntimeConfig(&out)
+	return out, nil
 }
 
 // SecretConfigured 供前端展示"已配置"占位符。
@@ -171,6 +328,7 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		// 复用备份凭证时不落自己的密钥，避免同一份密钥在库里存两份。
 		in.Endpoint, in.Region, in.AccessKeyID, in.SecretAccessKey = "", "", "", ""
 		in.ForcePathStyle = false
+		in.Provider = ImageStorageProviderCustomS3
 	} else if in.SecretAccessKey == "" {
 		if old, err := s.load(ctx); err == nil && old != nil {
 			in.SecretAccessKey = old.SecretAccessKey
@@ -187,6 +345,14 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		}
 		in.SecretAccessKey = encrypted
 	}
+	if in.Enabled {
+		// A configuration cannot become active based only on syntactically valid
+		// credentials. Probe the exact value that will be persisted so failed
+		// upload/read/delete permissions never strand accepted async tasks.
+		if err := s.TestConnection(ctx, in); err != nil {
+			return nil, fmt.Errorf("test image storage connection before save: %w", err)
+		}
+	}
 
 	data, err := json.Marshal(in)
 	if err != nil {
@@ -201,7 +367,9 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 	return &in, nil
 }
 
-// TestConnection 用给定设置试建一次客户端，用于后台的"测试连接"按钮。
+// TestConnection performs a complete object-store probe: upload, HEAD, read,
+// and delete. Merely constructing an SDK client cannot verify credentials,
+// bucket permissions, endpoint routing, or cleanup permission.
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
 func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
 	normalizeImageStorageSettings(&in)
@@ -218,9 +386,60 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	if !cfg.IsConfigured() {
 		return ErrImageStorageIncomplete
 	}
-	if _, err := s.factory(ctx, cfg); err != nil {
+	storage, err := s.factory(ctx, cfg)
+	if err != nil {
 		return err
 	}
+	durable, ok := storage.(DurableImageStorage)
+	if !ok {
+		return errors.New("image storage does not support upload/head/read/delete connection probes")
+	}
+
+	random := make([]byte, 12)
+	if _, err := rand.Read(random); err != nil {
+		return fmt.Errorf("create image storage probe key: %w", err)
+	}
+	key := cfg.Prefix + ".sub2api-probe/" + hex.EncodeToString(random) + ".txt"
+	payload := []byte("sub2api image storage connection probe")
+	ref, err := durable.SaveObject(ctx, key, "text/plain", payload)
+	if err != nil {
+		return fmt.Errorf("image storage probe upload: %w", err)
+	}
+	deleted := false
+	defer func() {
+		if !deleted {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = durable.Delete(cleanupCtx, ref)
+		}
+	}()
+
+	metadata, err := durable.Head(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("image storage probe head: %w", err)
+	}
+	if metadata.SizeBytes != int64(len(payload)) {
+		return fmt.Errorf("image storage probe head returned size %d, expected %d", metadata.SizeBytes, len(payload))
+	}
+	body, err := durable.Read(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("image storage probe read: %w", err)
+	}
+	got, readErr := io.ReadAll(io.LimitReader(body, int64(len(payload))+1))
+	closeErr := body.Close()
+	if readErr != nil {
+		return fmt.Errorf("image storage probe read body: %w", readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("image storage probe close body: %w", closeErr)
+	}
+	if !bytes.Equal(got, payload) {
+		return errors.New("image storage probe read returned different content")
+	}
+	if err := durable.Delete(ctx, ref); err != nil {
+		return fmt.Errorf("image storage probe delete: %w", err)
+	}
+	deleted = true
 	return nil
 }
 
@@ -240,6 +459,7 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, in *ImageStorageSettings) (*config.ImageStorageConfig, error) {
 	cfg := &config.ImageStorageConfig{
 		Enabled:         in.Enabled,
+		Provider:        in.Provider,
 		Bucket:          in.Bucket,
 		Prefix:          in.Prefix,
 		PublicBaseURL:   in.PublicBaseURL,
@@ -261,6 +481,7 @@ func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, i
 			return nil, errors.New("image storage is set to reuse the backup S3 configuration, but no backup S3 configuration exists")
 		}
 		cfg.Endpoint = backupCfg.Endpoint
+		cfg.Provider = ImageStorageProviderCustomS3
 		cfg.Region = backupCfg.Region
 		cfg.AccessKeyID = backupCfg.AccessKeyID
 		cfg.SecretAccessKey = backupCfg.SecretAccessKey
@@ -276,6 +497,9 @@ func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, i
 		} else {
 			cfg.SecretAccessKey = decrypted
 		}
+	}
+	if err := ResolveImageStorageProvider(cfg); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
@@ -304,9 +528,10 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 	return &settings, nil
 }
 
-func settingsFromConfig(cfg config.ImageStorageConfig) *ImageStorageSettings {
-	return &ImageStorageSettings{
+func settingsFromConfig(cfg config.ImageStorageConfig, asyncFallback ...config.AsyncImageConfig) *ImageStorageSettings {
+	settings := &ImageStorageSettings{
 		Enabled:          cfg.Enabled,
+		Provider:         cfg.Provider,
 		Bucket:           cfg.Bucket,
 		Prefix:           cfg.Prefix,
 		PublicBaseURL:    cfg.PublicBaseURL,
@@ -318,9 +543,18 @@ func settingsFromConfig(cfg config.ImageStorageConfig) *ImageStorageSettings {
 		SecretAccessKey:  cfg.SecretAccessKey,
 		ForcePathStyle:   cfg.ForcePathStyle,
 	}
+	if len(asyncFallback) > 0 {
+		settings.AsyncImage = asyncRuntimeFromConfig(asyncFallback[0])
+	}
+	normalizeImageStorageSettings(settings)
+	return settings
 }
 
 func normalizeImageStorageSettings(in *ImageStorageSettings) {
+	in.Provider = strings.ToLower(strings.TrimSpace(in.Provider))
+	if in.Provider == "" || in.Provider == "s3" {
+		in.Provider = ImageStorageProviderCustomS3
+	}
 	in.Bucket = strings.TrimSpace(in.Bucket)
 	in.Endpoint = strings.TrimSpace(in.Endpoint)
 	in.Region = strings.TrimSpace(in.Region)
@@ -335,7 +569,7 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	if !strings.HasSuffix(in.Prefix, "/") {
 		in.Prefix += "/"
 	}
-	if in.Region == "" {
+	if in.Region == "" && in.Provider == ImageStorageProviderCustomS3 {
 		in.Region = "auto"
 	}
 	if in.PresignExpiry <= 0 {
@@ -344,4 +578,135 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	if in.MaxDownloadBytes <= 0 {
 		in.MaxDownloadBytes = defaultImageMaxDownloadBytes
 	}
+	normalizeAsyncImageRuntimeConfig(&in.AsyncImage)
+}
+
+func asyncRuntimeFromConfig(in config.AsyncImageConfig) AsyncImageRuntimeConfig {
+	return AsyncImageRuntimeConfig{
+		PublicBaseURL:           in.PublicBaseURL,
+		WorkerConcurrency:       in.WorkerConcurrency,
+		WorkerLeaseSeconds:      in.WorkerLeaseSeconds,
+		RecoveryIntervalSeconds: in.RecoveryIntervalSeconds,
+		ExecutionTimeoutSeconds: in.ExecutionTimeoutSeconds,
+		StorageRetryAttempts:    in.StorageRetryAttempts,
+		BillingRetryAttempts:    in.BillingRetryAttempts,
+		RetryBackoffSeconds:     in.RetryBackoffSeconds,
+		DownloadMaxBytes:        in.DownloadMaxBytes,
+		DownloadTimeoutSeconds:  in.DownloadTimeoutSeconds,
+		DownloadMaxRedirects:    in.DownloadMaxRedirects,
+		SignedURLExpirySeconds:  in.SignedURLExpirySeconds,
+		InputRetentionHours:     in.InputRetentionHours,
+		TaskRetentionDays:       in.TaskRetentionDays,
+		ResultRetentionDays:     in.ResultRetentionDays,
+		GeminiHalfKModels:       append([]string(nil), in.GeminiHalfKModels...),
+		PromptPreviewEnabled:    in.PromptPreviewEnabled,
+		PromptPreviewMaxChars:   in.PromptPreviewMaxChars,
+	}
+}
+
+func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
+	return AsyncImageRuntimeConfig{
+		WorkerConcurrency:       4,
+		WorkerLeaseSeconds:      120,
+		RecoveryIntervalSeconds: 30,
+		ExecutionTimeoutSeconds: 900,
+		StorageRetryAttempts:    5,
+		BillingRetryAttempts:    10,
+		RetryBackoffSeconds:     30,
+		DownloadMaxBytes:        defaultImageMaxDownloadBytes,
+		DownloadTimeoutSeconds:  30,
+		DownloadMaxRedirects:    3,
+		SignedURLExpirySeconds:  3600,
+		InputRetentionHours:     24,
+		TaskRetentionDays:       90,
+		ResultRetentionDays:     90,
+		PromptPreviewEnabled:    true,
+		PromptPreviewMaxChars:   160,
+	}
+}
+
+func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
+	defaults := defaultAsyncImageRuntimeConfig()
+	in.PublicBaseURL = strings.TrimRight(strings.TrimSpace(in.PublicBaseURL), "/")
+	if in.WorkerConcurrency <= 0 {
+		in.WorkerConcurrency = defaults.WorkerConcurrency
+	}
+	if in.WorkerLeaseSeconds <= 0 {
+		in.WorkerLeaseSeconds = defaults.WorkerLeaseSeconds
+	}
+	if in.RecoveryIntervalSeconds <= 0 {
+		in.RecoveryIntervalSeconds = defaults.RecoveryIntervalSeconds
+	}
+	if in.ExecutionTimeoutSeconds <= 0 {
+		in.ExecutionTimeoutSeconds = defaults.ExecutionTimeoutSeconds
+	}
+	if in.StorageRetryAttempts <= 0 {
+		in.StorageRetryAttempts = defaults.StorageRetryAttempts
+	}
+	if in.BillingRetryAttempts <= 0 {
+		in.BillingRetryAttempts = defaults.BillingRetryAttempts
+	}
+	if in.RetryBackoffSeconds <= 0 {
+		in.RetryBackoffSeconds = defaults.RetryBackoffSeconds
+	}
+	if in.DownloadMaxBytes <= 0 {
+		in.DownloadMaxBytes = defaults.DownloadMaxBytes
+	}
+	if in.DownloadTimeoutSeconds <= 0 {
+		in.DownloadTimeoutSeconds = defaults.DownloadTimeoutSeconds
+	}
+	if in.DownloadMaxRedirects <= 0 {
+		in.DownloadMaxRedirects = defaults.DownloadMaxRedirects
+	}
+	if in.SignedURLExpirySeconds <= 0 {
+		in.SignedURLExpirySeconds = defaults.SignedURLExpirySeconds
+	}
+	if in.InputRetentionHours <= 0 {
+		in.InputRetentionHours = defaults.InputRetentionHours
+	}
+	if in.TaskRetentionDays <= 0 {
+		in.TaskRetentionDays = defaults.TaskRetentionDays
+	}
+	if in.ResultRetentionDays <= 0 {
+		in.ResultRetentionDays = defaults.ResultRetentionDays
+	}
+	models := make([]string, 0, len(in.GeminiHalfKModels))
+	seenModels := make(map[string]struct{}, len(in.GeminiHalfKModels))
+	for _, model := range in.GeminiHalfKModels {
+		model = strings.ToLower(strings.TrimSpace(model))
+		if model == "" {
+			continue
+		}
+		if _, exists := seenModels[model]; exists {
+			continue
+		}
+		seenModels[model] = struct{}{}
+		models = append(models, model)
+	}
+	in.GeminiHalfKModels = models
+	if in.PromptPreviewMaxChars <= 0 {
+		in.PromptPreviewMaxChars = defaults.PromptPreviewMaxChars
+	}
+}
+
+// AsyncImageGeminiModelSupportsHalfK checks the explicit capability allowlist.
+// Entries ending in '*' are prefix matches; every other entry is exact.
+func AsyncImageGeminiModelSupportsHalfK(cfg AsyncImageRuntimeConfig, model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	for _, pattern := range cfg.GeminiHalfKModels {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		if strings.HasSuffix(pattern, "*") {
+			if prefix := strings.TrimSuffix(pattern, "*"); prefix != "" && strings.HasPrefix(model, prefix) {
+				return true
+			}
+			continue
+		}
+		if model == pattern {
+			return true
+		}
+	}
+	return false
 }

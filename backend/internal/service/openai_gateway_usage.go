@@ -349,6 +349,21 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if isUsageBillingPreparation(ctx) {
+			platform := input.QuotaPlatform
+			if platform == "" {
+				platform = PlatformFromAPIKey(apiKey)
+			}
+			if !capturePreparedNotBillableUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+				Cost: cost, User: user, APIKey: apiKey, Account: account,
+				Subscription: subscription, IsSubscriptionBill: isSubscriptionBilling,
+				AccountRateMultiplier: accountRateMultiplier, APIKeyService: input.APIKeyService,
+				Platform: platform,
+			}) {
+				return errors.New("simple-mode usage billing preparation failed")
+			}
+			return nil
+		}
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -380,6 +395,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	if billingErr != nil {
 		return billingErr
+	}
+	if isUsageBillingPreparation(ctx) {
+		return nil
 	}
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 

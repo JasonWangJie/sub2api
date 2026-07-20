@@ -315,6 +315,20 @@ func (_c *GroupCreate) SetNillableAllowBatchImageGeneration(v *bool) *GroupCreat
 	return _c
 }
 
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (_c *GroupCreate) SetAllowAsyncImageGeneration(v bool) *GroupCreate {
+	_c.mutation.SetAllowAsyncImageGeneration(v)
+	return _c
+}
+
+// SetNillableAllowAsyncImageGeneration sets the "allow_async_image_generation" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAllowAsyncImageGeneration(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetAllowAsyncImageGeneration(*v)
+	}
+	return _c
+}
+
 // SetImageRateIndependent sets the "image_rate_independent" field.
 func (_c *GroupCreate) SetImageRateIndependent(v bool) *GroupCreate {
 	_c.mutation.SetImageRateIndependent(v)
@@ -880,6 +894,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultAllowBatchImageGeneration
 		_c.mutation.SetAllowBatchImageGeneration(v)
 	}
+	if _, ok := _c.mutation.AllowAsyncImageGeneration(); !ok {
+		v := group.DefaultAllowAsyncImageGeneration
+		_c.mutation.SetAllowAsyncImageGeneration(v)
+	}
 	if _, ok := _c.mutation.ImageRateIndependent(); !ok {
 		v := group.DefaultImageRateIndependent
 		_c.mutation.SetImageRateIndependent(v)
@@ -1036,6 +1054,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.AllowBatchImageGeneration(); !ok {
 		return &ValidationError{Name: "allow_batch_image_generation", err: errors.New(`ent: missing required field "Group.allow_batch_image_generation"`)}
+	}
+	if _, ok := _c.mutation.AllowAsyncImageGeneration(); !ok {
+		return &ValidationError{Name: "allow_async_image_generation", err: errors.New(`ent: missing required field "Group.allow_async_image_generation"`)}
 	}
 	if _, ok := _c.mutation.ImageRateIndependent(); !ok {
 		return &ValidationError{Name: "image_rate_independent", err: errors.New(`ent: missing required field "Group.image_rate_independent"`)}
@@ -1206,6 +1227,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowBatchImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowBatchImageGeneration, field.TypeBool, value)
 		_node.AllowBatchImageGeneration = value
+	}
+	if value, ok := _c.mutation.AllowAsyncImageGeneration(); ok {
+		_spec.SetField(group.FieldAllowAsyncImageGeneration, field.TypeBool, value)
+		_node.AllowAsyncImageGeneration = value
 	}
 	if value, ok := _c.mutation.ImageRateIndependent(); ok {
 		_spec.SetField(group.FieldImageRateIndependent, field.TypeBool, value)
@@ -1766,6 +1791,18 @@ func (u *GroupUpsert) SetAllowBatchImageGeneration(v bool) *GroupUpsert {
 // UpdateAllowBatchImageGeneration sets the "allow_batch_image_generation" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateAllowBatchImageGeneration() *GroupUpsert {
 	u.SetExcluded(group.FieldAllowBatchImageGeneration)
+	return u
+}
+
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (u *GroupUpsert) SetAllowAsyncImageGeneration(v bool) *GroupUpsert {
+	u.Set(group.FieldAllowAsyncImageGeneration, v)
+	return u
+}
+
+// UpdateAllowAsyncImageGeneration sets the "allow_async_image_generation" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAllowAsyncImageGeneration() *GroupUpsert {
+	u.SetExcluded(group.FieldAllowAsyncImageGeneration)
 	return u
 }
 
@@ -2643,6 +2680,20 @@ func (u *GroupUpsertOne) SetAllowBatchImageGeneration(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateAllowBatchImageGeneration() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowBatchImageGeneration()
+	})
+}
+
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (u *GroupUpsertOne) SetAllowAsyncImageGeneration(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowAsyncImageGeneration(v)
+	})
+}
+
+// UpdateAllowAsyncImageGeneration sets the "allow_async_image_generation" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAllowAsyncImageGeneration() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowAsyncImageGeneration()
 	})
 }
 
@@ -3767,6 +3818,20 @@ func (u *GroupUpsertBulk) SetAllowBatchImageGeneration(v bool) *GroupUpsertBulk 
 func (u *GroupUpsertBulk) UpdateAllowBatchImageGeneration() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowBatchImageGeneration()
+	})
+}
+
+// SetAllowAsyncImageGeneration sets the "allow_async_image_generation" field.
+func (u *GroupUpsertBulk) SetAllowAsyncImageGeneration(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowAsyncImageGeneration(v)
+	})
+}
+
+// UpdateAllowAsyncImageGeneration sets the "allow_async_image_generation" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAllowAsyncImageGeneration() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowAsyncImageGeneration()
 	})
 }
 

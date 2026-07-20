@@ -66,6 +66,7 @@ export async function testS3Connection(config: BackupS3Config): Promise<TestS3Re
 // credentials configured above and only keeps its own bucket/prefix.
 export interface ImageStorageConfig {
   enabled: boolean
+  provider: 'custom_s3' | 'qiniu' | 'aliyun' | 'tencent'
   reuse_backup_s3: boolean
   bucket: string
   prefix: string
@@ -77,6 +78,28 @@ export interface ImageStorageConfig {
   access_key_id: string
   secret_access_key?: string
   force_path_style: boolean
+  async_image: AsyncImageRuntimeConfig
+}
+
+export interface AsyncImageRuntimeConfig {
+  public_base_url: string
+  worker_concurrency: number
+  worker_lease_seconds: number
+  recovery_interval_seconds: number
+  execution_timeout_seconds: number
+  storage_retry_attempts: number
+  billing_retry_attempts: number
+  retry_backoff_seconds: number
+  download_max_bytes: number
+  download_timeout_seconds: number
+  download_max_redirects: number
+  signed_url_expiry_seconds: number
+  input_retention_hours: number
+  task_retention_days: number
+  result_retention_days: number
+	gemini_half_k_models: string[]
+	prompt_preview_enabled: boolean
+	prompt_preview_max_chars: number
 }
 
 export interface ImageStorageConfigResponse {

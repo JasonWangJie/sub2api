@@ -941,6 +941,22 @@
               </div>
             </div>
           </div>
+          <div
+            v-if="['gemini', 'openai'].includes(createForm.platform) && createForm.allow_image_generation"
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+          >
+            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <input
+                v-model="createForm.allow_async_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowAsyncImageGeneration") }}
+            </label>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.imagePricing.asyncImageGenerationHint") }}
+            </p>
+          </div>
           <div v-if="createForm.platform === 'gemini' && createForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -2455,6 +2471,22 @@
               </div>
             </div>
           </div>
+          <div
+            v-if="['gemini', 'openai'].includes(editForm.platform) && editForm.allow_image_generation"
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+          >
+            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editForm.allow_async_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowAsyncImageGeneration") }}
+            </label>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.imagePricing.asyncImageGenerationHint") }}
+            </p>
+          </div>
           <div v-if="editForm.platform === 'gemini' && editForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -3623,6 +3655,7 @@ import {
 } from "./groupsModelsList";
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
+import { resetDisabledAsyncImageGeneration } from "./groupsAsyncImage";
 import {
   getDefaultImagePreviewPrice,
   getDefaultVideoPreviewPrice,
@@ -4020,6 +4053,7 @@ const createForm = reactive({
   monthly_limit_usd: null as number | null,
   // 图片生成计费配置
   allow_image_generation: false,
+  allow_async_image_generation: false,
   allow_batch_image_generation: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
@@ -4367,6 +4401,7 @@ const editForm = reactive({
   monthly_limit_usd: null as number | null,
   // 图片生成计费配置
   allow_image_generation: false,
+  allow_async_image_generation: false,
   allow_batch_image_generation: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
@@ -4417,6 +4452,7 @@ const editForm = reactive({
 type ImagePricingFormState = {
   platform: GroupPlatform;
   allow_image_generation: boolean;
+  allow_async_image_generation: boolean;
   allow_batch_image_generation: boolean;
   rate_multiplier: number;
   image_rate_independent: boolean;
@@ -4773,6 +4809,7 @@ const closeCreateModal = () => {
   createForm.weekly_limit_usd = null;
   createForm.monthly_limit_usd = null;
   createForm.allow_image_generation = false;
+  createForm.allow_async_image_generation = false;
   createForm.allow_batch_image_generation = false;
   createForm.image_rate_independent = false;
   createForm.image_rate_multiplier = 1;
@@ -4881,6 +4918,7 @@ const handleCreateGroup = async () => {
       requestData.image_rate_multiplier,
     );
     resetDisabledBatchImagePricing(requestData);
+    resetDisabledAsyncImageGeneration(requestData);
     requestData.batch_image_discount_multiplier = normalizeRateMultiplier(
       requestData.batch_image_discount_multiplier,
     );
@@ -4939,6 +4977,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.weekly_limit_usd = group.weekly_limit_usd;
   editForm.monthly_limit_usd = group.monthly_limit_usd;
   editForm.allow_image_generation = group.allow_image_generation ?? false;
+  editForm.allow_async_image_generation =
+    group.allow_async_image_generation ?? false;
   editForm.allow_batch_image_generation =
     group.allow_batch_image_generation ?? false;
   editForm.image_rate_independent = group.image_rate_independent ?? false;
@@ -5003,6 +5043,7 @@ const closeEditModal = () => {
   editingGroup.value = null;
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
+  editForm.allow_async_image_generation = false;
   editForm.peak_rate_enabled = false;
   editForm.peak_start = "";
   editForm.peak_end = "";
@@ -5072,6 +5113,7 @@ const handleUpdateGroup = async () => {
       payload.image_rate_multiplier,
     );
     resetDisabledBatchImagePricing(payload);
+    resetDisabledAsyncImageGeneration(payload);
     payload.batch_image_discount_multiplier = normalizeRateMultiplier(
       payload.batch_image_discount_multiplier,
     );
@@ -5232,6 +5274,7 @@ watch(
       createForm.require_privacy_set = false;
     }
     resetDisabledBatchImagePricing(createForm);
+    resetDisabledAsyncImageGeneration(createForm);
     resetModelsListState(createModelsListState);
     loadModelsListCandidates("create", 0, newVal);
   },
@@ -5241,6 +5284,7 @@ watch(
   () => createForm.allow_image_generation,
   () => {
     resetDisabledBatchImagePricing(createForm);
+    resetDisabledAsyncImageGeneration(createForm);
   },
 );
 
@@ -5269,6 +5313,7 @@ watch(
       resetModelsListState(editModelsListState, editForm.platform === editingGroup.value.platform ? editingGroup.value.models_list_config : undefined);
       loadModelsListCandidates("edit", editingGroup.value.id, newVal);
     }
+    resetDisabledAsyncImageGeneration(editForm);
   },
 );
 
@@ -5276,6 +5321,7 @@ watch(
   () => editForm.allow_image_generation,
   () => {
     resetDisabledBatchImagePricing(editForm);
+    resetDisabledAsyncImageGeneration(editForm);
   },
 );
 

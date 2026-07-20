@@ -183,6 +183,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		MonthlyLimitUSD:                 g.MonthlyLimitUSD,
 		AllowImageGeneration:            g.AllowImageGeneration,
 		AllowBatchImageGeneration:       g.AllowBatchImageGeneration,
+		AllowAsyncImageGeneration:       g.AllowAsyncImageGeneration,
 		ImageRateIndependent:            g.ImageRateIndependent,
 		ImageRateMultiplier:             g.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    g.BatchImageDiscountMultiplier,

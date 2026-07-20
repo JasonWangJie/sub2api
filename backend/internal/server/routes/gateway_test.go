@@ -138,6 +138,26 @@ func TestGatewayRoutesAsyncImagesPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesDurableAsyncImagePathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	for _, route := range []string{
+		"POST /v1/chat/completions_gm",
+		"POST /v1/images/generations_oa",
+		"POST /v1/images/edits_oa",
+		"GET /v1/images/tasks_async/:task_id",
+		"POST /v1/uploads/images_sc",
+		"POST /v1/images/generations_sc",
+		"GET /v1/tasks_sc/:task_id",
+	} {
+		require.True(t, registered[route], "%s should be registered", route)
+	}
+}
+
 func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 

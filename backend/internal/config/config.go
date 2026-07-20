@@ -98,6 +98,7 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	AsyncImage              AsyncImageConfig              `mapstructure:"async_image"`
 }
 
 type LogConfig struct {
@@ -235,6 +236,7 @@ type BatchImageConfig struct {
 // 异步生图接口整体禁用，避免把上游返回的大 base64 结果塞进 Redis。
 type ImageStorageConfig struct {
 	Enabled         bool   `mapstructure:"enabled"`
+	Provider        string `mapstructure:"provider"` // custom_s3 (legacy default), qiniu, aliyun, tencent
 	Endpoint        string `mapstructure:"endpoint"` // e.g. https://<account_id>.r2.cloudflarestorage.com
 	Region          string `mapstructure:"region"`   // R2 用 "auto"
 	Bucket          string `mapstructure:"bucket"`
@@ -245,6 +247,36 @@ type ImageStorageConfig struct {
 	PublicBaseURL   string `mapstructure:"public_base_url"`      // 配了则返回 public_base_url/key 直链；否则 presigned
 	PresignExpiry   int    `mapstructure:"presign_expiry_hours"` // public_base_url 为空时的 presigned 过期时长(小时)
 	MaxDownloadByte int64  `mapstructure:"max_download_bytes"`   // 下载上游 url 图片的字节上限
+}
+
+const (
+	ImageStorageProviderCustomS3 = "custom_s3"
+	ImageStorageProviderQiniu    = "qiniu"
+	ImageStorageProviderAliyun   = "aliyun"
+	ImageStorageProviderTencent  = "tencent"
+)
+
+// AsyncImageConfig is the file/environment fallback for the durable async
+// image runtime. A database-backed admin setting takes precedence once saved.
+type AsyncImageConfig struct {
+	PublicBaseURL           string   `mapstructure:"public_base_url"`
+	WorkerConcurrency       int      `mapstructure:"worker_concurrency"`
+	WorkerLeaseSeconds      int      `mapstructure:"worker_lease_seconds"`
+	RecoveryIntervalSeconds int      `mapstructure:"recovery_interval_seconds"`
+	ExecutionTimeoutSeconds int      `mapstructure:"execution_timeout_seconds"`
+	StorageRetryAttempts    int      `mapstructure:"storage_retry_attempts"`
+	BillingRetryAttempts    int      `mapstructure:"billing_retry_attempts"`
+	RetryBackoffSeconds     int      `mapstructure:"retry_backoff_seconds"`
+	DownloadMaxBytes        int64    `mapstructure:"download_max_bytes"`
+	DownloadTimeoutSeconds  int      `mapstructure:"download_timeout_seconds"`
+	DownloadMaxRedirects    int      `mapstructure:"download_max_redirects"`
+	SignedURLExpirySeconds  int      `mapstructure:"signed_url_expiry_seconds"`
+	InputRetentionHours     int      `mapstructure:"input_retention_hours"`
+	TaskRetentionDays       int      `mapstructure:"task_retention_days"`
+	ResultRetentionDays     int      `mapstructure:"result_retention_days"`
+	GeminiHalfKModels       []string `mapstructure:"gemini_half_k_models"`
+	PromptPreviewEnabled    bool     `mapstructure:"prompt_preview_enabled"`
+	PromptPreviewMaxChars   int      `mapstructure:"prompt_preview_max_chars"`
 }
 
 // IsConfigured 检查对象存储必要字段是否已配置
@@ -2039,6 +2071,7 @@ func setDefaults() {
 
 	// Image storage (async image task result offload to S3-compatible object storage)
 	viper.SetDefault("image_storage.enabled", false)
+	viper.SetDefault("image_storage.provider", ImageStorageProviderCustomS3)
 	viper.SetDefault("image_storage.region", "auto")
 	viper.SetDefault("image_storage.prefix", "images/")
 	viper.SetDefault("image_storage.force_path_style", false)
@@ -2053,6 +2086,27 @@ func setDefaults() {
 	viper.SetDefault("image_storage.access_key_id", "")
 	viper.SetDefault("image_storage.secret_access_key", "")
 	viper.SetDefault("image_storage.public_base_url", "")
+
+	// Durable asynchronous image task runtime. The admin setting can override
+	// this fallback at runtime without restarting the service.
+	viper.SetDefault("async_image.public_base_url", "")
+	viper.SetDefault("async_image.worker_concurrency", 4)
+	viper.SetDefault("async_image.worker_lease_seconds", 120)
+	viper.SetDefault("async_image.recovery_interval_seconds", 30)
+	viper.SetDefault("async_image.execution_timeout_seconds", 900)
+	viper.SetDefault("async_image.storage_retry_attempts", 5)
+	viper.SetDefault("async_image.billing_retry_attempts", 10)
+	viper.SetDefault("async_image.retry_backoff_seconds", 30)
+	viper.SetDefault("async_image.download_max_bytes", int64(32*1024*1024))
+	viper.SetDefault("async_image.download_timeout_seconds", 30)
+	viper.SetDefault("async_image.download_max_redirects", 3)
+	viper.SetDefault("async_image.signed_url_expiry_seconds", 3600)
+	viper.SetDefault("async_image.input_retention_hours", 24)
+	viper.SetDefault("async_image.task_retention_days", 90)
+	viper.SetDefault("async_image.result_retention_days", 90)
+	viper.SetDefault("async_image.gemini_half_k_models", []string{})
+	viper.SetDefault("async_image.prompt_preview_enabled", true)
+	viper.SetDefault("async_image.prompt_preview_max_chars", 160)
 
 	// Ops (vNext)
 	viper.SetDefault("ops.enabled", true)

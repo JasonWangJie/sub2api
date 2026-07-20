@@ -38,6 +38,10 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/images/edits":             {"openai_images.go", "grok_media.go"},
 		"/images/generations/async": {"image_task_handler.go"},
 		"/images/edits/async":       {"image_task_handler.go"},
+		"/chat/completions_gm":      {"durable_async_image_handler.go"},
+		"/images/generations_oa":    {"durable_async_image_handler.go"},
+		"/images/edits_oa":          {"durable_async_image_handler.go"},
+		"/images/generations_sc":    {"durable_async_image_handler.go"},
 		"/images/batches":           {"batch_image_handler.go"},
 		"/videos/generations":       {"grok_media.go"},
 		"/videos/edits":             {"grok_media.go"},
@@ -46,6 +50,7 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	}
 	excluded := map[string]string{
 		"/messages/count_tokens":     "tokenization only; it does not execute a model request",
+		"/uploads/images_sc":         "reference-image upload only; it does not execute a model request or contain a model prompt",
 		"/images/batches/:id/cancel": "control-plane cancellation with no user prompt",
 	}
 

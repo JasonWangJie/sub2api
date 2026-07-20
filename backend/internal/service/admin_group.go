@@ -226,6 +226,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	allowAsyncImageGeneration := input.AllowAsyncImageGeneration && allowImageGeneration && (platform == PlatformGemini || platform == PlatformOpenAI)
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -272,6 +273,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		MonthlyLimitUSD:                 monthlyLimit,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
+		AllowAsyncImageGeneration:       allowAsyncImageGeneration,
 		ImageRateIndependent:            input.ImageRateIndependent,
 		ImageRateMultiplier:             imageRateMultiplier,
 		BatchImageDiscountMultiplier:    batchImageDiscountMultiplier,
@@ -469,8 +471,14 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.AllowBatchImageGeneration != nil {
 		group.AllowBatchImageGeneration = *input.AllowBatchImageGeneration
 	}
+	if input.AllowAsyncImageGeneration != nil {
+		group.AllowAsyncImageGeneration = *input.AllowAsyncImageGeneration
+	}
 	if !group.AllowImageGeneration || group.Platform != PlatformGemini {
 		group.AllowBatchImageGeneration = false
+	}
+	if !group.AllowImageGeneration || (group.Platform != PlatformGemini && group.Platform != PlatformOpenAI) {
+		group.AllowAsyncImageGeneration = false
 	}
 	if input.ImageRateIndependent != nil {
 		group.ImageRateIndependent = *input.ImageRateIndependent

@@ -539,7 +539,7 @@ func ProvideImageStorageSettingService(
 		logger.L().Warn("image_storage.enabled is true in config but object storage is not fully configured; configure it in the admin UI or complete the config file",
 			zap.Strings("missing_keys", cfg.ImageStorage.MissingCredentialKeys()))
 	}
-	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage)
+	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage, cfg.AsyncImage)
 }
 
 // ProvideImageTaskService 构造异步图片任务服务。
@@ -697,6 +697,7 @@ var ProviderSet = wire.NewSet(
 	NewOpenAIGatewayService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
+	NewAsyncImageTaskService,
 	ProvideBatchImageModelPricingResolver,
 	NewBatchImagePublicService,
 	NewBatchImageDownloadService,
