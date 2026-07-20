@@ -2,11 +2,12 @@
   <AuthLayout>
     <div class="space-y-6">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div class="login-hero text-center">
+        <div class="login-hash mb-2" aria-hidden="true">0xAUTH · SESSION/INIT</div>
+        <h2 class="login-hero-title text-2xl font-bold">
           {{ t('auth.welcomeBack') }}
         </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="login-hero-sub mt-2 text-sm">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
@@ -93,7 +94,7 @@
         <button
           type="submit"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
-          class="btn btn-primary w-full"
+          class="btn btn-primary login-submit w-full"
         >
           <svg
             v-if="isLoading"
@@ -553,6 +554,74 @@ function handle2FACancel(): void {
 </script>
 
 <style scoped>
+.login-hero-title {
+  font-family: 'Oxanium', 'Sora', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #e8f7ff;
+}
+
+.login-hash {
+  font-family: 'Oxanium', ui-monospace, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  color: rgba(46, 230, 214, 0.7);
+}
+
+:global(html:not(.dark)) .login-hash {
+  color: rgba(13, 148, 136, 0.75);
+}
+
+:global(html:not(.dark)) .login-hero-title {
+  color: #0b1c24;
+}
+
+.login-hero-sub {
+  color: rgba(198, 226, 239, 0.68);
+}
+
+:global(html:not(.dark)) .login-hero-sub {
+  color: rgba(15, 48, 58, 0.68);
+}
+
+.login-submit {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(46, 230, 214, 0.35),
+    0 10px 28px rgba(46, 230, 214, 0.28) !important;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.login-submit:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(46, 230, 214, 0.5),
+    0 14px 32px rgba(46, 230, 214, 0.38) !important;
+}
+
+.login-submit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: login-sheen 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes login-sheen {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  75%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -562,5 +631,11 @@ function handle2FACancel(): void {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-submit::after {
+    animation: none;
+  }
 }
 </style>

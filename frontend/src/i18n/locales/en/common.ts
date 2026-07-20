@@ -153,6 +153,8 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    imageWorkbench: 'Image Workbench',
+    imagePlaza: 'Image Plaza',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',

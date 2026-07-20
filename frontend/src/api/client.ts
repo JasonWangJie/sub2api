@@ -13,7 +13,7 @@ import {
   shouldMarkUserUIRequest,
 } from './adminUIRequest'
 import { getAPIBaseURL } from './url'
-export { buildApiUrl, buildGatewayUrl } from './url'
+export { buildApiUrl, buildGatewayUrl, getSiteGatewayBase } from './url'
 
 // ==================== Axios Instance Configuration ====================
 

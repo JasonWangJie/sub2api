@@ -29,15 +29,33 @@ export function buildApiUrl(path: string): string {
   return `${base}${suffix}`
 }
 
+/**
+ * Build an absolute gateway URL for OpenAI-compatible routes (/v1/...) and other
+ * same-origin gateway endpoints. Always prefers the current site origin so the
+ * workbench/batch clients hit `{site}/v1/...` instead of a remote API host.
+ */
 export function buildGatewayUrl(path: string): string {
   const suffix = normalizePath(path)
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${suffix}`
+  }
   try {
-    const origin =
-      typeof window === 'undefined'
-        ? new URL(getAPIBaseURL()).origin
-        : new URL(getAPIBaseURL(), window.location.origin).origin
+    // Non-browser fallback (tests / SSR): keep previous absolute-base behavior.
+    const origin = new URL(getAPIBaseURL(), 'http://localhost').origin
     return `${origin}${suffix}`
   } catch {
     return suffix
+  }
+}
+
+/** Site gateway base, e.g. https://example.com/v1 */
+export function getSiteGatewayBase(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/v1`
+  }
+  try {
+    return `${new URL(getAPIBaseURL(), 'http://localhost').origin}/v1`
+  } catch {
+    return '/v1'
   }
 }

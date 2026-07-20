@@ -153,6 +153,8 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    imageWorkbench: '图片工作台',
+    imagePlaza: '图片广场',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',

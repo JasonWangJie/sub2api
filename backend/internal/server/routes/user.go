@@ -16,6 +16,11 @@ func RegisterUserRoutes(
 	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 ) {
+	// 广场图片内容公开可读（仅 public 可见性），便于 <img src> 直接加载
+	if h.ImagePlaza != nil {
+		v1.GET("/image-plaza/:id/content", h.ImagePlaza.Content)
+	}
+
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
@@ -104,6 +109,16 @@ func RegisterUserRoutes(
 		{
 			announcements.GET("", h.Announcement.List)
 			announcements.POST("/:id/read", h.Announcement.MarkRead)
+		}
+
+		// 图片广场（全局共享）
+		if h.ImagePlaza != nil {
+			plaza := authenticated.Group("/image-plaza")
+			{
+				plaza.GET("", h.ImagePlaza.List)
+				plaza.POST("", h.ImagePlaza.Publish)
+				plaza.DELETE("/:id", h.ImagePlaza.Delete)
+			}
 		}
 
 		// 卡密兑换

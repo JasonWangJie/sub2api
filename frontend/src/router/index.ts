@@ -219,6 +219,30 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/image-workbench',
+    name: 'ImageWorkbench',
+    component: () => import('@/views/user/ImageWorkbenchView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Workbench',
+      titleKey: 'imageWorkbench.title',
+      descriptionKey: 'imageWorkbench.description'
+    }
+  },
+  {
+    path: '/image-plaza',
+    name: 'ImagePlaza',
+    component: () => import('@/views/user/ImagePlazaView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Plaza',
+      titleKey: 'imagePlaza.title',
+      descriptionKey: 'imagePlaza.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
