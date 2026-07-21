@@ -20,8 +20,9 @@
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
 | 最终提交 SHA | `PENDING` |
 | 最终 `git describe` | `PENDING` |
-| 功能分支 CI | `PENDING` |
-| 合并并推送 `origin/main` | `PENDING` |
+| 功能分支远端 | 已推送 `origin/feat/image-workflow-library-moderation` |
+| 功能分支 CI | `BLOCKED`：Fork Actions 页面显示 `Enable Actions`，历史运行数为 0 |
+| 合并并推送 `origin/main` | `PENDING`：CI 未运行，按规则未合并 |
 
 本轮不主动修改 `backend/cmd/server/VERSION`。最终报告不能只写 `0.1.162`，必须同时写完整 SHA、`git describe`、推送目标和 CI 结果。
 
@@ -66,8 +67,8 @@
 | 真实 OSS 厂商契约 | `PENDING` | 七牛、阿里、腾讯逐一 upload、HEAD/read、签名/公开 URL、delete |
 | 真实上游与计费核对 | `PENDING` | Gemini/OpenAI/Grok 实时与异步、余额/订阅/倍率/额度逐笔核对 |
 | 逻辑拆分提交 | `PASSED` | 主体三笔、`f16c2106a` SC 安全、`81ac080ed` 文档、`433cf0096` 上游合并、`6412b5eb7` 锁文件修复 |
-| Fork CI | `PENDING` | 尚未运行；功能分支 GitHub Actions 必须全绿 |
-| 合并 `origin/main` | `PENDING` | 非强制合并并核对远端 SHA |
+| Fork CI | `BLOCKED` | 工作流文件 active 且监听 push，但 Fork 尚未 Enable Actions；启用后重跑功能分支 |
+| 合并 `origin/main` | `PENDING` | CI 未运行，不得绕过；全绿后非强制合并并核对远端 SHA |
 
 ## 明确未承诺或尚未完成的产品范围
 

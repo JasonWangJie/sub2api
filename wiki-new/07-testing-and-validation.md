@@ -11,7 +11,7 @@ PostgreSQL/testcontainers 集成：PENDING
 浏览器五视口验收：BLOCKED BY TOOLING（内置浏览器缺 sandboxPolicy 元数据）
 真实 OSS 厂商联调：PENDING
 真实上游与计费核对：PENDING
-Fork GitHub Actions：PENDING（尚未运行）
+Fork GitHub Actions：BLOCKED（Actions 页面显示 Enable Actions，历史运行数为 0）
 ```
 
 本地通过不代表生产可用。真实 PostgreSQL、真实厂商、真实上游账单、CI、最终提交和推送只有实际执行后才能替换对应 `PENDING`。
@@ -331,7 +331,7 @@ Vitest 至少覆盖：
 合并 upstream/main 后前端 build：PASSED，974 modules
 合并后浏览器：BLOCKED BY TOOLING；历史 Chrome 10 场景仅作基线
 PostgreSQL/testcontainers：PENDING
-Fork CI URL/结果：PENDING（尚未运行）
+Fork CI URL/结果：BLOCKED；https://github.com/JasonWangJie/sub2api/actions 显示 Enable Actions，API total_count=0
 真实 OSS/上游/计费：PENDING
 最终 git describe：PENDING
 origin/main 推送：PENDING

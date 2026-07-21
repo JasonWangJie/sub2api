@@ -21,7 +21,7 @@
 3. 使用七牛、阿里、腾讯真实凭证逐厂商验证 upload、HEAD/read、公开/签名 URL、delete 和 intent crash recovery。
 4. 跑通 OpenAI/Gemini 实时与异步四象限、Grok 实时，并核对实际尺寸、数量、余额/订阅/倍率/额度。
 5. 在生产备份副本演练旧广场立即隐藏、可恢复迁移、quarantine 和回滚。
-6. 推送已拆分的功能分支并等待 Fork CI 全绿。Fork CI 当前尚未运行。
+6. 功能分支已经推送。Fork Actions 页面当前显示 `Enable Actions` 且历史运行数为 0；仓库所有者启用 Actions 后必须等待 CI/Security Scan 全绿。
 7. CI 通过后非强制合并到 `origin/main`，推送并报告最终 SHA、`git describe` 和 `VERSION`。
 
 ## P0 风险说明

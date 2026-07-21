@@ -28,8 +28,9 @@
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
 | 最终交付 SHA | `PENDING` |
 | 最终 `git describe` | `PENDING` |
-| Fork CI | `PENDING` |
-| 合并并推送 `origin/main` | `PENDING` |
+| 功能分支推送 | `origin/feat/image-workflow-library-moderation` 已推送 |
+| Fork CI | `BLOCKED`：Actions 页面显示 `Enable Actions`，仓库历史运行数为 0 |
+| 合并并推送 `origin/main` | `PENDING`：按规则等待 CI，不绕过 |
 
 本轮不主动修改 `0.1.162` 发布版本号。最终交付必须同时报告 `VERSION`、完整 SHA、`git describe`、推送分支和 CI 链接/结果。
 
@@ -142,7 +143,7 @@
 - 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187` 迁移验证。
 - 合并后的桌面/移动端浏览器视觉复验；当前内置浏览器连接器被环境元数据阻断。
 - 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
-- 最终交接证据提交、最终 SHA/`git describe`、功能分支 Fork CI、非强制合并并推送 `origin/main`。Fork CI 尚未运行。
+- Fork Actions 尚未启用：公开 Actions 页面显示 `Enable Actions`，API 对功能分支和全仓均返回 0 个历史运行。启用后必须等待 CI/Security Scan 全绿，再非强制合并并推送 `origin/main`；当前不能绕过。
 
 最新状态与已经执行过的测试证据只看 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)，不要根据早期聊天记录推断“已经通过”。
 
