@@ -243,6 +243,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/image-library',
+    name: 'ImageLibrary',
+    component: () => import('@/views/user/ImageLibraryView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Library',
+      titleKey: 'imageWorkflow.library.title',
+      descriptionKey: 'imageWorkflow.library.description'
+    }
+  },
+  {
     path: '/async-image-tasks',
     name: 'AsyncImageTasks',
     component: () => import('@/features/async-image-tasks/AsyncImageTasksView.vue'),
@@ -499,6 +511,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Async Image Task Center',
       titleKey: 'asyncImageTasks.adminTitle',
       descriptionKey: 'asyncImageTasks.adminDescription'
+    }
+  },
+  {
+    path: '/admin/image-moderation',
+    name: 'AdminImageModeration',
+    component: () => import('@/views/admin/ImageModerationView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Image Content',
+      titleKey: 'imageWorkflow.admin.title',
+      descriptionKey: 'imageWorkflow.admin.description'
     }
   },
   {

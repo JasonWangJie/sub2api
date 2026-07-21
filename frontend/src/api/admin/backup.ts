@@ -79,6 +79,18 @@ export interface ImageStorageConfig {
   secret_access_key?: string
   force_path_style: boolean
   async_image: AsyncImageRuntimeConfig
+  image_library: ImageLibraryRuntimeConfig
+}
+
+export interface ImageLibraryRuntimeConfig {
+  retention_days: number
+  max_items_per_user: number
+  max_bytes_per_user: number
+  max_image_bytes: number
+  max_image_pixels: number
+  signed_url_expiry_seconds: number
+  import_per_minute: number
+  publish_per_minute: number
 }
 
 export interface AsyncImageRuntimeConfig {

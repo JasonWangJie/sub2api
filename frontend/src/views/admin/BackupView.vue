@@ -219,6 +219,47 @@
           </details>
         </div>
 
+        <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
+          <div class="mb-4">
+            <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.backup.imageStorage.libraryTitle') }}</h4>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryDescription') }}</p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryRetentionDays') }}</label>
+              <input v-model.number="imageStorageForm.image_library.retention_days" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryMaxItems') }}</label>
+              <input v-model.number="imageStorageForm.image_library.max_items_per_user" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryMaxGiB') }}</label>
+              <input v-model.number="libraryMaxGiB" type="number" min="0.1" step="0.1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryMaxImageMiB') }}</label>
+              <input v-model.number="libraryMaxImageMiB" type="number" min="1" step="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryMaxImageMP') }}</label>
+              <input v-model.number="libraryMaxImageMP" type="number" min="1" step="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.librarySignedUrlExpiry') }}</label>
+              <input v-model.number="imageStorageForm.image_library.signed_url_expiry_seconds" type="number" min="60" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryImportRate') }}</label>
+              <input v-model.number="imageStorageForm.image_library.import_per_minute" type="number" min="1" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.libraryPublishRate') }}</label>
+              <input v-model.number="imageStorageForm.image_library.publish_per_minute" type="number" min="1" class="input w-full" />
+            </div>
+          </div>
+        </div>
+
         <div class="mt-4 flex flex-wrap gap-2">
           <button type="button" class="btn btn-secondary btn-sm" :disabled="testingImageStorage" @click="testImageStorage">
             {{ testingImageStorage ? t('common.loading') : t('admin.backup.s3.testConnection') }}
@@ -533,6 +574,16 @@ const imageStorageForm = ref<ImageStorageConfig>({
 	prompt_preview_enabled: true,
 	prompt_preview_max_chars: 160,
   },
+  image_library: {
+    retention_days: 90,
+    max_items_per_user: 1000,
+    max_bytes_per_user: 5 * 1024 * 1024 * 1024,
+    max_image_bytes: 20 * 1024 * 1024,
+    max_image_pixels: 40 * 1000 * 1000,
+    signed_url_expiry_seconds: 3600,
+    import_per_minute: 20,
+    publish_per_minute: 10,
+  },
 })
 
 const geminiHalfKModelsText = computed({
@@ -543,6 +594,27 @@ const geminiHalfKModelsText = computed({
 			.map(model => model.trim())
 			.filter(Boolean)
 	},
+})
+
+const libraryMaxGiB = computed({
+  get: () => Number((imageStorageForm.value.image_library.max_bytes_per_user / (1024 ** 3)).toFixed(2)),
+  set: (value: number) => {
+    imageStorageForm.value.image_library.max_bytes_per_user = Math.max(1, Math.round(Number(value || 0) * (1024 ** 3)))
+  },
+})
+
+const libraryMaxImageMiB = computed({
+  get: () => Number((imageStorageForm.value.image_library.max_image_bytes / (1024 ** 2)).toFixed(2)),
+  set: (value: number) => {
+    imageStorageForm.value.image_library.max_image_bytes = Math.max(1, Math.round(Number(value || 0) * (1024 ** 2)))
+  },
+})
+
+const libraryMaxImageMP = computed({
+  get: () => Number((imageStorageForm.value.image_library.max_image_pixels / 1_000_000).toFixed(2)),
+  set: (value: number) => {
+    imageStorageForm.value.image_library.max_image_pixels = Math.max(1, Math.round(Number(value || 0) * 1_000_000))
+  },
 })
 const imageStorageSecretConfigured = ref(false)
 const savingImageStorage = ref(false)
@@ -729,6 +801,10 @@ async function loadImageStorageConfig() {
       async_image: {
         ...imageStorageForm.value.async_image,
         ...(config.async_image || {}),
+      },
+      image_library: {
+        ...imageStorageForm.value.image_library,
+        ...(config.image_library || {}),
       },
     }
     imageStorageSecretConfigured.value = secret_configured

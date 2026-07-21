@@ -146,6 +146,16 @@ export default {
 		geminiHalfKModelsPlaceholder: 'Comma-separated; prefix wildcards are supported, e.g. nano-banana-*',
 		promptPreviewEnabled: 'Store a redacted prompt summary',
 		promptPreviewMaxChars: 'Prompt summary max characters',
+        libraryTitle: 'Personal library and moderated plaza',
+        libraryDescription: 'Controls retention, per-user quotas, image safety limits, and write rates for newly archived images. A library quota failure never changes a successful model request into a generation failure.',
+        libraryRetentionDays: 'New asset retention (days)',
+        libraryMaxItems: 'Maximum items per user',
+        libraryMaxGiB: 'Per-user capacity (GiB)',
+        libraryMaxImageMiB: 'Maximum image size (MiB)',
+        libraryMaxImageMP: 'Maximum image pixels (MP)',
+        librarySignedUrlExpiry: 'Library signed URL TTL (seconds)',
+        libraryImportRate: 'Imports per minute',
+        libraryPublishRate: 'Submissions per minute',
         saved: 'Async image object storage saved'
       },
       schedule: {

@@ -154,6 +154,7 @@ export default {
     announcements: '公告',
     apiKeys: 'API 密钥',
     imageWorkbench: '图片工作台',
+    imageLibrary: '个人图库',
     imagePlaza: '图片广场',
     batchImage: '批量生图',
     asyncImageTasks: '异步生图任务',
@@ -201,6 +202,7 @@ export default {
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
     adminAsyncImageTasks: '生图任务中心',
+    adminImageModeration: '图片内容管理',
   },
 
   // Auth

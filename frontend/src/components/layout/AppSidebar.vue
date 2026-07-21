@@ -732,6 +732,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/image-workbench', label: t('nav.imageWorkbench'), icon: ImageWorkbenchIcon, hideInSimpleMode: true },
+    { path: '/image-library', label: t('nav.imageLibrary'), icon: ImagePlazaIcon, hideInSimpleMode: true },
     { path: '/image-plaza', label: t('nav.imagePlaza'), icon: ImagePlazaIcon, hideInSimpleMode: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/async-image-tasks', label: t('nav.asyncImageTasks'), icon: BatchImageIcon, hideInSimpleMode: true },
@@ -790,6 +791,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
     { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
     { path: '/admin/async-image-tasks', label: t('nav.adminAsyncImageTasks'), icon: BatchImageIcon, hideInSimpleMode: true },
+    { path: '/admin/image-moderation', label: t('nav.adminImageModeration'), icon: ImagePlazaIcon, hideInSimpleMode: true },
     {
       path: '/admin/channels',
       label: t('nav.channelManagement'),

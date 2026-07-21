@@ -146,6 +146,16 @@ export default {
 		geminiHalfKModelsPlaceholder: '逗号分隔；可用前缀通配符，例如 nano-banana-*',
 		promptPreviewEnabled: '保存脱敏后的提示词摘要',
 		promptPreviewMaxChars: '提示词摘要最大字符数',
+        libraryTitle: '个人图库与审核广场',
+        libraryDescription: '控制新归档图片的保留期、用户配额、单图安全上限和写入限频。配额不足不会把已成功的模型调用改成失败。',
+        libraryRetentionDays: '新资产保留天数',
+        libraryMaxItems: '每用户最多条目',
+        libraryMaxGiB: '每用户容量上限（GiB）',
+        libraryMaxImageMiB: '单图上限（MiB）',
+        libraryMaxImageMP: '单图像素上限（MP）',
+        librarySignedUrlExpiry: '图库签名链接有效期（秒）',
+        libraryImportRate: '每分钟导入上限',
+        libraryPublishRate: '每分钟投稿上限',
         saved: '异步生图对象存储配置已保存'
       },
       schedule: {

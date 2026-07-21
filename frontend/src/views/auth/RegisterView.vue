@@ -3,9 +3,9 @@
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
           {{ t('auth.createAccount') }}
-        </h2>
+        </h1>
         <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
           {{ t('auth.signUpToStart', { siteName }) }}
         </p>
@@ -48,8 +48,13 @@
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'register-email-error' : undefined"
             />
           </div>
+          <p v-if="errors.email" id="register-email-error" class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ errors.email }}
+          </p>
         </div>
 
         <!-- Password Input -->
@@ -71,18 +76,25 @@
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.createPasswordPlaceholder')"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'register-password-error' : 'register-password-hint'"
             />
             <button
               type="button"
               :disabled="registrationActionDisabled"
               @click="showPassword = !showPassword"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              class="absolute inset-y-0 right-0 flex min-h-11 min-w-11 items-center justify-center text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:text-dark-300"
+              :aria-label="t('auth.passwordLabel')"
+              :title="t('auth.passwordLabel')"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
-          <p class="input-hint">
+          <p v-if="errors.password" id="register-password-error" class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ errors.password }}
+          </p>
+          <p v-else id="register-password-hint" class="input-hint">
             {{ t('auth.passwordHint') }}
           </p>
         </div>
