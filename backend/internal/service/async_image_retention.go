@@ -258,10 +258,19 @@ func (s *AsyncImageRetentionService) cleanupResults(ctx context.Context, storage
 	var firstErr error
 	for i := range results {
 		result := &results[i]
-		if err := storage.Delete(ctx, asyncImageResultObjectRef(*result)); err != nil {
+		ref := asyncImageResultObjectRef(*result)
+		shared, sharedErr := asyncImageObjectHasLiveReference(ctx, s.repo, ref, result.ID, "")
+		if sharedErr != nil {
 			_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
-			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image result %d: %w", result.ID, err))
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("check async image result %d references: %w", result.ID, sharedErr))
 			continue
+		}
+		if !shared {
+			if err := storage.Delete(ctx, ref); err != nil {
+				_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
+				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image result %d: %w", result.ID, err))
+				continue
+			}
 		}
 		if err := s.repo.CompleteAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt); err != nil {
 			_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
@@ -289,7 +298,17 @@ func (s *AsyncImageRetentionService) cleanupTasks(ctx context.Context, storage D
 		}
 		deleteFailed := false
 		for j := range results {
-			if deleteErr := storage.Delete(ctx, asyncImageResultObjectRef(results[j])); deleteErr != nil {
+			ref := asyncImageResultObjectRef(results[j])
+			shared, sharedErr := asyncImageObjectHasLiveReference(ctx, s.repo, ref, 0, task.TaskID)
+			if sharedErr != nil {
+				deleteFailed = true
+				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("check references for expired async image task %s: %w", task.TaskID, sharedErr))
+				continue
+			}
+			if shared {
+				continue
+			}
+			if deleteErr := storage.Delete(ctx, ref); deleteErr != nil {
 				deleteFailed = true
 				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete result for expired async image task %s: %w", task.TaskID, deleteErr))
 			}
@@ -306,6 +325,25 @@ func (s *AsyncImageRetentionService) cleanupTasks(ctx context.Context, storage D
 		stats.TasksDeleted++
 	}
 	return firstErr
+}
+
+type asyncImageLibraryReferenceChecker interface {
+	HasLiveImageLibraryObjectReference(ctx context.Context, ref ObjectRef) (bool, error)
+}
+
+type asyncImageObjectReferenceChecker interface {
+	HasLiveImageObjectReference(ctx context.Context, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error)
+}
+
+func asyncImageObjectHasLiveReference(ctx context.Context, repo AsyncImageRetentionRepository, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error) {
+	if checker, ok := repo.(asyncImageObjectReferenceChecker); ok {
+		return checker.HasLiveImageObjectReference(ctx, ref, excludedResultID, excludedTaskID)
+	}
+	checker, ok := repo.(asyncImageLibraryReferenceChecker)
+	if !ok {
+		return false, nil
+	}
+	return checker.HasLiveImageLibraryObjectReference(ctx, ref)
 }
 
 func asyncImageResultObjectRef(result AsyncImageResult) ObjectRef {

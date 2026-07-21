@@ -3,8 +3,10 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,10 +54,40 @@ type passthroughEncryptor struct{}
 func (passthroughEncryptor) Encrypt(plaintext string) (string, error)  { return plaintext, nil }
 func (passthroughEncryptor) Decrypt(ciphertext string) (string, error) { return ciphertext, nil }
 
-type noopImageStorage struct{}
+type noopImageStorage struct {
+	data []byte
+	ref  service.ObjectRef
+}
 
-func (noopImageStorage) Save(context.Context, string, string, []byte) (string, error) {
+func (*noopImageStorage) Save(context.Context, string, string, []byte) (string, error) {
 	return "https://cdn.example.test/object.png", nil
+}
+
+func (s *noopImageStorage) SaveObject(_ context.Context, key, contentType string, data []byte) (service.ObjectRef, error) {
+	s.data = append([]byte(nil), data...)
+	s.ref = service.ObjectRef{
+		Provider: service.ImageStorageProviderCustomS3,
+		Bucket:   "my-images", ObjectKey: key, ContentType: contentType,
+		SizeBytes: int64(len(data)),
+	}
+	return s.ref, nil
+}
+
+func (*noopImageStorage) SignURL(context.Context, service.ObjectRef, time.Duration) (service.ObjectAccess, error) {
+	return service.ObjectAccess{URL: "https://cdn.example.test/object.png"}, nil
+}
+
+func (s *noopImageStorage) Read(context.Context, service.ObjectRef) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(s.data)), nil
+}
+
+func (s *noopImageStorage) Head(context.Context, service.ObjectRef) (service.ObjectMetadata, error) {
+	return service.ObjectMetadata{ObjectRef: s.ref}, nil
+}
+
+func (s *noopImageStorage) Delete(context.Context, service.ObjectRef) error {
+	s.data = nil
+	return nil
 }
 
 // TestAsyncImageEnablesWithoutRestart drives the actual HTTP path for the bug behind
@@ -71,7 +103,7 @@ func TestAsyncImageEnablesWithoutRestart(t *testing.T) {
 		Totp: config.TotpConfig{EncryptionKeyConfigured: true},
 	}, passthroughEncryptor{}, nil, nil)
 	factory := func(context.Context, *config.ImageStorageConfig) (service.ImageStorage, error) {
-		return noopImageStorage{}, nil
+		return &noopImageStorage{}, nil
 	}
 	settings := service.NewImageStorageSettingService(repo, passthroughEncryptor{}, backup, factory, config.ImageStorageConfig{})
 

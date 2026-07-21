@@ -230,12 +230,70 @@ RETURNING r.id, r.task_id, r.image_index, r.provider, r.bucket, r.object_key,
 }
 
 func (r *asyncImageTaskRepository) CompleteAsyncImageResultDeletion(ctx context.Context, id int64, claimedAt time.Time) error {
-	return requireAsyncImageCleanupDelete(r.sql.ExecContext(ctx, `
+	if r == nil || r.db == nil {
+		return errors.New("async image task repository is not configured")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var objectID sql.NullInt64
+	var provider, bucket, objectKey string
+	err = tx.QueryRowContext(ctx, `
 DELETE FROM async_image_results r
 USING async_image_tasks t
 WHERE r.id = $1 AND r.cleanup_claimed_at = $2
   AND t.task_id = r.task_id
-  AND t.status IN (`+asyncImageTerminalTaskStatusesSQL+`)`, id, claimedAt))
+  AND t.status IN (`+asyncImageTerminalTaskStatusesSQL+`)
+RETURNING r.storage_object_id,r.provider,r.bucket,r.object_key`, id, claimedAt).Scan(
+		&objectID, &provider, &bucket, &objectKey,
+	)
+	if err == sql.ErrNoRows {
+		return service.ErrAsyncImageInvalidTransition
+	}
+	if err != nil {
+		return err
+	}
+
+	if err := markAsyncImageStorageObjectDeletedIfUnreferenced(ctx, tx, objectID, provider, bucket, objectKey); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func markAsyncImageStorageObjectDeletedIfUnreferenced(ctx context.Context, tx *sql.Tx, objectID sql.NullInt64, provider, bucket, objectKey string) error {
+	if objectID.Valid {
+		_, err := tx.ExecContext(ctx, `
+UPDATE image_storage_objects o
+SET state='deleted',deleted_at=COALESCE(deleted_at,NOW()),deletion_claimed_at=NULL,updated_at=NOW()
+WHERE o.id=$1
+  AND NOT EXISTS (SELECT 1 FROM async_image_results ar WHERE ar.storage_object_id=o.id OR (ar.provider=o.provider AND ar.bucket=o.bucket AND ar.object_key=o.object_key))
+  AND NOT EXISTS (SELECT 1 FROM image_library_items i WHERE i.storage_object_id=o.id AND i.deleted_at IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM image_plaza_publications p
+    JOIN image_library_items i ON i.id=p.library_item_id
+    WHERE i.storage_object_id=o.id
+      AND p.status IN ('pending_review','published','admin_hidden')
+      AND p.expires_at>NOW()
+  )`, objectID.Int64)
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+UPDATE image_storage_objects o
+SET state='deleted',deleted_at=COALESCE(deleted_at,NOW()),deletion_claimed_at=NULL,updated_at=NOW()
+WHERE o.provider=$1 AND o.bucket=$2 AND o.object_key=$3
+  AND NOT EXISTS (SELECT 1 FROM async_image_results ar WHERE ar.storage_object_id=o.id OR (ar.provider=o.provider AND ar.bucket=o.bucket AND ar.object_key=o.object_key))
+  AND NOT EXISTS (SELECT 1 FROM image_library_items i WHERE i.storage_object_id=o.id AND i.deleted_at IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM image_plaza_publications p
+    JOIN image_library_items i ON i.id=p.library_item_id
+    WHERE i.storage_object_id=o.id
+      AND p.status IN ('pending_review','published','admin_hidden')
+      AND p.expires_at>NOW()
+  )`, provider, bucket, objectKey)
+	return err
 }
 
 func (r *asyncImageTaskRepository) ReleaseAsyncImageResultDeletion(ctx context.Context, id int64, claimedAt time.Time) error {
@@ -285,10 +343,54 @@ RETURNING t.task_id, t.cleanup_claimed_at`, expiresBefore, createdBefore, staleB
 }
 
 func (r *asyncImageTaskRepository) CompleteAsyncImageTaskDeletion(ctx context.Context, taskID string, claimedAt time.Time) error {
-	return requireAsyncImageCleanupDelete(r.sql.ExecContext(ctx, `
+	if r == nil || r.db == nil {
+		return errors.New("async image task repository is not configured")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	type resultObject struct {
+		id                          sql.NullInt64
+		provider, bucket, objectKey string
+	}
+	rows, err := tx.QueryContext(ctx, `
+SELECT storage_object_id,provider,bucket,object_key
+FROM async_image_results WHERE task_id=$1 FOR UPDATE`, taskID)
+	if err != nil {
+		return err
+	}
+	objects := make([]resultObject, 0)
+	for rows.Next() {
+		var object resultObject
+		if err := rows.Scan(&object.id, &object.provider, &object.bucket, &object.objectKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if err := requireAsyncImageCleanupDelete(tx.ExecContext(ctx, `
 DELETE FROM async_image_tasks
 WHERE task_id = $1 AND cleanup_claimed_at = $2
-  AND status IN (`+asyncImageTerminalTaskStatusesSQL+`)`, taskID, claimedAt))
+  AND status IN (`+asyncImageTerminalTaskStatusesSQL+`)`, taskID, claimedAt)); err != nil {
+		return err
+	}
+	for i := range objects {
+		object := objects[i]
+		if err := markAsyncImageStorageObjectDeletedIfUnreferenced(ctx, tx, object.id, object.provider, object.bucket, object.objectKey); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (r *asyncImageTaskRepository) ReleaseAsyncImageTaskDeletion(ctx context.Context, taskID string, claimedAt time.Time) error {

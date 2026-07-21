@@ -822,16 +822,30 @@ func (s *GatewayService) calculateImageCost(
 	billingModel string,
 	multiplier float64,
 ) *CostBreakdown {
-	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+	counts := resolveImageBillingCounts(result.ImageCount, result.ImageSize, result.ImageSizeBreakdown)
+	total := &CostBreakdown{BillingMode: string(BillingModeImage)}
+	for _, sizeTier := range SortedImageBillingBreakdownKeys(counts) {
+		addCostBreakdown(total, s.calculateImageTierCost(ctx, apiKey, billingModel, sizeTier, counts[sizeTier], multiplier))
+	}
+	return total
+}
+
+func (s *GatewayService) calculateImageTierCost(
+	ctx context.Context,
+	apiKey *APIKey,
+	billingModel string,
+	sizeTier string,
+	imageCount int,
+	multiplier float64,
+) *CostBreakdown {
 	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-		return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+		return s.billingService.CalculateImageCost(billingModel, sizeTier, imageCount, groupConfig, multiplier)
 	}
 	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
 		tokens := UsageTokens{
-			InputTokens:       result.Usage.InputTokens,
-			OutputTokens:      result.Usage.OutputTokens,
-			ImageOutputTokens: result.Usage.ImageOutputTokens,
+			// Token-mode channel pricing is handled before this function. Image
+			// and per-request pricing only need the exact request count and tier.
 		}
 		gid := apiKey.Group.ID
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
@@ -839,7 +853,7 @@ func (s *GatewayService) calculateImageCost(
 			Model:          billingModel,
 			GroupID:        &gid,
 			Tokens:         tokens,
-			RequestCount:   result.ImageCount,
+			RequestCount:   imageCount,
 			SizeTier:       sizeTier,
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
@@ -852,7 +866,7 @@ func (s *GatewayService) calculateImageCost(
 		return cost
 	}
 
-	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.CalculateImageCost(billingModel, sizeTier, imageCount, groupConfig, multiplier)
 }
 
 // calculateTokenCost 计算 Token 计费：根据 opts 决定走普通/长上下文/渠道统一计费。

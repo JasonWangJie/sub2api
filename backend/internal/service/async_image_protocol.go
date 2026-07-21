@@ -9,12 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
-	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -22,8 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -366,7 +359,7 @@ func (d AsyncImageReferenceDownloader) Download(ctx context.Context, rawURL stri
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif")
+	req.Header.Set("Accept", "image/webp,image/png,image/jpeg")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download reference image: %w", err)
@@ -402,7 +395,7 @@ func (d AsyncImageReferenceDownloader) decodeDataURI(raw string) (*AsyncImageRef
 	if int64(decodedLen) > d.maxBytes() {
 		return nil, errors.New("reference image exceeds the configured size limit")
 	}
-	data, err := base64.StdEncoding.DecodeString(raw[comma+1:])
+	data, err := base64.StdEncoding.Strict().DecodeString(raw[comma+1:])
 	if err != nil {
 		return nil, errors.New("invalid base64 image data URI")
 	}
@@ -410,43 +403,16 @@ func (d AsyncImageReferenceDownloader) decodeDataURI(raw string) (*AsyncImageRef
 }
 
 func (d AsyncImageReferenceDownloader) validateImage(data []byte, declaredType string) (*AsyncImageReference, error) {
-	if len(data) == 0 {
-		return nil, errors.New("reference image is empty")
+	validated, err := ValidateImageBytes(data, declaredType, d.maxBytes(), d.maxPixels())
+	if err != nil {
+		return nil, err
 	}
-	detected := http.DetectContentType(data)
-	if mediaType, _, err := mime.ParseMediaType(detected); err == nil {
-		detected = mediaType
-	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || config.Width <= 0 || config.Height <= 0 {
-		return nil, errors.New("reference image data is invalid or unsupported")
-	}
-	formatMIME := imageFormatMIME(format)
-	if !strings.HasPrefix(strings.ToLower(detected), "image/") {
-		detected = formatMIME
-	}
-	if !strings.HasPrefix(strings.ToLower(detected), "image/") {
-		return nil, errors.New("reference URL did not return an image")
-	}
-	if declaredType != "" {
-		mediaType, _, parseErr := mime.ParseMediaType(declaredType)
-		if parseErr != nil || !strings.HasPrefix(strings.ToLower(mediaType), "image/") {
-			return nil, errors.New("reference image declared content type is not an image")
-		}
-		if !strings.EqualFold(mediaType, detected) {
-			return nil, fmt.Errorf("reference image content type mismatch: declared %s, detected %s", mediaType, detected)
-		}
-	}
-	if int64(config.Width)*int64(config.Height) > d.maxPixels() {
-		return nil, errors.New("reference image exceeds the configured pixel limit")
-	}
-	sum := sha256.Sum256(data)
 	return &AsyncImageReference{
-		MIMEType: detected,
-		Data:     data,
-		Width:    config.Width,
-		Height:   config.Height,
-		SHA256:   hex.EncodeToString(sum[:]),
+		MIMEType: validated.MIMEType,
+		Data:     validated.Data,
+		Width:    validated.Width,
+		Height:   validated.Height,
+		SHA256:   validated.SHA256,
 	}, nil
 }
 

@@ -263,3 +263,48 @@ func SortedImageBillingBreakdownKeys(breakdown map[string]int) []string {
 	})
 	return keys
 }
+
+// resolveImageBillingCounts turns the observed size breakdown into an exact
+// per-tier charge plan. Any images without a decoded output size retain the
+// existing fallback tier. An inconsistent breakdown is ignored instead of
+// allowing malformed accounting metadata to change the total image count.
+func resolveImageBillingCounts(imageCount int, fallbackSize string, breakdown map[string]int) map[string]int {
+	if imageCount <= 0 {
+		return nil
+	}
+	normalized := normalizeImageSizeBreakdown(breakdown)
+	observed := 0
+	for _, count := range normalized {
+		observed += count
+	}
+	if observed > imageCount {
+		normalized = nil
+		observed = 0
+	}
+	if normalized == nil {
+		normalized = make(map[string]int, 1)
+	}
+	if remaining := imageCount - observed; remaining > 0 {
+		tier := NormalizeImageBillingTierOrDefault(fallbackSize)
+		normalized[tier] += remaining
+	}
+	return normalized
+}
+
+func addCostBreakdown(total *CostBreakdown, part *CostBreakdown) {
+	if total == nil || part == nil {
+		return
+	}
+	total.InputCost += part.InputCost
+	total.ImageInputCost += part.ImageInputCost
+	total.OutputCost += part.OutputCost
+	total.ImageOutputCost += part.ImageOutputCost
+	total.CacheCreationCost += part.CacheCreationCost
+	total.CacheReadCost += part.CacheReadCost
+	total.TotalCost += part.TotalCost
+	total.ActualCost += part.ActualCost
+	total.LongContextBillingApplied = total.LongContextBillingApplied || part.LongContextBillingApplied
+	if total.BillingMode == "" {
+		total.BillingMode = part.BillingMode
+	}
+}

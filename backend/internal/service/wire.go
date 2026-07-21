@@ -531,6 +531,7 @@ func ProvideImageStorageSettingService(
 	encryptor SecretEncryptor,
 	backup *BackupService,
 	factory ImageStorageFactory,
+	identityGuard ImageStorageIdentityGuard,
 	cfg *config.Config,
 ) *ImageStorageSettingService {
 	if cfg.ImageStorage.Enabled && !cfg.ImageStorage.Active() {
@@ -539,7 +540,13 @@ func ProvideImageStorageSettingService(
 		logger.L().Warn("image_storage.enabled is true in config but object storage is not fully configured; configure it in the admin UI or complete the config file",
 			zap.Strings("missing_keys", cfg.ImageStorage.MissingCredentialKeys()))
 	}
-	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage, cfg.AsyncImage)
+	svc := NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage, cfg.AsyncImage)
+	svc.identityGuard = identityGuard
+	return svc
+}
+
+func ProvideImageStorageIdentityGuard(repo ImageLibraryRepository) ImageStorageIdentityGuard {
+	return repo
 }
 
 // ProvideImageTaskService 构造异步图片任务服务。
@@ -549,6 +556,10 @@ func ProvideImageStorageSettingService(
 // 启用状态由 settings 服务在运行时解析，因此后台改开关后无需重启即可生效。
 func ProvideImageTaskService(store ImageTaskStore, settings *ImageStorageSettingService) *ImageTaskService {
 	return NewImageTaskServiceWithResolver(store, settings.Resolver(), defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
+}
+
+func ProvideImageWorkbenchService(apiKeys *APIKeyService, models *GatewayService) *ImageWorkbenchService {
+	return NewImageWorkbenchService(apiKeys, models)
 }
 
 // ProvideBackupService creates and starts BackupService
@@ -692,9 +703,13 @@ var ProviderSet = wire.NewSet(
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewImagePlazaService,
+	NewImageLibraryService,
+	ProvideImageLibraryMaintenanceService,
+	ProvideImageWorkbenchService,
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
+	ProvideImageStorageIdentityGuard,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	NewAsyncImageTaskService,

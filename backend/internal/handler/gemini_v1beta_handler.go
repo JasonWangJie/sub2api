@@ -11,7 +11,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
@@ -192,11 +194,48 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	// 解析渠道级模型映射
+	imageIntent := false
+	var imageRelease func()
+	defer func() {
+		if imageRelease != nil {
+			imageRelease()
+		}
+	}()
+	ensureImageGenerationGate := func(models ...string) bool {
+		if middleware.HasForcePlatform(c) || imageIntent {
+			return true
+		}
+		for _, candidateModel := range models {
+			if service.IsGeminiNativeImageGenerationIntent(action, candidateModel, body) {
+				imageIntent = true
+				break
+			}
+		}
+		if !imageIntent {
+			return true
+		}
+		if !service.GroupAllowsImageGeneration(apiKey.Group) {
+			googleError(c, http.StatusForbidden, service.ImageGenerationPermissionMessage())
+			return false
+		}
+		var acquired bool
+		imageRelease, acquired = h.acquireGeminiImageGenerationSlot(c)
+		return acquired
+	}
+	reqModel := modelName
+	if !ensureImageGenerationGate(reqModel) {
+		return
+	}
+
+	// Check the requested model before resolving aliases so a direct image
+	// request is rejected without touching downstream services. Then check the
+	// mapped model as well so a text-looking alias cannot bypass the image gate.
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, modelName)
-	reqModel := modelName // 保存映射前的原始模型名
 	if channelMapping.Mapped {
 		modelName = channelMapping.MappedModel
+	}
+	if !ensureImageGenerationGate(modelName) {
+		return
 	}
 
 	// Get subscription (may be nil)
@@ -376,7 +415,19 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		account := selection.Account
+		accountReleaseFunc := selection.ReleaseFunc
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+
+		// Account mappings are resolved only after scheduling. Re-run the image
+		// gate with the exact upstream model before acquiring tokens or sending
+		// bytes upstream; aliases must have the same controls as direct models.
+		upstreamModel := service.ResolveGeminiForwardModel(account, modelName)
+		if !ensureImageGenerationGate(upstreamModel) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			return
+		}
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
 		// 注意：Gemini 原生 API 的 thoughtSignature 与具体上游账号强相关；跨账号透传会导致 400。
@@ -403,7 +454,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 
 		// 4) account concurrency slot
-		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
@@ -561,6 +611,27 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		)
 		return
 	}
+}
+
+func (h *GatewayHandler) acquireGeminiImageGenerationSlot(c *gin.Context) (func(), bool) {
+	if h == nil || h.cfg == nil || h.imageLimiter == nil {
+		return nil, true
+	}
+	imageConcurrency := h.cfg.Gateway.ImageConcurrency
+	wait := strings.TrimSpace(imageConcurrency.OverflowMode) == config.ImageConcurrencyOverflowModeWait
+	release, acquired := h.imageLimiter.Acquire(
+		c.Request.Context(),
+		imageConcurrency.Enabled,
+		imageConcurrency.MaxConcurrentRequests,
+		wait,
+		time.Duration(imageConcurrency.WaitTimeoutSeconds)*time.Second,
+		imageConcurrency.MaxWaitingRequests,
+	)
+	if !acquired {
+		googleError(c, http.StatusTooManyRequests, "Image generation concurrency limit exceeded, please retry later")
+		return nil, false
+	}
+	return release, true
 }
 
 func parseGeminiModelAction(rest string) (model string, action string, err error) {

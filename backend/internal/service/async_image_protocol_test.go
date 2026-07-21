@@ -1,8 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"image"
+	"image/color"
+	"image/gif"
 	"net/netip"
 	"testing"
 
@@ -68,6 +72,32 @@ func TestAsyncImageReferenceDownloaderDataURI(t *testing.T) {
 	require.Equal(t, 1, ref.Height)
 	require.NotEmpty(t, ref.SHA256)
 	require.Equal(t, asyncImageOnePixelPNG, base64.StdEncoding.EncodeToString(ref.Data))
+}
+
+func TestAsyncImageReferenceValidationRejectsGIFTrailingDataAndForgedMIME(t *testing.T) {
+	downloader := AsyncImageReferenceDownloader{MaxBytes: 1 << 20, MaxPixels: 100}
+
+	var gifData bytes.Buffer
+	palette := color.Palette{color.Black, color.White}
+	require.NoError(t, gif.Encode(&gifData, image.NewPaletted(image.Rect(0, 0, 1, 1), palette), nil))
+	_, err := downloader.ValidateBytes(gifData.Bytes(), "image/gif")
+	require.Error(t, err)
+
+	pngData := testPNG(t)
+	_, err = downloader.ValidateBytes(append(append([]byte(nil), pngData...), []byte("<script>alert(1)</script>")...), "image/png")
+	require.Error(t, err)
+
+	_, err = downloader.ValidateBytes(pngData, "image/jpeg")
+	require.Error(t, err)
+}
+
+func TestAsyncImageReferenceValidationEnforcesByteAndPixelLimits(t *testing.T) {
+	pngData := testPNG(t)
+	_, err := (AsyncImageReferenceDownloader{MaxBytes: int64(len(pngData) - 1), MaxPixels: 100}).ValidateBytes(pngData, "image/png")
+	require.Error(t, err)
+
+	_, err = (AsyncImageReferenceDownloader{MaxBytes: 1 << 20, MaxPixels: 1}).ValidateBytes(pngData, "image/png")
+	require.Error(t, err)
 }
 
 func TestAsyncImagePublicIPPolicy(t *testing.T) {

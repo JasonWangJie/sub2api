@@ -30,6 +30,9 @@ func RegisterUserRoutes(
 		// 用户接口
 		user := authenticated.Group("/user")
 		{
+			if h.ImageWorkbench != nil {
+				user.GET("/image-workbench/capabilities/:api_key_id", h.ImageWorkbench.GetCapabilities)
+			}
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
@@ -122,12 +125,31 @@ func RegisterUserRoutes(
 		}
 
 		// 图片广场（全局共享）
+		if h.ImageLibrary != nil {
+			library := authenticated.Group("/user/image-library")
+			{
+				library.GET("", h.ImageLibrary.List)
+				library.POST("/import", h.ImageLibrary.Import)
+				library.POST("/import-url", h.ImageLibrary.ImportURL)
+				library.POST("/from-task", h.ImageLibrary.FromTask)
+				library.GET("/:id", h.ImageLibrary.Get)
+				library.PATCH("/:id", h.ImageLibrary.Update)
+				library.DELETE("/:id", h.ImageLibrary.Delete)
+				library.GET("/:id/view", h.ImageLibrary.View)
+				library.POST("/:id/publications", h.ImageLibrary.Publish)
+				library.DELETE("/:id/publication", h.ImageLibrary.Withdraw)
+			}
+		}
+
 		if h.ImagePlaza != nil {
 			plaza := authenticated.Group("/image-plaza")
 			{
 				plaza.GET("", h.ImagePlaza.List)
 				plaza.POST("", h.ImagePlaza.Publish)
 				plaza.DELETE("/:id", h.ImagePlaza.Delete)
+				if h.ImageLibrary != nil {
+					plaza.POST("/:publication_id/reports", h.ImageLibrary.Report)
+				}
 			}
 		}
 

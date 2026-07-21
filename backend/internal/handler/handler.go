@@ -15,6 +15,7 @@ type AdminHandlers struct {
 	DataManagement         *admin.DataManagementHandler
 	Backup                 *admin.BackupHandler
 	AsyncImageTasks        *AsyncImageTaskCenterHandler
+	ImageLibrary           *ImageLibraryHandler
 	OAuth                  *admin.OAuthHandler
 	OpenAIOAuth            *admin.OpenAIOAuthHandler
 	GeminiOAuth            *admin.GeminiOAuthHandler
@@ -67,6 +68,8 @@ type Handlers struct {
 	DurableAsyncImage *DurableAsyncImageHandler
 	BatchImage        *BatchImageHandler
 	ImagePlaza        *ImagePlazaHandler
+	ImageLibrary      *ImageLibraryHandler
+	ImageWorkbench    *ImageWorkbenchHandler
 }
 
 // BuildInfo contains build-time information

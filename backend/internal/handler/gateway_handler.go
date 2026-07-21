@@ -52,6 +52,7 @@ type GatewayHandler struct {
 	contentModerationService  *service.ContentModerationService
 	securityAuditCoordinator  *securityaudit.Coordinator
 	concurrencyHelper         *ConcurrencyHelper
+	imageLimiter              *imageConcurrencyLimiter
 	userMsgQueueHelper        *UserMsgQueueHelper
 	maxAccountSwitches        int
 	maxAccountSwitchesGemini  int
@@ -96,6 +97,10 @@ func NewGatewayHandler(
 		umqHelper = NewUserMsgQueueHelper(userMsgQueueService, SSEPingFormatClaude, pingInterval)
 	}
 
+	imageLimiter := &imageConcurrencyLimiter{}
+	if concurrencyService != nil && concurrencyService.ImageConcurrencyLimiter() != nil {
+		imageLimiter = concurrencyService.ImageConcurrencyLimiter()
+	}
 	return &GatewayHandler{
 		gatewayService:            gatewayService,
 		openAIGatewayService:      openAIGatewayService,
@@ -109,6 +114,7 @@ func NewGatewayHandler(
 		errorPassthroughService:   errorPassthroughService,
 		contentModerationService:  contentModerationService,
 		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
+		imageLimiter:              imageLimiter,
 		userMsgQueueHelper:        umqHelper,
 		maxAccountSwitches:        maxAccountSwitches,
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,

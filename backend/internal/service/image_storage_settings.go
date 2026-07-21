@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	apperrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -90,6 +91,18 @@ func validImageStorageRegion(region string) bool {
 // ErrImageStorageIncomplete 表示开关已打开但凭证不全，无法启用异步生图。
 var ErrImageStorageIncomplete = errors.New("image storage is enabled but bucket/access_key_id/secret_access_key are incomplete")
 
+var ErrImageStorageIdentityInUse = apperrors.Conflict(
+	"IMAGE_STORAGE_IDENTITY_IN_USE",
+	"image storage provider, bucket, endpoint, region, or addressing mode cannot change while active image objects exist; migrate or clean up the existing objects first",
+)
+
+// ImageStorageIdentityGuard prevents a runtime settings update from stranding
+// durable references that can only be opened through the currently configured
+// provider, bucket, endpoint, region, and addressing mode.
+type ImageStorageIdentityGuard interface {
+	HasActiveImageStorageObjects(ctx context.Context) (bool, error)
+}
+
 // ImageStorageFactory 由 repository 层提供，把配置变成一个可用的对象存储实现。
 // 与 BackupObjectStoreFactory 同样的注入方式，避免 service 反向依赖 repository。
 type ImageStorageFactory func(ctx context.Context, cfg *config.ImageStorageConfig) (ImageStorage, error)
@@ -116,7 +129,22 @@ type ImageStorageSettings struct {
 	SecretAccessKey string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
 	ForcePathStyle  bool   `json:"force_path_style"`
 
-	AsyncImage AsyncImageRuntimeConfig `json:"async_image"`
+	AsyncImage AsyncImageRuntimeConfig   `json:"async_image"`
+	Library    ImageLibraryRuntimeConfig `json:"image_library"`
+}
+
+// ImageLibraryRuntimeConfig controls server-side library retention and abuse
+// limits. Zero values from older stored settings are normalized to the safe
+// defaults below.
+type ImageLibraryRuntimeConfig struct {
+	RetentionDays       int   `json:"retention_days"`
+	MaxItemsPerUser     int   `json:"max_items_per_user"`
+	MaxBytesPerUser     int64 `json:"max_bytes_per_user"`
+	MaxImageBytes       int64 `json:"max_image_bytes"`
+	MaxImagePixels      int64 `json:"max_image_pixels"`
+	SignedURLExpirySecs int   `json:"signed_url_expiry_seconds"`
+	ImportPerMinute     int   `json:"import_per_minute"`
+	PublishPerMinute    int   `json:"publish_per_minute"`
 }
 
 // AsyncImageRuntimeConfig is stored with image-storage settings so operational
@@ -147,10 +175,11 @@ type AsyncImageRuntimeConfig struct {
 // 解析结果带缓存：网关每次请求都要判断功能是否开启，不能每次都查库。保存设置时调用
 // Invalidate 清缓存，下一次请求即重建客户端——这是"后台开关立即生效、无需重启"的实现。
 type ImageStorageSettingService struct {
-	settingRepo SettingRepository
-	encryptor   SecretEncryptor
-	backup      *BackupService
-	factory     ImageStorageFactory
+	settingRepo   SettingRepository
+	encryptor     SecretEncryptor
+	backup        *BackupService
+	factory       ImageStorageFactory
+	identityGuard ImageStorageIdentityGuard
 
 	// fallback 是 config.yaml 里的配置。后台从未保存过设置时沿用它，
 	// 保证升级前已用配置文件开启该功能的部署不被打断。
@@ -345,6 +374,9 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		}
 		in.SecretAccessKey = encrypted
 	}
+	if err := s.preventStorageIdentityChange(ctx, &in); err != nil {
+		return nil, err
+	}
 	if in.Enabled {
 		// A configuration cannot become active based only on syntactically valid
 		// credentials. Probe the exact value that will be persisted so failed
@@ -365,6 +397,60 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 
 	in.SecretAccessKey = ""
 	return &in, nil
+}
+
+type imageStorageIdentity struct {
+	Provider       string
+	Bucket         string
+	Endpoint       string
+	Region         string
+	ForcePathStyle bool
+}
+
+func (s *ImageStorageSettingService) preventStorageIdentityChange(ctx context.Context, next *ImageStorageSettings) error {
+	if s == nil || s.identityGuard == nil || next == nil {
+		return nil
+	}
+	currentSettings, err := s.load(ctx)
+	if err != nil {
+		return err
+	}
+	if currentSettings == nil {
+		currentSettings = settingsFromConfig(s.fallback, s.asyncFallback)
+	}
+	current, err := s.storageIdentity(ctx, currentSettings)
+	if err != nil {
+		return fmt.Errorf("resolve current image storage identity: %w", err)
+	}
+	proposed, err := s.storageIdentity(ctx, next)
+	if err != nil {
+		return fmt.Errorf("resolve proposed image storage identity: %w", err)
+	}
+	if current == proposed {
+		return nil
+	}
+	inUse, err := s.identityGuard.HasActiveImageStorageObjects(ctx)
+	if err != nil {
+		return fmt.Errorf("check active image storage objects: %w", err)
+	}
+	if inUse {
+		return ErrImageStorageIdentityInUse
+	}
+	return nil
+}
+
+func (s *ImageStorageSettingService) storageIdentity(ctx context.Context, settings *ImageStorageSettings) (imageStorageIdentity, error) {
+	cfg, err := s.toImageStorageConfig(ctx, settings)
+	if err != nil {
+		return imageStorageIdentity{}, err
+	}
+	return imageStorageIdentity{
+		Provider:       cfg.Provider,
+		Bucket:         cfg.Bucket,
+		Endpoint:       cfg.Endpoint,
+		Region:         cfg.Region,
+		ForcePathStyle: cfg.ForcePathStyle,
+	}, nil
 }
 
 // TestConnection performs a complete object-store probe: upload, HEAD, read,
@@ -579,6 +665,58 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 		in.MaxDownloadBytes = defaultImageMaxDownloadBytes
 	}
 	normalizeAsyncImageRuntimeConfig(&in.AsyncImage)
+	normalizeImageLibraryRuntimeConfig(&in.Library)
+}
+
+func defaultImageLibraryRuntimeConfig() ImageLibraryRuntimeConfig {
+	return ImageLibraryRuntimeConfig{
+		RetentionDays:       90,
+		MaxItemsPerUser:     1000,
+		MaxBytesPerUser:     5 << 30,
+		MaxImageBytes:       DefaultImageLibraryMaxBytes,
+		MaxImagePixels:      DefaultImageLibraryMaxPixels,
+		SignedURLExpirySecs: 3600,
+		ImportPerMinute:     20,
+		PublishPerMinute:    10,
+	}
+}
+
+func normalizeImageLibraryRuntimeConfig(in *ImageLibraryRuntimeConfig) {
+	defaults := defaultImageLibraryRuntimeConfig()
+	if in.RetentionDays <= 0 {
+		in.RetentionDays = defaults.RetentionDays
+	}
+	if in.MaxItemsPerUser <= 0 {
+		in.MaxItemsPerUser = defaults.MaxItemsPerUser
+	}
+	if in.MaxBytesPerUser <= 0 {
+		in.MaxBytesPerUser = defaults.MaxBytesPerUser
+	}
+	if in.MaxImageBytes <= 0 {
+		in.MaxImageBytes = defaults.MaxImageBytes
+	}
+	if in.MaxImagePixels <= 0 {
+		in.MaxImagePixels = defaults.MaxImagePixels
+	}
+	if in.SignedURLExpirySecs <= 0 {
+		in.SignedURLExpirySecs = defaults.SignedURLExpirySecs
+	}
+	if in.ImportPerMinute <= 0 {
+		in.ImportPerMinute = defaults.ImportPerMinute
+	}
+	if in.PublishPerMinute <= 0 {
+		in.PublishPerMinute = defaults.PublishPerMinute
+	}
+}
+
+// LibraryRuntimeConfig returns hot-configured library policy without exposing
+// object-store credentials.
+func (s *ImageStorageSettingService) LibraryRuntimeConfig(ctx context.Context) (ImageLibraryRuntimeConfig, error) {
+	settings, err := s.Get(ctx)
+	if err != nil {
+		return ImageLibraryRuntimeConfig{}, err
+	}
+	return settings.Library, nil
 }
 
 func asyncRuntimeFromConfig(in config.AsyncImageConfig) AsyncImageRuntimeConfig {

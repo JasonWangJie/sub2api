@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -44,11 +45,21 @@ func (h *DurableAsyncImageHandler) startRuntime(ctx context.Context) {
 	if workers <= 0 {
 		workers = 1
 	}
-	go h.asyncImageOutboxLoop(ctx)
-	go h.asyncImageRecoveryLoop(ctx)
-	go h.asyncImageRetentionLoop(ctx)
+	start := func(run func(context.Context)) {
+		h.runtimeWG.Add(1)
+		go func() {
+			defer h.runtimeWG.Done()
+			run(ctx)
+		}()
+	}
+	start(h.asyncImageOutboxLoop)
+	start(h.asyncImageRecoveryLoop)
+	start(h.asyncImageRetentionLoop)
 	for i := 0; i < workers; i++ {
-		go h.asyncImageWorkerLoop(ctx, i)
+		workerID := i
+		start(func(workerCtx context.Context) {
+			h.asyncImageWorkerLoop(workerCtx, workerID)
+		})
 	}
 }
 
@@ -77,14 +88,35 @@ func (h *DurableAsyncImageHandler) dispatchAsyncImageOutbox(ctx context.Context)
 		return err
 	}
 	for _, entry := range entries {
-		err = h.queue.Enqueue(ctx, entry.TaskID)
-		if err == nil || service.IsAsyncImageQueueAlreadyQueued(err) {
+		switch entry.EventType {
+		case "task_ready":
+			err = h.queue.Enqueue(ctx, entry.TaskID)
+			if service.IsAsyncImageQueueAlreadyQueued(err) {
+				err = nil
+			}
+		case "library_archive":
+			err = h.dispatchAsyncImageLibraryArchive(ctx, entry.TaskID)
+		default:
+			err = fmt.Errorf("unsupported async image outbox event %q", entry.EventType)
+		}
+		if err == nil {
 			if markErr := repo.MarkAsyncImageOutboxPublished(ctx, entry.ID, time.Now().UTC()); markErr != nil {
 				return markErr
 			}
 			continue
 		}
 		message := asyncImageSafeError(err)
+		if entry.EventType == "library_archive" && !isRetryableAsyncImageLibraryArchiveError(err) {
+			if archiveRepo, ok := repo.(service.AsyncImageLibraryArchiveOutboxRepository); ok {
+				if markErr := archiveRepo.MarkAsyncImageOutboxTerminal(ctx, entry.ID, time.Now().UTC(), message); markErr != nil {
+					return markErr
+				}
+			} else if markErr := repo.MarkAsyncImageOutboxPublished(ctx, entry.ID, time.Now().UTC()); markErr != nil {
+				return markErr
+			}
+			logger.L().Warn("async_image.library_archive_terminal", zap.String("task_id", entry.TaskID), zap.Error(err))
+			continue
+		}
 		if markErr := repo.MarkAsyncImageOutboxFailed(ctx, entry.ID, time.Now().UTC().Add(5*time.Second), message); markErr != nil {
 			return markErr
 		}
@@ -123,6 +155,11 @@ func (h *DurableAsyncImageHandler) recoverAsyncImageTasks(ctx context.Context, c
 	repo := h.tasks.Repository()
 	if repo == nil {
 		return
+	}
+	if archiveRepo, ok := repo.(service.AsyncImageLibraryArchiveOutboxRepository); ok {
+		if _, err := archiveRepo.EnqueueMissingAsyncImageLibraryArchives(ctx, 200); err != nil && ctx.Err() == nil {
+			logger.L().Warn("async_image.library_archive_backfill_failed", zap.Error(err))
+		}
 	}
 	staleBefore := time.Now().UTC().Add(-lease)
 	invoking, err := repo.ListRecoverableAsyncImageTasks(ctx, []string{service.AsyncImageTaskStatusInvoking}, staleBefore, 100)
@@ -253,6 +290,8 @@ func (h *DurableAsyncImageHandler) processAsyncImageTask(parent context.Context,
 		service.AsyncImageTaskStatusStorageFailed, service.AsyncImageTaskStatusBillingPending,
 		service.AsyncImageTaskStatusBillingFailed:
 		return h.postProcessAsyncImageTask(parent, task, cfg)
+	case service.AsyncImageTaskStatusSucceeded:
+		return asyncImageWorkerDisposition{}
 	default:
 		return asyncImageWorkerDisposition{}
 	}
@@ -320,18 +359,13 @@ func (h *DurableAsyncImageHandler) invokeAsyncImageTask(parent context.Context, 
 	}
 	ginContext.Set(ctxKeyInboundEndpoint, NormalizeInboundEndpoint(payload.SourcePath))
 
-	if task.Platform == service.PlatformGemini {
-		if h.gateway == nil {
-			h.failAsyncImageTask(parent, task, "gateway_unavailable", "Gemini image gateway is unavailable", false)
-			return asyncImageWorkerDisposition{}
+	if !h.forwardAsyncImageUpstream(ginContext, task.Platform) {
+		message := "OpenAI image gateway is unavailable"
+		if task.Platform == service.PlatformGemini {
+			message = "Gemini image gateway is unavailable"
 		}
-		h.gateway.ChatCompletions(ginContext)
-	} else {
-		if h.openAI == nil {
-			h.failAsyncImageTask(parent, task, "gateway_unavailable", "OpenAI image gateway is unavailable", false)
-			return asyncImageWorkerDisposition{}
-		}
-		h.openAI.Images(ginContext)
+		h.failAsyncImageTask(parent, task, "gateway_unavailable", message, false)
+		return asyncImageWorkerDisposition{}
 	}
 	if executionCtx.Err() != nil {
 		h.markAsyncImageExecutionUnknown(parent, task, "upstream execution timed out before its outcome was durably recorded")
@@ -376,6 +410,40 @@ func (h *DurableAsyncImageHandler) invokeAsyncImageTask(parent context.Context, 
 		return asyncImageWorkerDisposition{}
 	}
 	return h.postProcessAsyncImageTask(parent, storedTask, cfg)
+}
+
+// forwardAsyncImageUpstream keeps the image concurrency lease scoped to the
+// single upstream invocation. Gemini's compatibility Chat Completions route
+// has no public image gate, so the worker acquires the shared Gateway lease
+// here. OpenAI delegates to Images, which already owns the same shared lease;
+// acquiring again here would double-count one request and reject at limit 1.
+func (h *DurableAsyncImageHandler) forwardAsyncImageUpstream(c *gin.Context, platform string) bool {
+	if h == nil || c == nil {
+		return false
+	}
+	switch platform {
+	case service.PlatformGemini:
+		if h.gateway == nil {
+			return false
+		}
+		release, acquired := h.gateway.acquireGeminiImageGenerationSlot(c)
+		if !acquired {
+			return true
+		}
+		if release != nil {
+			defer release()
+		}
+		h.gateway.ChatCompletions(c)
+		return true
+	case service.PlatformOpenAI:
+		if h.openAI == nil {
+			return false
+		}
+		h.openAI.Images(c)
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *DurableAsyncImageHandler) buildAsyncImageUpstreamRequest(ctx context.Context, task *service.AsyncImageTask, payload *durableAsyncImagePayload, cfg service.AsyncImageRuntimeConfig) ([]byte, string, string, error) {
@@ -653,7 +721,7 @@ func (h *DurableAsyncImageHandler) postProcessAsyncImageTask(ctx context.Context
 	if prepared.NotBillable {
 		billingStatus = service.AsyncImageBillingStatusNotBillable
 	}
-	_, err := h.tasks.Transition(ctx, service.AsyncImageTaskTransition{
+	succeededTask, err := h.tasks.Transition(ctx, service.AsyncImageTaskTransition{
 		TaskID: task.TaskID, ExpectedVersion: task.Version,
 		FromStatuses: []string{service.AsyncImageTaskStatusBillingPending},
 		ToStatus:     service.AsyncImageTaskStatusSucceeded,
@@ -666,7 +734,59 @@ func (h *DurableAsyncImageHandler) postProcessAsyncImageTask(ctx context.Context
 	if err := repo.DeleteAsyncImageStagingObjects(ctx, task.TaskID); err != nil {
 		logger.L().Warn("async_image.staging_cleanup_failed", zap.String("task_id", task.TaskID), zap.Error(err))
 	}
+	_ = succeededTask // The succeeded transition atomically schedules library archival through its outbox.
 	return asyncImageWorkerDisposition{}
+}
+
+func (h *DurableAsyncImageHandler) dispatchAsyncImageLibraryArchive(ctx context.Context, taskID string) error {
+	if h == nil || h.tasks == nil || h.tasks.Repository() == nil {
+		return errors.New("async image task repository is unavailable")
+	}
+	task, err := h.tasks.Repository().GetAsyncImageTaskByTaskID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if task.Status != service.AsyncImageTaskStatusSucceeded {
+		return infraerrors.New(http.StatusConflict, "ASYNC_IMAGE_NOT_ARCHIVABLE", "asynchronous image task is not ready for library archival")
+	}
+	return h.archiveAsyncImageTaskResults(ctx, task)
+}
+
+func isRetryableAsyncImageLibraryArchiveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	type multiUnwrapper interface{ Unwrap() []error }
+	var joined multiUnwrapper
+	if errors.As(err, &joined) {
+		for _, nested := range joined.Unwrap() {
+			if isRetryableAsyncImageLibraryArchiveError(nested) {
+				return true
+			}
+		}
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	code := infraerrors.Code(err)
+	return code < http.StatusBadRequest || code >= http.StatusInternalServerError
+}
+
+func (h *DurableAsyncImageHandler) archiveAsyncImageTaskResults(ctx context.Context, task *service.AsyncImageTask) error {
+	if h == nil || task == nil || task.Status != service.AsyncImageTaskStatusSucceeded {
+		return nil
+	}
+	if h.library == nil {
+		return errors.New("image library service is unavailable")
+	}
+	var firstErr error
+	for imageIndex := 0; imageIndex < task.ImageCount; imageIndex++ {
+		if _, _, err := h.library.FromTask(ctx, task.UserID, task.TaskID, imageIndex, ""); err != nil {
+			firstErr = errors.Join(firstErr, fmt.Errorf("archive image %d: %w", imageIndex, err))
+		}
+	}
+	return firstErr
 }
 
 func (h *DurableAsyncImageHandler) uploadAsyncImageStaging(ctx context.Context, task *service.AsyncImageTask) error {

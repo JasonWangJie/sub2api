@@ -18,6 +18,8 @@ type asyncImageRetentionRepoStub struct {
 	tasks          []AsyncImageRetentionTask
 	taskResults    map[string][]AsyncImageResult
 	events         *[]string
+	sharedObjects  map[string]bool
+	referenceArgs  *[]string
 }
 
 func (s *asyncImageRetentionRepoStub) RegisterAsyncImageInputObject(context.Context, RegisterAsyncImageInputObjectParams) (*AsyncImageInputObject, error) {
@@ -76,6 +78,13 @@ func (s *asyncImageRetentionRepoStub) ReleaseAsyncImageTaskDeletion(_ context.Co
 
 func (s *asyncImageRetentionRepoStub) ListAsyncImageResults(_ context.Context, taskID string) ([]AsyncImageResult, error) {
 	return s.taskResults[taskID], nil
+}
+
+func (s *asyncImageRetentionRepoStub) HasLiveImageObjectReference(_ context.Context, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error) {
+	if s.referenceArgs != nil {
+		*s.referenceArgs = append(*s.referenceArgs, ref.ObjectKey+":"+excludedTaskID)
+	}
+	return s.sharedObjects[ref.ObjectKey], nil
 }
 
 type asyncImageRetentionStorageStub struct {
@@ -184,6 +193,36 @@ func TestAsyncImageRetentionReleasesClaimWhenObjectDeleteFails(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, stats.InputsDeleted)
 	require.Equal(t, []string{"delete:input", "release-input"}, events)
+}
+
+func TestAsyncImageRetentionKeepsSharedObjectAndOnlyRemovesResultRow(t *testing.T) {
+	now := time.Now().UTC()
+	events := make([]string, 0)
+	checks := make([]string, 0)
+	claim := now.Add(-time.Minute)
+	repo := &asyncImageRetentionRepoStub{
+		results: []AsyncImageResult{{
+			ID: 2, ObjectKey: "shared-result", CleanupClaimedAt: claim,
+		}},
+		taskResults:   map[string][]AsyncImageResult{},
+		events:        &events,
+		sharedObjects: map[string]bool{"shared-result": true},
+		referenceArgs: &checks,
+	}
+	durable := &asyncImageRetentionDurableStub{events: &events, failKeys: map[string]error{}}
+	svc := &AsyncImageRetentionService{
+		repo: repo,
+		storage: &asyncImageRetentionStorageStub{
+			durable: durable,
+			cfg:     AsyncImageRuntimeConfig{ResultRetentionDays: 90, TaskRetentionDays: 90},
+		},
+	}
+
+	stats, err := svc.RunOnce(context.Background(), now)
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.ResultsDeleted)
+	require.Equal(t, []string{"complete-result"}, events)
+	require.Equal(t, []string{"shared-result:"}, checks)
 }
 
 type asyncImageInputResolverRepoStub struct {

@@ -322,6 +322,14 @@ func (r *asyncImageTaskRepository) TransitionAsyncImageTask(ctx context.Context,
 	}); err != nil {
 		return nil, err
 	}
+	if transition.ToStatus == service.AsyncImageTaskStatusSucceeded {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO async_image_outbox(task_id,event_type,dedup_key,payload)
+VALUES($1,'library_archive',$2,'{}'::jsonb)
+ON CONFLICT(dedup_key) DO NOTHING`, transition.TaskID, transition.TaskID+":library_archive"); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -511,13 +519,30 @@ func (r *asyncImageTaskRepository) ReplaceAsyncImageResults(ctx context.Context,
 	}
 	for i := range results {
 		result := results[i]
+		var storageObjectID int64
+		if err := tx.QueryRowContext(ctx, `
+INSERT INTO image_storage_objects (
+    provider, bucket, object_key, content_type, byte_size, checksum_sha256,
+    width, height
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (provider, bucket, object_key) DO UPDATE SET
+    content_type=EXCLUDED.content_type, byte_size=EXCLUDED.byte_size,
+    checksum_sha256=EXCLUDED.checksum_sha256, width=EXCLUDED.width,
+    height=EXCLUDED.height, state='active', deletion_claimed_at=NULL,
+    deleted_at=NULL, updated_at=NOW()
+RETURNING id`,
+			result.Provider, result.Bucket, result.ObjectKey, result.ContentType,
+			result.ByteSize, result.Checksum, result.Width, result.Height,
+		).Scan(&storageObjectID); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO async_image_results (
     task_id, image_index, provider, bucket, object_key, content_type,
-    byte_size, checksum, width, height
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    byte_size, checksum, width, height, storage_object_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			taskID, result.ImageIndex, result.Provider, result.Bucket, result.ObjectKey,
-			result.ContentType, result.ByteSize, result.Checksum, result.Width, result.Height,
+			result.ContentType, result.ByteSize, result.Checksum, result.Width, result.Height, storageObjectID,
 		); err != nil {
 			return err
 		}
@@ -769,6 +794,92 @@ WHERE id = $1 AND published_at IS NULL`, id, availableAt, message)
 		return service.ErrAsyncImageTaskNotFound
 	}
 	return nil
+}
+
+func (r *asyncImageTaskRepository) MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, publishedAt time.Time, message string) error {
+	if publishedAt.IsZero() {
+		publishedAt = time.Now().UTC()
+	}
+	result, err := r.sql.ExecContext(ctx, `
+UPDATE async_image_outbox
+SET published_at = $2, claimed_at = NULL, last_error = $3, updated_at = $2
+WHERE id = $1 AND published_at IS NULL`, id, publishedAt, truncateString(message, 2000))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAsyncImageTaskNotFound
+	}
+	return nil
+}
+
+// EnqueueMissingAsyncImageLibraryArchives backfills tasks that predate the
+// transactional library_archive event and repairs the former publish-before-
+// archive delivery window. Terminal failures keep last_error and are never
+// resurrected; deleted library rows also remain authoritative tombstones.
+func (r *asyncImageTaskRepository) EnqueueMissingAsyncImageLibraryArchives(ctx context.Context, limit int) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("async image task repository is not configured")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	result, err := r.sql.ExecContext(ctx, `
+WITH reactivated AS (
+  UPDATE async_image_outbox o
+  SET published_at=NULL,claimed_at=NULL,available_at=NOW(),last_error=NULL,updated_at=NOW()
+  WHERE o.id IN (
+    SELECT existing.id
+    FROM async_image_outbox existing
+    JOIN async_image_tasks t ON t.task_id=existing.task_id
+    WHERE existing.event_type='library_archive'
+      AND existing.published_at IS NOT NULL AND existing.last_error IS NULL
+      AND t.status='succeeded' AND t.billing_status IN ('succeeded','not_billable')
+      AND EXISTS (
+        SELECT 1 FROM async_image_results r
+        WHERE r.task_id=t.task_id
+          AND COALESCE(r.library_validation_status,'pending')<>'quarantined'
+          AND NOT EXISTS (
+            SELECT 1 FROM image_library_items i
+            WHERE i.user_id=t.user_id AND i.source_task_id=t.task_id
+              AND i.source_result_index=r.image_index
+          )
+      )
+    ORDER BY existing.id
+    LIMIT $1
+  )
+  RETURNING o.id
+)
+INSERT INTO async_image_outbox(task_id,event_type,dedup_key,payload)
+SELECT t.task_id,'library_archive',t.task_id || ':library_archive','{}'::jsonb
+FROM async_image_tasks t
+WHERE t.status='succeeded'
+  AND t.billing_status IN ('succeeded','not_billable')
+  AND EXISTS (
+    SELECT 1 FROM async_image_results r
+    WHERE r.task_id=t.task_id
+      AND COALESCE(r.library_validation_status,'pending')<>'quarantined'
+      AND NOT EXISTS (
+        SELECT 1 FROM image_library_items i
+        WHERE i.user_id=t.user_id AND i.source_task_id=t.task_id
+          AND i.source_result_index=r.image_index
+      )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM async_image_outbox o
+    WHERE o.dedup_key=t.task_id || ':library_archive'
+  )
+ORDER BY t.id
+LIMIT $1
+ON CONFLICT(dedup_key) DO NOTHING`, limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func scanAsyncImageOutboxEntries(rows *sql.Rows) ([]service.AsyncImageOutboxEntry, error) {

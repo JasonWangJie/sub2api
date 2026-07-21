@@ -46,10 +46,12 @@ type DurableAsyncImageHandler struct {
 	apiKeys       *service.APIKeyService
 	subscriptions *service.SubscriptionService
 	accounts      *service.AccountService
+	library       *service.ImageLibraryService
 
 	startOnce sync.Once
 	stopOnce  sync.Once
 	stop      context.CancelFunc
+	runtimeWG sync.WaitGroup
 }
 
 func NewDurableAsyncImageHandler(
@@ -62,11 +64,12 @@ func NewDurableAsyncImageHandler(
 	apiKeys *service.APIKeyService,
 	subscriptions *service.SubscriptionService,
 	accounts *service.AccountService,
+	library *service.ImageLibraryService,
 ) *DurableAsyncImageHandler {
 	h := &DurableAsyncImageHandler{
 		tasks: tasks, queue: queue, storage: storage, encryptor: encryptor,
 		gateway: gateway, openAI: openAI, apiKeys: apiKeys,
-		subscriptions: subscriptions, accounts: accounts,
+		subscriptions: subscriptions, accounts: accounts, library: library,
 	}
 	h.Start()
 	return h
@@ -94,6 +97,7 @@ func (h *DurableAsyncImageHandler) Stop() {
 		if h.stop != nil {
 			h.stop()
 		}
+		h.runtimeWG.Wait()
 	})
 }
 
@@ -671,8 +675,6 @@ func asyncImageExtension(contentType string) string {
 		return ".jpg"
 	case "image/webp":
 		return ".webp"
-	case "image/gif":
-		return ".gif"
 	default:
 		return ".png"
 	}

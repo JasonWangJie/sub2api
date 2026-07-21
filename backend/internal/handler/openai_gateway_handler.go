@@ -161,6 +161,10 @@ func NewOpenAIGatewayHandler(
 			maxAccountSwitches = cfg.Gateway.MaxAccountSwitches
 		}
 	}
+	imageLimiter := &imageConcurrencyLimiter{}
+	if concurrencyService != nil && concurrencyService.ImageConcurrencyLimiter() != nil {
+		imageLimiter = concurrencyService.ImageConcurrencyLimiter()
+	}
 	return &OpenAIGatewayHandler{
 		gatewayService:           gatewayService,
 		billingCacheService:      billingCacheService,
@@ -170,7 +174,7 @@ func NewOpenAIGatewayHandler(
 		contentModerationService: contentModerationService,
 		opsService:               opsService,
 		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
-		imageLimiter:             &imageConcurrencyLimiter{},
+		imageLimiter:             imageLimiter,
 		maxAccountSwitches:       maxAccountSwitches,
 		cfg:                      cfg,
 	}

@@ -94,6 +94,8 @@ func provideCleanup(
 	idempotencyCleanup *service.IdempotencyCleanupService,
 	batchImageCleanup *service.BatchImageCleanupService,
 	batchImageWorker *service.BatchImageWorkerRuntime,
+	durableAsyncImage *handler.DurableAsyncImageHandler,
+	imageLibraryMaintenance *service.ImageLibraryMaintenanceService,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -224,6 +226,18 @@ func provideCleanup(
 			{"BatchImageWorkerRuntime", func() error {
 				if batchImageWorker != nil {
 					batchImageWorker.Stop()
+				}
+				return nil
+			}},
+			{"DurableAsyncImageHandler", func() error {
+				if durableAsyncImage != nil {
+					durableAsyncImage.Stop()
+				}
+				return nil
+			}},
+			{"ImageLibraryMaintenanceService", func() error {
+				if imageLibraryMaintenance != nil {
+					imageLibraryMaintenance.Stop()
 				}
 				return nil
 			}},
