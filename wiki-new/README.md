@@ -1,77 +1,121 @@
-# Sub2API 异步生图二次开发交接 Wiki
+# Sub2API 图片工作流二次开发交接 Wiki
 
-本目录只记录 `JasonWangJie/sub2api` Fork 的持久化异步生图二次开发，不替代原项目 `README*.md`、`docs/` 或 `wiki/`。新的开发者或 AI 应先读本页，再按任务打开对应专题。
+本目录只记录 `JasonWangJie/sub2api` Fork 的图片相关二次开发，不替代原项目 `README*.md`、`docs/` 或 `wiki/`。内容覆盖两轮连续建设：持久化异步生图任务中心，以及在其上扩展的图片工作台、服务端个人图库、审核广场和安全迁移。
 
-这是仓库内 Wiki，会随 `origin/main` 和 `git clone` 到达新电脑。GitHub 网站的 Wiki 标签页使用独立的 `sub2api.wiki.git` 仓库，本次不向那个独立仓库发布，也不应误报为已更新 GitHub Wiki。
+这是随 Git 仓库分发的交接资料。GitHub 网站的 Wiki 标签页属于独立的 `sub2api.wiki.git` 仓库；本目录没有声称更新那个独立仓库。
 
 ## 当前结论
 
-- 发布版本文件：`backend/cmd/server/VERSION = 0.1.162`，本次没有主动升级版本号。
-- 开发基线：`6a57b47d7`，即合并原作者 `upstream/main` 后的本地 `main`。
-- 精确交付提交：运行 `git rev-parse HEAD`。文档与功能在同一交付提交中，因此不硬编码自引用的最终 SHA。
-- 功能状态：计划内代码已实现，后端和前端自动化验证已通过。
-- 生产验收状态：尚未使用七牛、阿里、腾讯真实凭证逐厂商联调，也尚未完成桌面/移动浏览器截图验收。
-- 明确不在范围：视频、取消任务、删除任务、在原任务号上重新调用上游。
+- 发布版本文件仍是 `backend/cmd/server/VERSION = 0.1.162`，本轮不主动升级版本号。
+- 本轮开发基线是 `51b083d374decf811ac88f8b0194165db9a8ba79`，基线描述为 `v0.1.162-4-g51b083d37`。
+- 当前工作分支是 `feat/image-workflow-library-moderation`；主体功能与 SC 安全层已经形成逻辑提交，交接文档、上游合并、CI 与推送仍在进行。
+- 图片工作台、服务端图库、统一对象引用、投稿审核、举报、安全迁移、批量审核、维护 Worker 和 SC 上传安全层的代码已存在。
+- `2026-07-22` 合并上游前的 Go/前端完整门禁已覆盖迁移 `187` 最后改动并通过；Chrome 证据仍早于最后一批 SC/后台配置改动。合并 `upstream/main` 后的最终全量重跑仍为 `PENDING`。
+- 真实 PostgreSQL/testcontainers、真实云厂商与上游计费、最终提交 SHA/`git describe`、Fork CI 和 `origin/main` 推送仍为 `PENDING`；Fork CI 尚未运行。
+- 没有真实执行记录的项目一律不得改写为“通过”或“生产可用”。
 
-不要把“代码完成”误写成“生产验收完成”。上线前仍应完成 [08-known-risks-and-next-steps.md](08-known-risks-and-next-steps.md) 中的 P0 项。
+精确状态以 [01-current-status.md](01-current-status.md) 为准。最终交付完成后，应把其中的 `PENDING` 更新为真实命令、时间、结果和提交 SHA。
 
 ## 文档导航
 
 | 文档 | 用途 |
 |---|---|
-| [01-current-status.md](01-current-status.md) | 完成度、文件范围、版本与 Git 状态 |
-| [02-architecture.md](02-architecture.md) | 请求链路、持久化、队列、Worker 和状态机 |
-| [03-api-contracts.md](03-api-contracts.md) | 7 条下游接口、BB/SC 语义和兼容边界 |
-| [04-billing-and-idempotency.md](04-billing-and-idempotency.md) | 计费不变量、固定账单、幂等与故障处理 |
-| [05-storage-and-retention.md](05-storage-and-retention.md) | OSS 厂商、结果链接、参考图安全和清理策略 |
-| [06-deployment-and-configuration.md](06-deployment-and-configuration.md) | 迁移、配置、构建、上线和回滚前检查 |
-| [07-testing-and-validation.md](07-testing-and-validation.md) | 已执行测试、已知无关失败和验收清单 |
-| [08-known-risks-and-next-steps.md](08-known-risks-and-next-steps.md) | 风险、限制和后续优先级 |
-| [09-ai-handoff-checklist.md](09-ai-handoff-checklist.md) | 下一台电脑或下一位 AI 的无缝接手步骤 |
+| [01-current-status.md](01-current-status.md) | 版本、工作树、完成度与待交付项 |
+| [02-architecture.md](02-architecture.md) | 持久异步任务链路、队列、状态机和恢复边界 |
+| [03-api-contracts.md](03-api-contracts.md) | BB/SC 下游契约和站内图片 API |
+| [04-billing-and-idempotency.md](04-billing-and-idempotency.md) | 计费不变量、混合尺寸、固定账单与幂等 |
+| [05-storage-and-retention.md](05-storage-and-retention.md) | OSS、统一对象引用、签名、配额和保留策略 |
+| [06-deployment-and-configuration.md](06-deployment-and-configuration.md) | `185/186/187` 迁移、配置、部署和回滚 |
+| [07-testing-and-validation.md](07-testing-and-validation.md) | 已知测试证据、完整复验命令和验收矩阵 |
+| [08-known-risks-and-next-steps.md](08-known-risks-and-next-steps.md) | P0 风险、产品缺口和后续优先级 |
+| [09-ai-handoff-checklist.md](09-ai-handoff-checklist.md) | 新电脑或下一位 AI 的无缝接手步骤 |
+| [10-image-workbench.md](10-image-workbench.md) | Key 分组驱动的实时/异步工作台 |
+| [11-image-library-object-model.md](11-image-library-object-model.md) | 服务端个人图库与对象引用模型 |
+| [12-moderated-plaza-and-migration.md](12-moderated-plaza-and-migration.md) | 审核广场、举报、旧广场迁移和维护 Worker |
 
-对外调用示例、完整请求体和 BB/SC 返回体以 [../docs/DURABLE_ASYNC_IMAGE_API.md](../docs/DURABLE_ASYNC_IMAGE_API.md) 为权威来源。原有 Redis 异步接口仍看 [../docs/ASYNC_IMAGE_TASKS.md](../docs/ASYNC_IMAGE_TASKS.md)。
+持久异步下游请求/响应示例以 [../docs/DURABLE_ASYNC_IMAGE_API.md](../docs/DURABLE_ASYNC_IMAGE_API.md) 为权威来源。旧 Redis 24 小时异步接口仍看 [../docs/ASYNC_IMAGE_TASKS.md](../docs/ASYNC_IMAGE_TASKS.md)。原始需求文档 `docs/图片生成新功能请求说明.md` 只用于理解来源，不是最终上线契约。
 
-发生文档差异时的真值优先级是：数据库迁移和实际代码 > `docs/DURABLE_ASYNC_IMAGE_API.md` > 本交接 Wiki > `readmenew.md` 摘要。`docs/图片生成新功能请求说明.md` 是需求来源，不是最终上线契约。
+发生差异时的真值顺序：
+
+```text
+数据库迁移与当前代码
+  > docs/DURABLE_ASYNC_IMAGE_API.md（持久异步公共协议）
+  > wiki-new 专题（架构与交接）
+  > readmenew.md（摘要）
+  > 早期聊天和原始需求草稿
+```
+
+## 两层系统关系
+
+```text
+下游客户端
+  -> 原同步 API / 旧 Redis 异步 API / 新持久异步 BB、SC API
+
+站内用户
+  -> 图片工作台能力接口
+  -> Key 当前分组决定实时或异步执行
+  -> 实时结果导入 OSS，异步结果复用任务 OSS 对象
+  -> 默认私有个人图库
+  -> 用户显式投稿
+  -> 管理员审核
+  -> 已批准图片广场
+```
+
+`185_async_image_tasks.sql` 负责持久异步任务；`186_image_library_and_plaza_moderation.sql` 负责统一对象、图库、投稿、举报、事件、Outbox、清理和旧广场迁移；`187_async_image_upload_reservations.sql` 负责 SC 上传 attempt/reservation/URL alias。不要把三者回滚、清理或所有权规则混为一套。
 
 ## 绝对不能破坏的约束
 
-1. BB、SC 只是下游方言，不是上游供应商；真正的上游由 API Key 当前分组决定。
-2. 新开关只控制新接口。旧同步接口和旧 `/async` 接口不得自动切换到新逻辑。
-3. 上游成功后才按现有规则准备账单；一旦准备，重试不得按新价格重新计算。
-4. `billing_failed`、`storage_failed` 只续跑后处理，不得再次调用 Gemini/OpenAI。
-5. `execution_unknown` 禁止自动重调。需要重新生成时必须创建新任务号，并接受可能产生第二次上游费用。
-6. 普通用户只有在 OSS 结果已持久化且账务为 `succeeded` 或 `not_billable` 时才能看结果链接。
-7. 公共查询必须使用提交任务的同一 API Key；其他 Key 返回 `404`，不能泄露任务存在性。
-8. 不要把对象存储的预签名 URL写入任务表；只保存 provider、bucket 和 object key 等稳定引用。
+1. BB、SC 只是下游方言；上游平台始终由 API Key 当前分组决定。
+2. 旧同步接口、旧 Redis `/async` 接口和新持久异步接口保持独立，不因工作台或新开关改变旧响应体。
+3. 工作台不允许用户手工选实时/异步；必须在提交前重新读取 Key 能力。
+4. 实时与异步失败不能互相回退，避免重复生成和重复费用。
+5. 所有新图片默认私有；只有显式投稿并审核通过的资产才进入公开广场。
+6. 图库归档失败不能重新调用上游、改变生成成功状态或产生第二笔费用。
+7. 异步上游成功后固定账单；后处理重试不重新计算价格，不重复扣费。
+8. `execution_unknown` 禁止自动重调；再次生成必须创建新任务号。
+9. 对象可能被异步结果、图库和有效投稿共同引用；删除前必须检查全部引用。
+10. 数据库不保存预签名 URL，不向普通用户泄露内部 user ID、对象 key、上游账号或完整错误。
+11. 旧广场内容未经过新校验和审核，升级时先隐藏，再迁为私有和待审；绝不能直接继续公开。
+12. SC 上传必须经过 PostgreSQL 两阶段 admission；幂等重放只能重签同一对象，不能因数据库/OSS故障 fail open 或漏计配额。
+13. 上传 object intent 必须先于 OSS 持久化；Put 最大 600 秒；失败 intent 至少间隔十分钟二次删除且清理前继续计入容量。
+14. URL alias 始终复核 Key 所有权，每输入对象最多 128 个且过期记录保留为墓碑；客户端文件名不得进入 object key。
+15. 视频不在本轮范围。
 
 ## 快速定位
 
-后端入口主要在：
+后端主要入口：
 
 ```text
-backend/internal/handler/durable_async_image_handler.go
-backend/internal/handler/durable_async_image_worker.go
-backend/internal/handler/async_image_task_center_handler.go
-backend/internal/service/async_image_task.go
-backend/internal/service/async_image_protocol.go
-backend/internal/service/prepared_usage_billing.go
-backend/internal/repository/async_image_task_repo.go
-backend/internal/repository/async_image_queue.go
 backend/migrations/185_async_image_tasks.sql
+backend/migrations/186_image_library_and_plaza_moderation.sql
+backend/migrations/187_async_image_upload_reservations.sql
+backend/internal/handler/durable_async_image_*.go
+backend/internal/service/async_image_upload.go
+backend/internal/repository/async_image_upload_repo.go
+backend/internal/handler/image_workbench_handler.go
+backend/internal/handler/image_library_handler.go
+backend/internal/handler/image_plaza_handler.go
+backend/internal/service/image_workbench.go
+backend/internal/service/image_library.go
+backend/internal/service/image_library_maintenance.go
+backend/internal/service/image_plaza_helpers.go
+backend/internal/repository/image_library_repo.go
 ```
 
-前端入口主要在：
+前端主要入口：
 
 ```text
-frontend/src/features/async-image-tasks/
-frontend/src/views/admin/GroupsView.vue
-frontend/src/views/admin/BackupView.vue
-frontend/src/views/admin/groupsAsyncImage.ts
-frontend/src/router/index.ts
-frontend/src/components/layout/AppSidebar.vue
+frontend/src/features/image-workflow/
+frontend/src/views/user/ImageWorkbenchView.vue
+frontend/src/views/user/ImageLibraryView.vue
+frontend/src/views/user/ImagePlazaView.vue
+frontend/src/views/admin/ImageModerationView.vue
+frontend/src/api/imageWorkbench.ts
+frontend/src/api/imageLibrary.ts
+frontend/src/api/imagePlaza.ts
 ```
 
-开始工作前先执行：
+开始工作前执行：
 
 ```bash
 git status --short --branch
@@ -80,4 +124,4 @@ git log -5 --oneline --decorate
 git describe --tags --always --dirty
 ```
 
-`origin` 应是 `JasonWangJie/sub2api`，`upstream` 应是 `Wei-Shaw/sub2api`。任何推送都显式使用 `git push origin HEAD:main`，不要推送到 `upstream`。
+`origin` 应指向 `JasonWangJie/sub2api`，`upstream` 应指向 `Wei-Shaw/sub2api`。不要推送到 `upstream`，不要对共享分支使用 force push。

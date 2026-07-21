@@ -1,567 +1,171 @@
-# Sub2API
+# Sub2API Fork 二次开发总览
 
-**AI API 网关平台 — 订阅配额分发与统一接入**
+> 本文件只记录 `JasonWangJie/sub2api` Fork 的二次开发与交接信息，不替代、覆盖或改写原作者的 `README*.md`、`docs/` 或 `wiki/`。原项目安装和基础使用说明仍以原作者文档为准。
 
-[官方 README](README.md) · [中文](README_CN.md) · [日本語](README_JA.md) · [开发指南](DEV_GUIDE.md) · [**Wiki 文档**](wiki/Home.md) · [**异步生图二开交接**](wiki-new/README.md)
+## 从这里开始
 
----
+换电脑、换会话或交给新的 AI 后，按以下顺序恢复上下文：
 
-## 当前二次开发交接
+1. 阅读 [wiki-new/README.md](wiki-new/README.md)。
+2. 阅读 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md)。
+3. 根据任务阅读异步任务、工作台、图库或审核专题。
+4. 运行 `git status --short --branch`、`git rev-parse HEAD`、`git describe --tags --always --dirty`，以实际工作树为准。
+5. 不要把本文中的开发基线当成最终交付 SHA；最终提交、推送和 CI 当前仍标记为 `PENDING`。
 
-2026-07-21 已在 `0.1.162` 基线上完成“持久化异步生图兼容层与任务中心”的代码实现。该功能新增 BB/SC 下游协议、Gemini/OpenAI 异步执行、PostgreSQL 持久任务、Redis 可靠队列、固定账单重试、七牛/阿里/腾讯/custom S3 存储和用户/管理员任务页面，同时保持原同步接口与旧 Redis 异步接口不变。
+## 当前版本快照
 
-换电脑或交给新的 AI 继续开发时，从 [wiki-new/README.md](wiki-new/README.md) 开始。那里明确记录了完成范围、核心不变量、部署和验证命令、尚未完成的真实云厂商联调与浏览器视觉验收，以及后续工作的优先级。对外协议的权威说明见 [docs/DURABLE_ASYNC_IMAGE_API.md](docs/DURABLE_ASYNC_IMAGE_API.md)。
+记录日期：`2026-07-22`。
 
-> 本交接目录是 Fork 的二次开发资料，不替代原作者的 `README*.md`、`docs/` 或 `wiki/`。项目发布版本号仍为 `0.1.162`；当前精确提交以 `git rev-parse HEAD` 为准。
+| 项目 | 当前记录 |
+|---|---|
+| 发布版本文件 | `backend/cmd/server/VERSION = 0.1.162` |
+| 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
+| 基线描述 | `v0.1.162-4-g51b083d37` |
+| 当前功能分支 | `feat/image-workflow-library-moderation` |
+| SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
+| 最终交付 SHA | `PENDING` |
+| 最终 `git describe` | `PENDING` |
+| Fork CI | `PENDING` |
+| 合并并推送 `origin/main` | `PENDING` |
 
----
+本轮不主动修改 `0.1.162` 发布版本号。最终交付必须同时报告 `VERSION`、完整 SHA、`git describe`、推送分支和 CI 链接/结果。
 
-## 这是什么
+## 本 Fork 的图片能力
 
-Sub2API 把上游 AI 订阅账号（Claude / OpenAI / Gemini / Grok / Antigravity 等）统一成可分发的 API 网关。
+本 Fork 在原有网关能力上增加了两层图片工作流：
 
-管理员在后台接入上游账号、配置分组与调度策略；终端用户拿到平台下发的 API Key，用兼容官方协议的方式调用模型。平台负责：
+- 持久化异步生图兼容层：为下游提供 Gemini BB、OpenAI BB 和 Gemini SC 方言，任务、结果、账务与 OSS 状态持久化。
+- 站内图片产品层：图片工作台根据所选 API Key 的当前分组自动选择实时或异步执行；生成结果归档到服务端个人图库；公开作品必须显式投稿并经管理员审核。
 
-- 鉴权与会话
-- 账号调度与粘性会话
-- Token 级用量统计与计费
-- 并发 / 速率限制
-- 请求转发与故障切换
-- 管理后台与自助充值
-
-典型用途：团队内部分发订阅配额、自建中转站、对接 Claude Code / Codex / Gemini CLI 等工具。
-
----
-
-## ⚠️ 使用前须知
-
-- 使用本项目可能违反 Anthropic 等上游服务商的服务条款，风险由使用者自行承担。
-- 请在符合当地法律法规的前提下使用；禁止用于违法用途。
-- 项目仅供技术学习与研究；作者不对封号、中断、数据丢失等损失负责。
-- 开发者未授权任何商业运营；基于本项目的商业行为与官方无关。
-
-许可证：[LGPL-3.0](LICENSE)（或更高版本）
-
----
-
-## 核心能力
-
-| 能力 | 说明 |
-|------|------|
-| 多账号管理 | OAuth / API Key 等多种上游账号接入 |
-| API Key 分发 | 为用户生成、管理 Key，绑定分组与权限 |
-| 精确计费 | Token 级用量追踪、成本计算、余额/订阅 |
-| 智能调度 | 按分组/平台选账号，支持粘性会话与故障切换 |
-| 限流与并发 | 用户级、账号级并发与 RPM/Token 限制 |
-| 内置支付 | EasyPay、支付宝、微信、Stripe 等自助充值 |
-| 管理后台 | 监控、运维看板、风控、公告、数据备份等 |
-| 协议兼容 | Anthropic Messages、OpenAI Chat/Responses、Gemini v1beta 等 |
-
----
-
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| 后端 | Go（当前 `go.mod` 为 1.26.x），Gin，Ent ORM，Google Wire |
-| 前端 | Vue 3.4+，Vite，Pinia，Vue Router，TailwindCSS，pnpm |
-| 数据 | PostgreSQL 15+ |
-| 缓存/队列 | Redis 7+ |
-| 部署 | Docker Compose / 二进制 + systemd / Apple container |
-
----
-
-## 系统架构（概念）
-
-```
-客户端 / CLI / IDE 插件
-        │  API Key
-        ▼
-┌───────────────────────────────────────┐
-│              Sub2API Gateway          │
-│  /v1/*  /v1beta/*  /antigravity/*     │
-│  鉴权 → 分组 → 选账号 → 转发 → 计费   │
-└───────────────────────────────────────┘
-        │                    │
-        ▼                    ▼
-   PostgreSQL              Redis
-   (用户/账号/用量)     (限流/会话/队列)
-        │
-        ▼
-┌───────────────────────────────────────┐
-│           管理后台 (Vue SPA)          │
-│  嵌入同一二进制（-tags embed）或分离  │
-└───────────────────────────────────────┘
-```
-
-请求主路径：
-
-1. 客户端携带 `sk-...` 访问网关路径  
-2. 中间件完成 API Key 鉴权、分组校验、限流  
-3. 按分组平台选择上游账号并转发  
-4. 流式/非流式回写客户端，异步落库用量并扣费  
-
----
-
-## 仓库结构
-
-```
-sub2api/
-├── backend/                      # Go 后端
-│   ├── cmd/server/               # 主进程入口
-│   ├── cmd/jwtgen/               # JWT 工具
-│   ├── ent/schema/               # Ent 数据模型定义
-│   ├── migrations/               # 数据库迁移
-│   ├── resources/                # 模型定价等静态资源
-│   └── internal/
-│       ├── config/               # 配置加载
-│       ├── handler/              # HTTP 处理器（网关/认证/支付等）
-│       ├── service/              # 业务逻辑（调度、计费、账号…）
-│       ├── repository/           # 数据访问
-│       ├── server/               # 路由、中间件、启动装配
-│       │   └── routes/           # auth / gateway / admin / payment / user
-│       ├── payment/              # 支付通道实现
-│       ├── setup/                # 首次安装向导
-│       ├── middleware/           # 鉴权、限流等
-│       └── web/                  # 前端静态资源嵌入
-│
-├── frontend/                     # Vue 3 管理端 / 用户端
-│   └── src/
-│       ├── api/                  # 后端 API 封装
-│       ├── views/admin/          # 管理页面（账号、分组、运维…）
-│       ├── views/user/           # 用户页面（Key、用量、充值…）
-│       ├── views/auth/           # 登录注册 / OAuth 回调
-│       ├── stores/               # Pinia 状态
-│       ├── router/               # 路由
-│       └── components/           # 通用组件
-│
-├── deploy/                       # 部署脚本与 Compose 配置
-├── docs/                         # 支付、异步图片等专题文档
-├── skills/                       # Agent Skill（管理端 CLI）
-├── tools/                        # 辅助工具
-├── assets/                       # 文档图片等
-├── Dockerfile                    # 镜像构建
-└── DEV_GUIDE.md                  # 本地开发注意事项
-```
-
-### 后端分层
-
-| 目录 | 职责 |
-|------|------|
-| `handler` | 解析请求、协议适配、调用 service |
-| `service` | 核心业务：网关转发、账号调度、计费、用户配额 |
-| `repository` + `ent` | 持久化 |
-| `server/routes` | 路由注册与中间件编排 |
-| `payment` | 充值订单与支付回调 |
-
-### 前端分区
-
-| 区域 | 内容 |
-|------|------|
-| `views/admin` | 仪表盘、账号/分组/渠道、用量、兑换码、支付方案、运维 Ops、风控、设置 |
-| `views/user` | API Key、用量、订阅、充值、推广、批量图片等 |
-| `views/auth` | 登录注册、找回密码、OAuth（GitHub/Google/微信/钉钉/OIDC/LinuxDo） |
-
----
-
-## 网关协议一览
-
-平台按 **分组（Group）绑定的平台类型** 自动路由。常用入口：
-
-| 路径 | 用途 |
-|------|------|
-| `POST /v1/messages` | Anthropic Messages（Claude Code 常用） |
-| `POST /v1/chat/completions` | OpenAI Chat Completions |
-| `POST /v1/responses` | OpenAI Responses（Codex 等） |
-| `GET /v1/models` | 模型列表（Codex 可带 `client_version`） |
-| `POST /v1/embeddings` | Embeddings（OpenAI 分组） |
-| `POST /v1/images/*` | 图像生成/编辑；含异步任务与批量接口 |
-| `POST /v1/videos/*` | 视频相关（Grok 分组） |
-| `GET|POST /v1beta/models...` | Gemini 原生兼容 |
-| `/antigravity/v1/messages` | Antigravity Claude |
-| `/antigravity/v1beta/` | Antigravity Gemini |
-| `/backend-api/codex/*` | Codex 直连别名 |
-| `GET /v1/sub2api/billing` | Key 侧计费信息 |
-
-管理与业务 API 前缀：`/api/v1/...`（认证、用户 Key、用量、管理端、支付等）。
-
-### Antigravity 示例
-
-```bash
-export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
-export ANTHROPIC_AUTH_TOKEN="sk-xxx"
-```
-
-开启混合调度后，通用 `/v1/messages`、`/v1beta/` 也可调度 Antigravity 账号。  
-注意：Anthropic Claude 与 Antigravity Claude **不要在同一上下文混用**，请用分组隔离。
-
-### Sora 状态
-
-当前 Sora 相关能力因上游/媒体链路问题 **暂不可用**，生产环境请勿依赖。相关配置项仅为预留。
-
----
-
-## 数据模型（核心实体）
-
-Ent schema 中的主要概念：
-
-| 实体 | 含义 |
-|------|------|
-| `User` | 平台用户（余额、并发、角色） |
-| `APIKey` | 用户对外调用凭证 |
-| `Account` | 上游订阅/API 账号 |
-| `Group` | 调度分组（平台、模型范围、倍率） |
-| `UsageLog` | Token 用量与费用记录 |
-| `RedeemCode` / `PromoCode` | 兑换码、优惠码 |
-| `SubscriptionPlan` / `UserSubscription` | 订阅套餐 |
-| `PaymentOrder` | 支付订单 |
-| `Proxy` | 出站代理 |
-| `TLSFingerprintProfile` | TLS 指纹配置 |
-| `ChannelMonitor` | 渠道可用性监控 |
-
----
-
-## 运行模式
-
-| 模式 | 说明 |
-|------|------|
-| `standard`（默认） | 完整 SaaS：计费、余额、订阅等 |
-| `simple` | 隐藏 SaaS 能力、跳过计费；适合个人/内网。生产需同时设 `SIMPLE_MODE_CONFIRM=true` |
-
-环境变量：`RUN_MODE=simple`
-
----
-
-## 快速部署
-
-### 1. Docker Compose（推荐）
-
-```bash
-mkdir -p sub2api-deploy && cd sub2api-deploy
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
-docker compose up -d
-docker compose logs -f sub2api
-```
+两层能力共享原有账号调度、模型映射、内容审核、故障切换、并发控制、资格检查和计费链路。BB、SC 只是下游协议方言，不是新的上游供应商。
 
-浏览器访问：`http://<服务器IP>:8080`
+## 工作台模式矩阵
 
-| Compose 文件 | 数据存放 | 适用 |
-|--------------|----------|------|
-| `docker-compose.local.yml` | 本地目录 | 生产、易备份迁移（推荐） |
-| `docker-compose.yml` | Docker 命名卷 | 快速试用 |
+工作台不提供手工“实时/异步”切换。每次提交前重新读取 Key 当前分组的能力；平台、分组开关或能力版本发生变化时，应停止本次提交并要求用户重新确认。
 
-详情见 [deploy/README.md](deploy/README.md)、[deploy/DOCKER.md](deploy/DOCKER.md)。
+| API Key 当前分组 | 执行模式 | 实际入口 |
+|---|---|---|
+| OpenAI，异步开关关闭 | 实时 | `/v1/images/generations`、`/v1/images/edits` |
+| OpenAI，异步开关开启 | 异步 | `/v1/images/generations_oa`、`/v1/images/edits_oa` |
+| Gemini，异步开关关闭 | 实时 | `/v1beta/models/{model}:generateContent` |
+| Gemini，异步开关开启 | 异步 | `/v1/uploads/images_sc`、`/v1/images/generations_sc` |
+| Grok 图片分组 | 仅实时 | 现有 `/v1/images/generations`、`/v1/images/edits` |
+| Antigravity 或其他平台 | 不可用 | 不在图片工作台显示为可用 Key |
 
-### 2. 二进制一键安装（Linux）
+失败、超时、`execution_unknown`、`403` 或 `409` 都不能让工作台在实时和异步链路之间自动回退。异步重试必须复用同一请求字节和 `Idempotency-Key`。
 
-前置：PostgreSQL 15+、Redis 7+、root。
+## 数据与公开模型
 
-```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
-sudo systemctl start sub2api
-sudo systemctl enable sub2api
-```
+数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图。
 
-首次打开 `http://<IP>:8080` 走设置向导（库、Redis、管理员）。
+关键约束：
 
-### 3. 源码编译
+- 新图片默认私有；公开必须由用户显式投稿并由管理员批准。
+- OSS 只保存实际对象；数据库保存稳定的 provider、bucket、object key 和校验元数据，不保存过期预签名 URL。
+- 异步任务结果与图库引用同一 `image_storage_objects` 身份，不能因为一处解除引用就删除仍被其他记录使用的对象。
+- 旧 `image_plaza_items` 的历史公开数据先强制转私有，再由可恢复 Worker 严格校验并迁入私有图库和 `pending_review` 投稿。
+- 危险、损坏、路径越界或不支持的旧图片只计入隔离数量，不继续公开。
+- 普通广场只返回已批准、未撤回、未隐藏且未过期的投稿。
+- SC 上传在 multipart body 前先以 `async_image_upload_attempts` 做 PostgreSQL rolling-rate admission，读取有界文件后、解码/OSS 前再以 `async_image_upload_reservations` 原子执行幂等和 Key 级字节额度；`async_image_input_url_aliases` 绑定原 URL 与重签 URL 的所有权。
+- 上传默认 20 次/Key/分钟（最大 1000）、默认 1 GiB/Key 输入额度（最大 100 GiB）、单图/请求有效图片负载硬上限 64 MiB、单次 OSS Put 默认 300 秒且最大 600 秒、输入最长保留 720 小时。相同幂等上传只重签并返回 `X-Idempotency-Replayed: true`；冲突、处理中或结果墓碑返回 `409`。
+- 每个输入对象最多保留 128 个重签 URL alias。注册由输入对象行锁串行化，过期 alias 仍作为所有权墓碑保留；第 129 个新 alias 返回结构化 `429`，不会无限扩张表。
+- SC 客户端文件名会净化且不进入对象 key；OSS 前持久化 deterministic object intent。失败或 stale intent 第一次 Delete 后保留恢复事实，至少十分钟后二次 Delete 成功才移除；未清理 failed intent 始终计入 Key 容量。存储身份 guard 同时统计输入对象和未清理 intent。
 
-```bash
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api
+## 计费不变量
 
-# 前端
-cd frontend && pnpm install && pnpm run build
-# 产物输出到 backend/internal/web/dist/
+图片工作台、异步任务和图库归档没有新建计价公式：
 
-# 后端（嵌入前端）
-cd ../backend
-VERSION="$(./scripts/resolve-version.sh)"
-go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/server
+- Gemini/OpenAI/Grok 仍走现有分组、用户专属分组、账号倍率、订阅、余额、API Key/账号额度和图片计费规则。
+- Gemini/OpenAI 的全部输出图片按实际解码宽高和实际数量计费。
+- 混合规格输出按每张图片所属档位分别求和，不能用最大档位乘总数量。
+- 异步任务上游成功后只 Prepare 一次固定账单；存储或账务重试不能重新调用上游、重新定价或重复扣费。
+- 图库归档失败不能把已经成功的模型调用改成失败，也不能触发重新生成或再次计费。
+- `execution_unknown` 禁止自动重调；若确需再生成，必须创建新任务号并接受第二次上游成本风险。
 
-# 建议不要先手写 config.yaml，直接运行以触发 setup 向导
-./sub2api
-```
+详情见 [wiki-new/04-billing-and-idempotency.md](wiki-new/04-billing-and-idempotency.md)。
 
-> `-tags embed` 才会把前端打进二进制。  
-> 管理员只能通过 setup 向导创建；预置 `config.yaml` 会跳过向导导致无法登录。
+## 存储、配额与安全默认值
 
-配置模板：`deploy/config.example.yaml`
+全站使用一个当前图片对象存储，支持 `qiniu`、`aliyun`、`tencent` 和兼容已有配置的 `custom_s3`。后台“图片存储”设置统一管理异步任务和个人图库运行参数。
 
-### 4. Apple container（macOS 本地）
+为避免全站单存储配置切换后历史对象失联，只要数据库中仍存在非 `deleted` 图片对象，服务端就拒绝修改 provider、bucket、endpoint、region 或 path-style 寻址身份。应先迁移或清空旧对象；按历史存储身份解析多套凭证的 resolver 仍是后续 P1。
 
-见 [deploy/APPLE_CONTAINER.md](deploy/APPLE_CONTAINER.md)。
+| 配置 | 默认值 |
+|---|---:|
+| 图库/公开资产保留 | 90 天 |
+| 每用户图库条目 | 1000 |
+| 每用户对象总量 | 5 GiB |
+| 单图字节 | 20 MiB |
+| 单图像素 | 40 MP |
+| 图库签名 URL | 3600 秒 |
+| 每用户导入限频 | 20 次/分钟 |
+| 每用户投稿限频 | 10 次/分钟 |
+| 异步参考图保留 | 24 小时 |
+| SC 参考图 OSS 上传超时 | 300 秒（最大 600） |
+| 每输入对象 URL alias | 最多 128 个 |
+| 异步任务与结果保留 | 90 天 |
 
----
+图片只接受完整解码成功且容器、魔数、实际 MIME 一致的 PNG/JPEG/WebP。SVG、HTML、JavaScript、伪 MIME、尾随载荷、超字节、超像素、解压炸弹和路径穿越必须拒绝。远程图片导入和参考图下载继续执行 HTTPS、DNS、重定向、内网地址、MIME、字节、像素和超时限制。
 
-## 本地开发
+首页自定义 HTML 经 DOMPurify 严格净化；自定义 URL 使用受限 iframe sandbox 和 `no-referrer`。图片内容响应使用 `nosniff`、隔离 CSP 和安全的 `Content-Disposition`。
 
-```bash
-# 后端
-cd backend
-go run ./cmd/server
+## 主要页面
 
-# 前端（另开终端）
-cd frontend
-pnpm install
-pnpm run dev
-```
+- 用户图片工作台：`/image-workbench`
+- 用户个人图库：`/image-library`
+- 审核后图片广场：`/image-plaza`
+- 用户/管理员异步任务中心：保留上一轮实现
+- 管理员图片审核、举报、全站图库和清理：后台图片审核入口
+- 分组创建/编辑：“图片生成计费”区域内的“异步生图”开关
+- 备份/存储设置：OSS、异步运行参数和图库保留/配额配置
 
-修改 `backend/ent/schema` 后：
+## 当前完成度
 
-```bash
-cd backend
-go generate ./ent
-go generate ./cmd/server
-```
+工作树中已经存在工作台能力接口、实时/异步分流、Gemini 实时图片计费采集、服务端图库、统一对象引用、投稿审核、举报、维护 Worker、旧广场迁移、管理页面和安全校验实现。管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容、Worker 优雅 `Stop()`、历史成功异步任务归档回填、永久归档错误终止重排、OSS 身份切换保护，以及迁移 `187` 的 SC 上传安全层均已补齐。
 
-常用测试：
+`2026-07-22` 在安全提交 `f16c2106a` 创建前、合并最新 `upstream/main` 之前取得以下本地证据：
 
-```bash
-cd backend && go test -tags=unit ./...
-cd frontend && pnpm test:run
-```
+- Go `1.26.5`：SC Repository/Service/Handler 定向测试和三个完整包测试通过；`go generate ./cmd/server` 成功且无生成差异；`go test -tags=unit ./...` 用时 `197.4s`，`go test ./...` 用时 `121.9s`，独立 server build 成功。
+- 所有本轮新增或修改的 Go 文件均通过 `gofmt`。仓库另有 5 个未被本轮修改的基线测试文件未格式化，路径和判定见 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)。
+- 前端 ESLint、`vue-tsc --noEmit`、188 个 Vitest 文件/1266 项测试和 974 模块生产构建全部通过。
+- 此前本机 Chrome Playwright 10 个场景通过，覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该浏览器证据早于最后一批 SC/后台配置改动，仍需最终复验。
+- 首页 WebP 为 `79,374` 字节，已成功随页面加载。
 
-前端包管理请使用 **pnpm**（不要用 npm，以免 lock / node_modules 冲突）。更多坑点见 [DEV_GUIDE.md](DEV_GUIDE.md)。
+这些本地结果覆盖迁移 `187` 和最后一批 SC 上传代码，但发生在合并最新原作者代码之前。合并 `upstream/main` 后必须重新执行后端与前端门禁；浏览器也必须复验后台上传配置和图片页面，合并前结果不能替代最终分支/`main` 证据。
 
----
+以下交付项仍是 `PENDING`，不能写成已完成：
 
-## Nginx / 反向代理注意
+- 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187` 迁移验证。
+- 合并最新 `upstream/main` 后的 Go、前端和 Playwright 最终重跑。
+- 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
+- 交接文档提交、上游合并、最终 SHA/`git describe`、功能分支 Fork CI、非强制合并并推送 `origin/main`。Fork CI 尚未运行。
 
-若经 Nginx 反代并配合 Codex CLI，需在 `http` 块开启：
-
-```nginx
-underscores_in_headers on;
-```
-
-否则含下划线的头（如 `session_id`）会被丢弃，粘性会话失效。
-
-明文端口默认支持 **h2c**，并保留 HTTP/1.1（WebSocket / 旧客户端）。Caddy 示例见官方 README。
-
----
+最新状态与已经执行过的测试证据只看 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)，不要根据早期聊天记录推断“已经通过”。
 
 ## 文档索引
 
 | 文档 | 内容 |
-|------|------|
-| [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md) | 支付配置（中文） |
-| [docs/PAYMENT.md](docs/PAYMENT.md) | Payment setup (EN) |
-| [docs/ASYNC_IMAGE_TASKS.md](docs/ASYNC_IMAGE_TASKS.md) | 异步图片任务 |
-| [docs/BATCH_IMAGE_MVP.md](docs/BATCH_IMAGE_MVP.md) | 批量图片 |
-| [deploy/DATAMANAGEMENTD_CN.md](deploy/DATAMANAGEMENTD_CN.md) | 数据管理守护进程 |
-| [skills/sub2api-admin](skills/sub2api-admin/SKILL.md) | 管理端 CLI Skill |
+|---|---|
+| [wiki-new/README.md](wiki-new/README.md) | 二次开发 Wiki 入口和真值顺序 |
+| [wiki-new/02-architecture.md](wiki-new/02-architecture.md) | 持久异步任务状态机和恢复边界 |
+| [wiki-new/03-api-contracts.md](wiki-new/03-api-contracts.md) | 下游异步协议与站内图片 API |
+| [wiki-new/05-storage-and-retention.md](wiki-new/05-storage-and-retention.md) | OSS、对象引用、签名和保留策略 |
+| [wiki-new/10-image-workbench.md](wiki-new/10-image-workbench.md) | Key 分组驱动的工作台实时/异步分流 |
+| [wiki-new/11-image-library-object-model.md](wiki-new/11-image-library-object-model.md) | 服务端图库和统一对象引用 |
+| [wiki-new/12-moderated-plaza-and-migration.md](wiki-new/12-moderated-plaza-and-migration.md) | 审核广场、举报、安全迁移和维护 Worker |
+| [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md) | 新电脑或新 AI 的接手步骤 |
 
-生态：移动端控制台 [sub2api-mobile](https://github.com/ckken/sub2api-mobile)
+## Git 远程约定
 
----
+| 远程 | 用途 |
+|---|---|
+| `origin` | 用户 Fork：`JasonWangJie/sub2api`，功能分支和最终 `main` 推送目标 |
+| `upstream` | 原作者：`Wei-Shaw/sub2api`，只用于获取和合并原作者更新 |
 
-## 安全建议（摘要）
+不得推送到 `upstream`，不得对共享 `main` 强制推送，也不得为了同步上游使用 `git reset --hard` 覆盖本地定制。
 
-- 生产环境使用强随机 `JWT_SECRET`、`TOTP_ENCRYPTION_KEY`、数据库密码  
-- 收紧 `security.url_allowlist`，生产避免明文 HTTP 上游  
-- 配置 `cors.allowed_origins`、`server.trusted_proxies`  
-- 建议 CDN/WAF + 服务端限流双层防护  
-- 关注 `gateway.upstream_response_read_max_bytes` 等响应大小上限  
-
----
-
-## 贡献与反馈
-
-上游仓库：[Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)
-
-Issue / PR 欢迎；提交前请跑通本地单测与 lint。前端变更请同步 `pnpm-lock.yaml`。
-
----
-
-## Fork 二次开发与上游同步
-
-本仓库是从 `Wei-Shaw/sub2api` Fork 后进行二次开发的版本。当前 Git 远程约定如下：
-
-| 远程名 | 仓库 | 用途 |
-|--------|------|------|
-| `origin` | `JasonWangJie/sub2api` | 自己的 Fork，提交完成后推送到这里 |
-| `upstream` | `Wei-Shaw/sub2api` | 原作者仓库，只用于获取和合并官方更新 |
-
-可以随时用下面的命令确认配置：
-
-```bash
-git remote -v
-git branch -vv
-git status
-```
-
-### 日常修改并推送到自己的 Fork
-
-开始修改前，建议先同步最新代码，再创建功能分支。分支名可按实际功能调整：
-
-```bash
-git switch main
-git fetch upstream
-git merge upstream/main
-git push origin main
-
-git switch -c feat/image-plaza
-```
-
-完成修改后检查、测试、提交并推送：
-
-```bash
-git status
-git diff
-
-# 按实际改动选择文件；提交前确认不要包含密钥、配置和临时文件
-git add <文件或目录>
-git commit -m "新增图片广场功能"
-git push -u origin feat/image-plaza
-```
-
-功能分支确认无误后，可以在 GitHub 上向自己 Fork 的 `main` 发起 Pull Request；也可以在本地合并：
-
-```bash
-git switch main
-git merge --no-ff feat/image-plaza
-git push origin main
-```
-
-本项目的提交信息统一使用**简体中文**。
-
-### 原作者更新后，同步到本地和自己的 Fork
-
-同步前必须先处理工作区中的未提交修改。推荐直接提交：
-
-```bash
-git status
-git add <文件或目录>
-git commit -m "保存当前开发进度"
-```
-
-如果修改还不适合提交，可以临时储藏，包括未跟踪文件：
-
-```bash
-git stash push -u -m "同步上游前临时保存"
-```
-
-然后更新本地 `main`，合并原作者的 `main`，并推送到自己的 Fork：
-
-```bash
-git switch main
-git fetch upstream --prune
-git merge upstream/main
-
-# 按项目实际情况执行测试
-cd backend
-go test -tags=unit ./...
-cd ../frontend
-pnpm test:run
-cd ..
-
-git push origin main
-```
-
-如果之前使用了 `stash`，在上游合并完成后恢复修改：
-
-```bash
-git stash pop
-```
-
-恢复时也可能产生冲突，需要按下一节的方法处理。确认修改完整后，再正常 `add`、`commit` 和 `push`。
-
-### 合并冲突的处理方法
-
-执行 `git merge upstream/main` 后如果出现冲突：
-
-```bash
-git status
-```
-
-打开 `both modified` 标记的文件，找到以下冲突标记，结合本地定制和上游新逻辑决定最终内容，并删除所有标记：
+## 下一位 AI 的一句话上下文
 
 ```text
-冲突开始：<<<<<<< HEAD
-本地代码
-=======
-上游代码
-冲突结束：>>>>>>> upstream/main
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。2026-07-22 的 Go/前端/Playwright 证据早于 187 最后改动，当前工作树最终重跑、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终提交 SHA/git describe、Fork CI 和 origin/main 推送仍为 PENDING。
 ```
-
-解决并测试后完成合并：
-
-```bash
-git add <已解决的文件>
-git commit
-git push origin main
-```
-
-`git commit` 打开编辑器时，保留或改成简体中文合并说明即可。如果冲突处理有误、尚未提交，并且想放弃本次上游合并：
-
-```bash
-git merge --abort
-```
-
-不要使用 `git reset --hard` 处理普通同步问题，否则容易丢失本地修改。
-
-### 在功能分支开发期间获取上游更新
-
-先让本地 `main` 跟上 upstream，再把它合并进当前功能分支：
-
-```bash
-git switch main
-git fetch upstream --prune
-git merge upstream/main
-git push origin main
-
-git switch feat/image-plaza
-git merge main
-```
-
-解决冲突并测试后，提交合并结果，再推送功能分支：
-
-```bash
-git push origin feat/image-plaza
-```
-
-### 推荐的固定同步命令
-
-当工作区干净、当前开发内容已经提交后，日常同步通常只需要：
-
-```bash
-git switch main
-git fetch upstream --prune
-git merge upstream/main
-git push origin main
-```
-
-这里刻意使用 `merge` 而不是对已共享分支执行 `rebase`：`merge` 会保留完整分叉与合并记录，也不需要强制推送，更适合自己的 Fork 已经存在长期定制提交的情况。不要使用 `git push --force` 覆盖 `main`。
-
----
-
-## 二次开发提交日志
-
-### 2026-07-21：新增持久化异步生图兼容层与任务中心
-
-- 基线：`0.1.162`，开发前 HEAD 为 `6a57b47d7`，已包含原作者 `upstream/main` 的更新。
-- 协议：新增 Gemini BB、OpenAI BB 和 Gemini SC 共 7 条固定下游接口；BB 与 SC 独立渲染响应。
-- 可靠性：PostgreSQL 保存任务事实与 Outbox，Redis 承担 ready/delayed/inflight 投递，Worker 使用租约、心跳和 CAS 恢复。
-- 计费：复用现有分组和账号计费公式，上游成功后固化账单命令；后处理重试不重新生成、不重算价格、不重复扣费。
-- 存储：支持七牛云、阿里云、腾讯云和 `custom_s3`，成功结果必须完成 OSS 持久化和计费后才对普通用户可见。
-- 前端：分组新增“异步生图”开关，新增用户与管理员任务中心，并在备份页加入图片存储与异步运行参数配置。
-- 交接：完整状态、架构、部署、测试和遗留事项见 [wiki-new/README.md](wiki-new/README.md)。
-
-### 2026-07-20：新增图片工作台、图片广场及界面定制
-
-- 提交主题：`新增图片工作台、图片广场及界面定制`
-- 上游基线：`fa402b909`（项目版本 `0.1.161`，位于 `v0.1.161` 标签之后）
-- 后端：新增图片广场数据表、Repository、Service、Handler、用户路由及 Wire 依赖注入。
-- 前端：新增图片工作台、图片广场、API 封装、本地画廊状态管理、路由、侧边栏入口和中英文文案。
-- 界面：调整首页、登录页、认证布局、站点字体、Logo 和相关视觉样式。
-- 文档：补充项目 Wiki、Fork 长期维护流程和上游同步说明。
-- 工具：新增本地 MiniRedis 和管理员初始化工具；管理员工具仅通过环境变量读取连接信息与凭据。
-- 同步记录：合并上游时保留新的 `ProvideBatchImageHandler` 注入方式，并将定制界面的默认 Logo 更新为 `/logo.svg`。
-
----
-
-<div align="center">
-
-若本项目对你有帮助，欢迎 Star 支持。
-
-</div>

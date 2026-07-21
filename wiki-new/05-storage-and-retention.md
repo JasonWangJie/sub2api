@@ -19,27 +19,33 @@
 provider / bucket / object_key / content_type / bytes / checksum / width / height
 ```
 
-数据库不保存会过期的预签名 URL。查询时若配置 `image_storage.public_base_url`，生成公开 CDN 地址；否则按 `async_image.signed_url_expiry_seconds` 动态签名。SC 的 `expires_at` 必须对应本次实际签名到期时间。
+迁移 `186_image_library_and_plaza_moderation.sql` 将生成结果元数据规范化到 `image_storage_objects`。`async_image_results`、`image_library_items` 和有效投稿通过同一对象身份共享字节；新代码不得为异步结果归档重复上传一份 OSS 对象。迁移 `187_async_image_upload_reservations.sql` 另外为 SC 输入建立 admission reservation、attempt 与 URL alias 事实表。
+
+数据库不保存会过期的预签名 URL。查询时若配置 `image_storage.public_base_url`，生成公开 CDN 地址；否则按调用场景的 `async_image.signed_url_expiry_seconds` 或 `image_library.signed_url_expiry_seconds` 动态签名。SC 和站内 JSON 查看接口的 `expires_at` 必须对应本次实际签名到期时间。
 
 ## 配置和连接探测
 
 - 后台保存的数据库设置优先于 config/env，并可用于即时更新运行参数。
 - 启用存储配置前必须真实执行小对象上传、HEAD/读取验证和删除。
 - 任一步失败都不能把配置保存为可用状态。
-- 后台入口位于“备份 / 异步生图存储”，API 为 `/api/v1/admin/backups/image-storage`，测试接口为 `/api/v1/admin/backups/image-storage/test`。
+- 后台入口位于“备份 / 图片存储”，API 为 `/api/v1/admin/backups/image-storage`，测试接口为 `/api/v1/admin/backups/image-storage/test`。同一设置中包含 OSS、持久异步和个人图库运行参数。
 - 生产凭证优先通过 `IMAGE_STORAGE_ACCESS_KEY_ID`、`IMAGE_STORAGE_SECRET_ACCESS_KEY` 或受控密钥系统注入，不要提交到 Git。
 
-## 重要的历史对象风险
+## 历史对象与存储身份保护
 
-当前对象解析器会校验记录中的 provider/bucket 是否与全站当前配置一致。直接把当前配置从一个 provider 或 bucket 切到另一个后，旧任务对象可能无法签名、查看或自动清理。
+对象解析器会校验记录中的 provider/bucket 是否与全站当前配置一致。为防止配置覆盖后历史任务、图库对象、SC 输入或上传 intent 无法签名、查看或清理，只要数据库存在 `state <> deleted` 的图片对象、任意 `async_image_input_objects`，或带 object intent 的上传 reservation，服务端就拒绝改变以下存储身份：
 
-生产环境切换前必须选择一种方案：
+```text
+provider / bucket / endpoint / region / force_path_style
+```
 
-1. 保持旧 provider/bucket 配置，直到旧对象全部超过保留期并清理。
-2. 先迁移对象并原子更新数据库引用。
-3. 后续实现按历史 provider/bucket 查找旧凭证的 resolver。
+只改变凭证、公开 CDN URL或非身份运行参数不触发该保护。需要切换身份时，生产环境必须先选择一种方案：
 
-不要在没有迁移方案时直接覆盖生产存储配置。
+1. 保持当前身份，直到旧对象全部超过保留期并清理。
+2. 先迁移对象并原子更新数据库引用，再保存新身份。
+3. 后续实现按历史存储身份查找旧凭证的 resolver。
+
+该拒绝保护代码已经完成；对 SC 输入对象和 upload intent 的扩展发生在最后一批改动中，必须通过当前工作树最终重跑。多套历史凭证 resolver 或对象迁移工具仍是 P1。
 
 ## 参考图安全
 
@@ -49,9 +55,13 @@ BB 远程参考图与 SC 上传都经过限制：
 - 初始 DNS、实际 dial IP 和每次重定向重新检查地址。
 - 拒绝内网、回环、链路本地和保留网段。
 - 校验声明 MIME、响应 MIME 和实际解码格式。
-- 默认单图上限 32 MiB、总超时 30 秒、最多 3 次重定向。
+- 默认单图上限 32 MiB、硬上限 64 MiB、总超时 30 秒、最多 3 次重定向。
 - 当前解码像素上限为代码默认 8000 万像素，尚未开放运行时配置。
-- SC 上传对象绑定 API Key 所有权，外部 URL 只保存 SHA-256 哈希用于匹配。
+- SC 上传在 multipart body 前先做 PostgreSQL rolling-rate admission，在图片解码/OSS 前再做幂等与 Key 级字节 reservation；数据库故障时 fail closed。
+- SC 上传对象绑定 API Key 所有权，原签名 URL和每次重签 URL 只保存 SHA-256 hash/alias；已知失效或跨 Key alias 不会降级为普通外部 URL。alias 注册对输入对象加行锁，每对象最多 128 个，过期记录继续作为所有权墓碑。
+- OSS Put 默认超时 300 秒，运行时最大规范化为 600 秒，严格短于 15 分钟 reservation lease。
+- failed/stale object intent 第一次删除成功后仍保留并占用 Key 容量；至少十分钟后二次删除成功才移除恢复事实。
+- 文件名净化后只作为元数据，不进入服务端生成的 deterministic object key。
 
 活动任务通过 `async_image_task_inputs` 引用输入对象，清理器不会提前删除仍被活动任务使用的参考图。
 
@@ -68,8 +78,46 @@ BB 远程参考图与 SC 上传都经过限制：
 | 任务记录 | 90 天 | `async_image.task_retention_days` |
 | 生成结果对象 | 90 天 | `async_image.result_retention_days` |
 | 动态签名 | 3600 秒 | `async_image.signed_url_expiry_seconds` |
+| 私有图库资产 | 90 天 | `image_library.retention_days` |
+| 图库动态签名 | 3600 秒 | `image_library.signed_url_expiry_seconds` |
 
-清理循环当前约每 15 分钟运行、单批 100 条、claim 租约 30 分钟。流程先删除 OSS 对象，再删除结果或输入数据库行，最后删除满足条件的终态任务。删除失败会释放 claim 供后续重试。
+异步任务保留清理循环与图库维护 Worker 是两套执行器：异步清理当前约每 15 分钟运行、单批 100 条、claim 租约 30 分钟；图库维护当前约每 10 秒扫描一次，使用两分钟 stale 阈值和 30 秒心跳。两者删除同一对象前都必须检查统一引用。
+
+SC 输入保留最长 720 小时。上传前持久化的 object intent 也由异步 retention 清理：stale reserved 或 failed reservation 会被 claim，按稳定 intent 至少间隔十分钟执行两次 OSS Delete；第一次仅记录删除时间并释放 claim，第二次成功才移除 reservation。完成输入对象删除后，已完成 reservation 的短期幂等墓碑仍可返回 `409`，防止旧键重新创建对象。
+
+## SC 上传 admission 配额
+
+| 配置 | 默认值 | 最大值 |
+|---|---:|---:|
+| `async_image.upload_per_minute` | 20/Key/分钟 | 1000/Key/分钟 |
+| `async_image.max_input_bytes_per_key` | 1 GiB | 100 GiB |
+| `async_image.download_max_bytes`（单图/请求有效图片负载） | 32 MiB | 64 MiB |
+| `async_image.input_retention_hours` | 24 小时 | 720 小时 |
+
+字节额度是“未过期输入对象 + 活跃 reservation”的总和；不是只在上传完成后统计。第一阶段 attempt 在读取 body 前记账，恶意无效 body 也无法绕过限频。
+
+## 图库配额
+
+| 配置 | 默认值 |
+|---|---:|
+| 每用户最大条目 | 1000 |
+| 每用户对象总量 | 5 GiB |
+| 单图最大字节 | 20 MiB |
+| 单图最大像素 | 40 MP |
+| 导入限频 | 20 次/分钟 |
+| 投稿限频 | 10 次/分钟 |
+
+图库配额只决定是否允许新的归档/导入。已经成功的模型请求不能因为归档失败而改成生成失败，也不能因此重新调用上游或重复计费。
+
+## 共享对象删除规则
+
+OSS 删除前必须确认对象不再被以下任一记录引用：
+
+- 活动 `async_image_results`。
+- 未软删除的 `image_library_items`。
+- `pending_review/published/admin_hidden` 且未过期的投稿。
+
+删除流程使用 `image_storage_objects.state = active/deleting/deleted`。先 claim，再删除 OSS，最后标记对象和业务记录；数据库更新失败时 stale object recovery 必须能继续收敛。异步结果保留清理完成时也应同步更新统一对象状态，避免统计仍把已删除对象计为 active。
 
 ## 容量注意事项
 
@@ -80,3 +128,7 @@ BB 远程参考图与 SC 上传都经过限制：
 - OSS 上传失败率和延迟。
 - `storage_failed` 数量与清理积压。
 - 输入、结果和任务的过期清理延迟。
+- `image_storage_objects` 中长期停留在 `deleting` 的数量和年龄。
+- 图库条目/唯一对象字节、待处理 Outbox、清理任务和旧迁移积压。
+
+`2026-07-22` 迁移 `187` 前的本地全包测试曾覆盖跨模块引用判断、stale deletion recovery 和当时的存储身份保护；它不覆盖最后增加的 SC 输入/intent guard。当前工作树最终重跑，以及七牛、阿里、腾讯真实 delete/HEAD 幂等行为和部分失败恢复仍为 `PENDING`。

@@ -1,115 +1,314 @@
 # 测试与验收记录
 
-## 最近验证快照
+更新时间：`2026-07-22`。本页严格区分“迁移 `187` 最后改动前的历史证据”“安全提交创建前且合并上游前的当前证据”“合并后最终重跑”和“真实外部环境/远端交付”。任何结果都只能证明执行时对应的代码。
 
-日期：`2026-07-21`。
-
-功能代码与自动化测试基本完成，但尚未完成带真实云厂商凭证的生产验收。下面只记录实际执行过的结果，不把未执行项目写成通过。
-
-## 后端已通过
-
-在 `backend/` 执行：
-
-```bash
-go test ./... -run '^$'
-go test ./... -skip '^TestContentModerationRuntimeSnapshotRefreshFailureKeepsStaleConfig$' -count=1
-go vet ./internal/service ./internal/repository ./internal/handler
-go test -tags unit ./internal/repository -run SettlesSoftDeletedKey
-go test -tags unit ./internal/service -run TestGatewayServicePrepareRecordUsage_SimpleModeCreatesNotBillableCommand
-```
-
-这些命令覆盖全包编译、全量 Go 测试（排除一个既有 Windows 时钟随机用例）、关键包 vet、软删除 Key 结算和 simple 模式固定账单。
-
-Wire 已重新生成并通过编译：
-
-```bash
-go run github.com/google/wire/cmd/wire@v0.7.0 ./cmd/server
-```
-
-## 前端已通过
-
-在 `frontend/` 执行：
-
-```bash
-pnpm exec eslint src/features/async-image-tasks src/views/admin/GroupsView.vue src/views/admin/BackupView.vue src/views/admin/groupsAsyncImage.ts src/views/admin/__tests__/groupsAsyncImage.spec.ts src/router/index.ts src/components/layout/AppSidebar.vue
-pnpm typecheck
-pnpm test:run -- src/features/async-image-tasks/__tests__/api.spec.ts src/views/admin/__tests__/groupsAsyncImage.spec.ts
-pnpm build
-```
-
-目标测试结果为 2 个测试文件、9 个测试通过；生产构建完成，记录为 960 个模块转换成功。
-
-## 格式检查已通过
-
-```bash
-git diff --check
-gofmt -l <本次所有 Go 文件>
-```
-
-没有 Go 格式遗漏。Windows 工作区只出现 `.gitignore` 和 `backend/go.sum` 的 LF/CRLF 提示，不是 `diff --check` 错误。
-
-## 已知无关测试问题
-
-### Go 随机失败
-
-完整 `go test ./...` 在 Windows 可能随机失败：
+## 当前结论
 
 ```text
-TestContentModerationRuntimeSnapshotRefreshFailureKeepsStaleConfig
+合并上游前完整后端测试：PASSED 2026-07-22（覆盖迁移 187 最后改动）
+合并上游前完整前端门禁：PASSED 2026-07-22
+合并 upstream/main 后最终重跑：PENDING
+PostgreSQL/testcontainers 集成：PENDING
+浏览器五视口验收：PENDING FINAL RERUN
+真实 OSS 厂商联调：PENDING
+真实上游与计费核对：PENDING
+Fork GitHub Actions：PENDING（尚未运行）
 ```
 
-该既有测试使用 `1ns` TTL；Windows 连续 `time.Now()` 可能落在同一时钟刻度。它与异步生图无关，但后续应把测试改成确定性时钟或合理 TTL，再恢复无排除全量运行。
+本地通过不代表生产可用。真实 PostgreSQL、真实厂商、真实上游账单、CI、最终提交和推送只有实际执行后才能替换对应 `PENDING`。
 
-### 前端既有失败
+## 2026-07-22 合并上游前的当前证据
 
-完整前端测试有两个既有失败，位于：
+以下结果覆盖 `f16c2106a` 所提交的迁移 `187`、上传超时、二次删除、alias 上限和容量修复；执行完成后才创建该安全提交，代码内容与测试工作树一致：
 
 ```text
-src/api/__tests__/admin.system.rollback.spec.ts
+SC Repository/Service/Handler 定向测试：PASSED
+Repository/Service/Handler 三个完整包：PASSED
+go generate ./cmd/server：PASSED，无生成差异
+go test -tags=unit ./...：PASSED，197.4s
+go test ./...：PASSED，121.9s
+go build -trimpath ./cmd/server：PASSED
+pnpm lint:check：PASSED
+pnpm typecheck：PASSED
+pnpm test:run：PASSED，188 files / 1266 tests
+pnpm build：PASSED，974 modules
 ```
 
-测试仍期望 `post` 只有两个参数，现有实现已经传第三个 `{ timeout: 900000 }`。这不是异步生图回归；后续应更新测试期望并重新跑完整套件。
+这些结果发生在合并最新 `upstream/main` 前。上游包含网关、图片计费、调度、前端依赖和移动端修复，因此合并后必须全部重跑。Chrome 五视口结果仍属于下方历史证据，不能视为最后后台上传配置已复验。
 
-## 尚未完成
+## 2026-07-22 迁移 187 最后改动前的证据
 
-- 七牛、阿里、腾讯真实凭证的上传、HEAD/read、删除契约测试。
-- 真实 `custom_s3` 兼容服务的升级回归。
-- Gemini BB/SC 与 OpenAI generations/edits 的生产或准生产端到端调用。
-- 真实余额、订阅、Key/账号额度与 1K/2K/4K/数量的逐笔核账。
-- 桌面和移动视口的浏览器截图验收。
-- 预签名 URL 实际到期、CDN URL、对象清理和 provider 切换演练。
+以下命令当时全部通过，但发生在 SC 上传两阶段 admission、reservation/alias 墓碑和 object intent 恢复的最后改动之前。它们是有价值的历史基线，不是当前工作树的最终验收结论。
 
-本轮浏览器控制工具报错：
+### 后端
 
-```text
-codex/sandbox-state-meta: missing field sandboxPolicy
-```
+环境：Windows，便携 Go `1.26.5`。
 
-因此不能声称任务页面、分组表单和存储配置页已完成视觉截图验收。
-
-## 上线前测试矩阵
-
-| 维度 | 必测值 |
+| 检查 | 结果 |
 |---|---|
-| 协议 | Gemini BB、Gemini SC、OpenAI generations、OpenAI edits JSON、OpenAI edits multipart |
-| 图片来源 | 纯文本、HTTPS 参考图、data URI、SC 上传 |
-| 规格 | 1K、2K、4K、允许/拒绝 0.5K、比例 auto 边界、多图 |
-| 所有权 | 同 Key 成功、同用户其他 Key 404、其他用户 404、管理员可见 |
-| 幂等 | 相同 key/相同请求复用、不同请求 409、队列重复投递 |
-| 计费 | 余额、订阅、simple、倍率、额度、改价后重试、重复 Apply |
-| 恢复 | 重启、stale queued、stale invoking、OSS 部分失败、账务超时、日志补写 |
-| 安全 | SSRF、DNS rebinding、重定向内网、伪 MIME、超限、路径注入、错误脱敏 |
-| UI | 用户/管理员列表详情、筛选、时间线、缩略图、移动无溢出 |
+| `go generate ./cmd/server` | 成功，Wire 生成代码与构造函数一致 |
+| 本轮改动 Go 文件 `gofmt -l` | 无输出 |
+| `go test -tags=unit ./...` | 通过，`163.1s` |
+| `go test ./...` | 通过，`236.1s` |
+| 独立 `./cmd/server` build | 通过 |
 
-## 提交前最小复验
+全仓 `gofmt -l .` 仍输出以下 5 个基线文件；它们没有被本轮修改，因此没有混入功能提交做无关格式化：
 
-```bash
-cd backend
-go test ./... -run '^$'
-cd ../frontend
+```text
+internal/handler/auth_current_user_test.go
+internal/service/billing_cache_service_user_platform_quota_test.go
+internal/service/billing_service_test.go
+internal/service/channel_test.go
+internal/service/sticky_session_test.go
+```
+
+当时的默认全包测试在无 Docker/可用 WSL 的主机通过，但不覆盖迁移 `187` 最后改动，也没有因此获得真实 PostgreSQL/testcontainers 证据；两类验证都单独标记为 `PENDING`。
+
+### 前端
+
+环境：Node `v22.18.0`，pnpm `10.34.5`。
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm lint:check` | 通过，退出码 `0` |
+| `pnpm test:run` | 通过，188 个测试文件、1266 项测试 |
+| `pnpm typecheck` | 通过，退出码 `0` |
+| `pnpm build` | 通过，Vite 转换 974 个模块 |
+
+构建仅保留项目既有的动态/静态导入和大 chunk 提示，没有构建错误。测试中故意触发错误路径的 stderr 和既有组件解析 warning 未造成失败。
+
+### 浏览器与可访问性
+
+使用 Playwright 驱动本机 Chrome，10 个场景全部通过：
+
+- 视口覆盖 `360x800`、`768x1024`、`1280x800`、`1440x900`、`1920x1080`。
+- 覆盖中文/英文、浅色/深色、工作台、图库、广场、管理审核、首页和登录页。
+- 10 个场景均为 0 横向溢出、0 控件裁剪、0 console error。
+- 键盘操作存在可见焦点；工作台任务状态包含有效 `aria-live`。
+- 广场原生 dialog 打开后焦点进入，关闭后恢复到触发控件。
+- 首页 `/images/sub2api-workbench.webp` 为 `79,374` 字节并加载成功。
+
+### 当时已确认的功能收口
+
+- 管理员批量审核 API 与 UI、逐项结果和状态机审计已完成。
+- 旧数字 ID、`imgpub_*`、`img_*` 删除兼容已完成并有契约测试。
+- server cleanup 已等待持久异步 Handler 与图库维护 Worker `Stop()`。
+- 升级前成功异步任务会补写归档 Outbox；永久归档错误停止重排，临时错误才重试。
+- 非 `deleted` 图片对象存在时，服务端拒绝改变 provider/bucket/endpoint/region/path-style 存储身份。
+
+迁移 `187` 后 guard 又扩展到 `async_image_input_objects` 和带 object intent 的 reservation；该最后改动及 SC admission/重签/墓碑需要最终全量重跑后才能补充为通过证据。
+
+## 早期证据
+
+以下命令曾在部分后续改动之前通过，说明当时的目标包或目标功能可编译/测试，但必须在交付前重跑：
+
+```text
+go test ./internal/service ./internal/handler ./internal/repository -run '^$'
+go test ./internal/repository ./cmd/server ./internal/handler ./internal/server/routes -run '^$'
+go test ./internal/service -run 'TestResolveLegacyImagePath'
+go test ./internal/repository -run 'TestImageLibraryCleanupWhere'
+```
+
+计费专项曾通过：
+
+```text
+TestGatewayServiceRecordUsage_MixedOutputSizesUseEachConfiguredTier
+TestOpenAIGatewayServiceRecordUsage_MixedOutputSizesUseEachConfiguredTier
+TestResolveImageBillingCountsPreservesExactCountAndFallback
+```
+
+前端曾通过：
+
+```text
 pnpm typecheck
+图片工作流专项 Vitest：12 项
+目标图片相关 ESLint
+git diff --check
+```
+
+另一次代理报告在加入双语 locale 后图片专项共 20 项通过。它已被上方完整前端门禁覆盖，不再作为当前结论的唯一依据。
+
+## 历史问题与剩余环境缺口
+
+- `admin.system.rollback.spec.ts` 的旧 timeout 期望已修正，迁移 `187` 前的 1266 项完整 Vitest 通过；最终仍需统一重跑。
+- 本轮 Go 文件已格式化；全仓剩余 5 个未改基线测试文件已在上方准确列出。
+- 首页 WebP 已生成、进入构建并在本机 Chrome 加载成功。
+- 主机仍没有 Docker 或可用 WSL，真实 PostgreSQL/testcontainers 验证需由 Fork GitHub Actions 或其他具备容器环境的机器完成。
+- 当前工作树在迁移 `187` 最后改动后尚未完成 Go/前端/浏览器最终重跑。
+- Fork GitHub Actions 尚未运行。
+
+## 后端最终命令
+
+Windows 便携 Go：
+
+```powershell
+$go = "$env:LOCALAPPDATA\CodexToolchains\go1.26.5\go\bin\go.exe"
+cd backend
+& $go generate ./cmd/server
+& $go test ./internal/service ./internal/handler ./internal/repository ./internal/server/routes ./cmd/server -run '^$'
+& $go test -tags=unit ./...
+& $go test ./...
+```
+
+格式和差异：
+
+```powershell
+cd backend
+gofmt -l .
 cd ..
 git diff --check
 ```
 
-若其中任一步失败，不要提交或推送；先判断是本次回归、环境问题还是上面已记录的既有问题，并在交接文档追加证据。
+最终记录需要包含：执行时间、Go 版本、操作系统、退出码、失败测试名、是否使用真实 PostgreSQL/Redis/OSS，以及生成代码是否产生差异。
+
+## 后端必须覆盖
+
+### 工作台和协议
+
+- OpenAI 实时 generations/edits。
+- OpenAI 异步 generations/JSON edits/multipart edits。
+- Gemini 实时文生图/多模态图生图、流式/非流式全部 `inlineData`。
+- Gemini SC 文生图/图生图/参考图上传。
+- Grok 仅实时；Antigravity 不进入工作台。
+- `capability_version` 变化阻止旧能力提交。
+- 网络结果未知复用完全相同请求和幂等键，不回退另一模式。
+
+### SC 上传迁移 187
+
+- PostgreSQL 第一阶段在 multipart body 解析前按 Key 精确限频，数据库不可用时 `503` fail closed。
+- 第二阶段消费 admission，并在解码/OSS 前原子统计未过期输入与活跃 reservation 字节。
+- 默认/最大边界：20/1000 次每分钟、1/100 GiB 每 Key、32/64 MiB 单图、24/720 小时保留。
+- 同幂等键同请求重签并返回 `X-Idempotency-Replayed`；不同请求、处理中和结果墓碑分别返回稳定 `409`。
+- 原 URL 与多次重签 alias 都复核 API Key 所有权；跨 Key、过期和 cleanup claim 被拒绝。
+- deterministic object intent 在 OSS 前持久化；上传后崩溃、完成提交超时、stale reservation 和重复清理均可恢复。
+- identity guard 同时覆盖结果/图库对象、SC 输入对象和尚未清理的 object intent。
+- 文件名 basename/控制字符/255 字节净化，且不能影响服务端 object key。
+- `187` 三表迁移、约束、索引、并发 advisory lock 和清理幂等在真实 PostgreSQL/testcontainers 下验证。
+
+### 计费
+
+- OpenAI/Gemini 实时与异步四象限、Grok 实时。
+- 1K/2K/4K、`1K+4K` 混合尺寸、图片数量和真实尺寸。
+- 普通/独立图片倍率、用户专属分组倍率、账号倍率。
+- 余额、订阅、API Key/账号额度和 simple 模式。
+- 同一固定命令重复 Apply 只扣一次。
+- 改价后重试费用不变。
+- 图库归档失败不重新生成、不重复计费。
+
+### 图库与对象
+
+- 严格 PNG/JPEG/WebP 正常样本。
+- MIME 欺骗、SVG/HTML/JS、JPEG EOI 后脚本、WebP 尾随数据、PNG IEND 后数据。
+- 超字节、超像素、解压炸弹和路径穿越。
+- 跨用户/跨 Key 统一 `404`。
+- 导入幂等、冲突、条目/容量配额和限频。
+- `from-task` 只允许本人已成功且已结算结果。
+- 异步结果与图库共享对象，不重复上传。
+- 活动异步结果/图库/投稿任一引用存在时不删除 OSS。
+- OSS 删除成功但数据库更新失败后的 stale recovery。
+- 异步保留清理同步更新 `image_storage_objects` 状态。
+
+### 维护与迁移
+
+- 多 Worker claim 只有一个执行者。
+- 30 秒心跳和两分钟 stale lease 恢复。
+- lease version 丢失后当前工作取消。
+- Outbox 重放和幂等完成。
+- 清理任务 preview、分批执行、失败恢复和统计。
+- 旧迁移重启、多实例、幂等、临时 OSS/DB 失败与 quarantine 区分。
+- 危险旧内容升级后立即不可公开。
+- 优雅关闭调用维护 Worker `Stop()`。
+
+## 前端最终命令
+
+```powershell
+cd frontend
+pnpm lint:check
+pnpm test:run
+pnpm typecheck
+pnpm build
+```
+
+必须记录测试文件数、测试数、构建模块数和退出码。不得只跑图片专项后声称“完整前端通过”。
+
+Vitest 至少覆盖：
+
+- 五种工作台模式和不可手改模式。
+- Key 切换重置非法参数。
+- 提交前能力变化。
+- 网络未知的同 body/同幂等键重试。
+- OpenAI edits 的 `output_format`。
+- 默认私有、归档失败重试、跨设备服务端图库。
+- 投稿、真实撤回、单条/批量审核和举报处理。
+- 私有/管理员动态 URL 的 JSON 和 `307` 双行为。
+- 中英文 locale key 完整。
+
+## 浏览器验收
+
+固定视口：
+
+```text
+360x800
+768x1024
+1280x800
+1440x900
+1920x1080
+```
+
+每个视口至少检查：
+
+- 中文/英文。
+- 浅色/深色主题。
+- 长 Key 名、长模型名、长错误和长标题。
+- 图片加载失败占位。
+- 工作台实时和异步两种状态结构。
+- 三栏、两栏和单列断点无横向溢出或嵌套滚动。
+- 任务 `aria-live`、键盘焦点、对话框焦点循环/恢复。
+- 图库下载、重用、投稿、撤回和删除。
+- 广场筛选、加载更多、举报。
+- 管理审核、举报、清理预览和迁移状态。
+- 首页真实工作台主视觉资源加载成功。
+
+截图和结构化检查结果应作为交接证据保留。`2026-07-22` 本机 Chrome 10 场景曾通过，但早于最后一批改动；当前工作树提交前必须重跑。
+
+## 真实环境验收
+
+| 维度 | 必须验证 |
+|---|---|
+| 七牛 | upload、HEAD/read、公开/签名 URL、delete |
+| 阿里 | upload、HEAD/read、公开/签名 URL、delete |
+| 腾讯 | upload、HEAD/read、公开/签名 URL、delete |
+| custom_s3 | 既有配置升级回归 |
+| Gemini | 实时、BB、SC、文生图、图生图、真实尺寸和费用 |
+| OpenAI | 实时/异步 generations、JSON/multipart edits、格式和费用 |
+| Grok | 实时工作台与原链路回归 |
+| 数据库 | `185/186/187` 迁移、两阶段 admission、旧数据隐藏/迁移、恢复和回滚演练 |
+
+真实凭证测试必须通过环境变量按需启用，凭证和签名 URL 不得进入日志、测试快照或 Git。
+
+## 当前交付记录
+
+最终提交 SHA 不能在其自身文档提交中预先硬编码；以最终报告和提交后的当前 HEAD 为准。没有真实执行的项目继续保留 `PENDING`：
+
+```text
+验证日期：2026-07-22
+验证分支：feat/image-workflow-library-moderation
+验证 SHA：`f16c2106a` 内容对应的提交前工作树；最终 SHA 以推送后报告为准
+历史 Go 版本：1.26.5
+迁移 187 后/合并上游前 Go generate/格式：PASSED
+迁移 187 后/合并上游前后端 unit tags：PASSED，197.4s
+迁移 187 后/合并上游前后端默认全包：PASSED，121.9s
+迁移 187 后/合并上游前 server build：PASSED
+历史 Node/pnpm 版本：v22.18.0 / 10.34.5
+迁移 187 后/合并上游前前端 lint：PASSED
+迁移 187 后/合并上游前前端 Vitest：PASSED，188 files / 1266 tests
+迁移 187 后/合并上游前前端 typecheck：PASSED
+迁移 187 后/合并上游前前端 build：PASSED，974 modules
+合并 upstream/main 后后端/前端最终重跑：PENDING
+迁移 187 前浏览器：PASSED，本机 Chrome 10 场景；当前工作树 PENDING FINAL RERUN
+PostgreSQL/testcontainers：PENDING
+Fork CI URL/结果：PENDING（尚未运行）
+真实 OSS/上游/计费：PENDING
+最终 git describe：PENDING
+origin/main 推送：PENDING
+```
