@@ -206,7 +206,14 @@ git commit -m "<简体中文提交说明>"
 git push -u origin feat/image-workflow-library-moderation
 ```
 
-当前功能分支已推送。`2026-07-22` 的只读核对显示 Fork Actions 页面仍是 `Enable Actions`，Actions API 历史运行数为 0；先由仓库所有者在 `https://github.com/JasonWangJie/sub2api/actions` 启用 Actions，再重新推送或手工触发并等待 CI/Security Scan 全绿。CI 未通过时不要合并 `main`。通过后使用非强制合并，并推送：
+当前功能分支已推送。`2026-07-22` 的只读核对显示 Fork Actions 页面仍是 `Enable Actions`，Actions API 历史运行数为 0。先由仓库所有者在 `https://github.com/JasonWangJie/sub2api/actions` 启用 Actions；历史 push 不会自动回放，且无变化的 `git push` 不会产生新事件，因此在功能分支创建并推送一个明确的空触发提交：
+
+```powershell
+git commit --allow-empty -m "chore(ci): 触发 Fork 验证"
+git push origin feat/image-workflow-library-moderation
+```
+
+等待 CI/Security Scan 全绿。CI 未通过时不要合并 `main`。通过后使用非强制合并，并推送：
 
 ```powershell
 git switch main
