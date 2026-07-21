@@ -45,7 +45,7 @@ provider / bucket / endpoint / region / force_path_style
 2. 先迁移对象并原子更新数据库引用，再保存新身份。
 3. 后续实现按历史存储身份查找旧凭证的 resolver。
 
-该拒绝保护代码已经完成；对 SC 输入对象和 upload intent 的扩展发生在最后一批改动中，必须通过当前工作树最终重跑。多套历史凭证 resolver 或对象迁移工具仍是 P1。
+该拒绝保护代码已经完成；对 SC 输入对象和 upload intent 的扩展已通过合并上游后的本地 Go/前端完整门禁。多套历史凭证 resolver 或对象迁移工具仍是 P1。
 
 ## 参考图安全
 
@@ -131,4 +131,4 @@ OSS 删除前必须确认对象不再被以下任一记录引用：
 - `image_storage_objects` 中长期停留在 `deleting` 的数量和年龄。
 - 图库条目/唯一对象字节、待处理 Outbox、清理任务和旧迁移积压。
 
-`2026-07-22` 迁移 `187` 前的本地全包测试曾覆盖跨模块引用判断、stale deletion recovery 和当时的存储身份保护；它不覆盖最后增加的 SC 输入/intent guard。当前工作树最终重跑，以及七牛、阿里、腾讯真实 delete/HEAD 幂等行为和部分失败恢复仍为 `PENDING`。
+`2026-07-22` 合并上游后的强制 Go 全包已覆盖跨模块引用、stale deletion recovery、SC 输入/intent guard 与存储身份保护。七牛、阿里、腾讯真实 delete/HEAD 幂等行为和部分失败恢复仍为 `PENDING`。

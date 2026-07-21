@@ -22,6 +22,9 @@
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
 | 当前功能分支 | `feat/image-workflow-library-moderation` |
+| 已合并原作者主线 | `upstream/main = 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
+| 上游合并提交 | `433cf0096` |
+| 合并后代码验证提交 | `6412b5eb7` |
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
 | 最终交付 SHA | `PENDING` |
 | 最终 `git describe` | `PENDING` |
@@ -123,22 +126,23 @@
 
 工作树中已经存在工作台能力接口、实时/异步分流、Gemini 实时图片计费采集、服务端图库、统一对象引用、投稿审核、举报、维护 Worker、旧广场迁移、管理页面和安全校验实现。管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容、Worker 优雅 `Stop()`、历史成功异步任务归档回填、永久归档错误终止重排、OSS 身份切换保护，以及迁移 `187` 的 SC 上传安全层均已补齐。
 
-`2026-07-22` 在安全提交 `f16c2106a` 创建前、合并最新 `upstream/main` 之前取得以下本地证据：
+`2026-07-22` 已把原作者 `upstream/main` 的 `5a8d6c4e4` 非快进合并为 `433cf0096`，并在代码验证提交 `6412b5eb7` 对应的合并后树上取得以下本地证据：
 
-- Go `1.26.5`：SC Repository/Service/Handler 定向测试和三个完整包测试通过；`go generate ./cmd/server` 成功且无生成差异；`go test -tags=unit ./...` 用时 `197.4s`，`go test ./...` 用时 `121.9s`，独立 server build 成功。
+- Go `1.26.5`：图片计费、SC 上传、分组、hosted-image、Grok/调度定向测试通过；`go generate ./cmd/server` 成功且无生成差异；强制无缓存 `go test -tags=unit ./... -count=1` 用时 `277.9s`，`go test ./... -count=1` 用时 `204.4s`，独立 server build 成功。
 - 所有本轮新增或修改的 Go 文件均通过 `gofmt`。仓库另有 5 个未被本轮修改的基线测试文件未格式化，路径和判定见 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)。
-- 前端 ESLint、`vue-tsc --noEmit`、188 个 Vitest 文件/1266 项测试和 974 模块生产构建全部通过。
-- 此前本机 Chrome Playwright 10 个场景通过，覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该浏览器证据早于最后一批 SC/后台配置改动，仍需最终复验。
+- `pnpm install --frozen-lockfile`、ESLint、`vue-tsc --noEmit`、189 个 Vitest 文件/1277 项测试和 974 模块生产构建全部通过。合并中发现并以 `6412b5eb7` 修复了 `package.json` 与锁文件顶层 overrides 不一致。
+- 本地 Vite 在 `http://127.0.0.1:3000/` 启动成功；内置浏览器控制器因当前运行环境缺失 `sandboxPolicy` 元数据而无法建立会话，因此合并后的视觉复验没有标记为通过。
+- 历史本机 Chrome Playwright 10 个场景曾覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该证据早于最后一批 SC/后台配置和上游合并，只作为历史基线。
 - 首页 WebP 为 `79,374` 字节，已成功随页面加载。
 
-这些本地结果覆盖迁移 `187` 和最后一批 SC 上传代码，但发生在合并最新原作者代码之前。合并 `upstream/main` 后必须重新执行后端与前端门禁；浏览器也必须复验后台上传配置和图片页面，合并前结果不能替代最终分支/`main` 证据。
+这些本地结果覆盖迁移 `187`、最后一批 SC 上传代码和本轮上游合并；后续只修改交接 Markdown 不需要重复代码门禁。功能分支/`main` 的 GitHub Actions 仍必须实际通过，浏览器复验仍需在连接器可用的环境补做。
 
 以下交付项仍是 `PENDING`，不能写成已完成：
 
 - 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187` 迁移验证。
-- 合并最新 `upstream/main` 后的 Go、前端和 Playwright 最终重跑。
+- 合并后的桌面/移动端浏览器视觉复验；当前内置浏览器连接器被环境元数据阻断。
 - 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
-- 交接文档提交、上游合并、最终 SHA/`git describe`、功能分支 Fork CI、非强制合并并推送 `origin/main`。Fork CI 尚未运行。
+- 最终交接证据提交、最终 SHA/`git describe`、功能分支 Fork CI、非强制合并并推送 `origin/main`。Fork CI 尚未运行。
 
 最新状态与已经执行过的测试证据只看 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)，不要根据早期聊天记录推断“已经通过”。
 
@@ -167,5 +171,5 @@
 ## 下一位 AI 的一句话上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。2026-07-22 的 Go/前端/Playwright 证据早于 187 最后改动，当前工作树最终重跑、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终提交 SHA/git describe、Fork CI 和 origin/main 推送仍为 PENDING。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。upstream/main 5a8d6c4e4 已合并；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终 SHA/git describe、Fork CI 和 origin/main 推送仍需按状态页核对。
 ```

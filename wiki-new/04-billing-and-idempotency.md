@@ -115,4 +115,4 @@ AND async_image_results 已持久化
 
 ## 本轮计费复验状态
 
-混合尺寸和已有计费测试曾包含在 `2026-07-22` 的 Go 1.26.5 本地全包测试中，但该证据早于迁移 `187` 最后改动。当前工作树的最终 Go 全量重跑、真实余额/订阅/倍率/额度逐笔核对和真实上游端到端结果均为 `PENDING`；旧自动化通过不能替代当前回归或真实账单验收。完整状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。
+混合尺寸、固定账单、hosted-image token 和已有计费测试包含在 `2026-07-22` 合并上游后的 Go 1.26.5 强制全包测试中并通过。真实余额/订阅/倍率/额度逐笔核对和真实上游端到端结果仍为 `PENDING`；本地自动化不能替代真实账单验收。完整状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。

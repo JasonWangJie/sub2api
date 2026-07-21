@@ -5,17 +5,36 @@
 ## 当前结论
 
 ```text
-合并上游前完整后端测试：PASSED 2026-07-22（覆盖迁移 187 最后改动）
-合并上游前完整前端门禁：PASSED 2026-07-22
-合并 upstream/main 后最终重跑：PENDING
+合并 upstream/main 后完整后端测试：PASSED 2026-07-22，强制 -count=1
+合并 upstream/main 后完整前端门禁：PASSED 2026-07-22
 PostgreSQL/testcontainers 集成：PENDING
-浏览器五视口验收：PENDING FINAL RERUN
+浏览器五视口验收：BLOCKED BY TOOLING（内置浏览器缺 sandboxPolicy 元数据）
 真实 OSS 厂商联调：PENDING
 真实上游与计费核对：PENDING
 Fork GitHub Actions：PENDING（尚未运行）
 ```
 
 本地通过不代表生产可用。真实 PostgreSQL、真实厂商、真实上游账单、CI、最终提交和推送只有实际执行后才能替换对应 `PENDING`。
+
+## 2026-07-22 合并 upstream/main 后的最终本地证据
+
+验证树包含 `upstream/main=5a8d6c4e4`、合并提交 `433cf0096` 和 pnpm overrides 锁文件修复 `6412b5eb7`。后续文档修改不改变代码行为。
+
+```text
+图片计费、SC 上传、分组、hosted-image、Grok/调度交汇定向测试：PASSED
+go generate ./cmd/server：PASSED，无生成差异
+go test -tags=unit ./... -count=1：PASSED，277.9s
+go test ./... -count=1：PASSED，204.4s
+go build -trimpath ./cmd/server：PASSED，74.7s
+pnpm install --frozen-lockfile：PASSED
+pnpm lint:check：PASSED，38.0s
+pnpm typecheck：PASSED，37.3s
+pnpm test:run：PASSED，189 files / 1277 tests，119.8s
+pnpm build：PASSED，974 modules，106.5s（Vite 阶段 58.50s）
+git diff --check：PASSED
+```
+
+视觉复验未宣称通过：Vite 已在 `http://127.0.0.1:3000/` 正常启动，但内置浏览器控制器在会话建立前因运行环境缺失 `sandboxPolicy` 元数据而失败。按浏览器技能约束未改用未授权控制工具。历史十场景证据保留在下文，仅用于说明已知基线。
 
 ## 2026-07-22 合并上游前的当前证据
 
@@ -130,11 +149,11 @@ git diff --check
 
 ## 历史问题与剩余环境缺口
 
-- `admin.system.rollback.spec.ts` 的旧 timeout 期望已修正，迁移 `187` 前的 1266 项完整 Vitest 通过；最终仍需统一重跑。
+- `admin.system.rollback.spec.ts` 的旧 timeout 期望已修正；合并后 Vitest 实际收集 189 个文件/1277 项并全部通过。
 - 本轮 Go 文件已格式化；全仓剩余 5 个未改基线测试文件已在上方准确列出。
 - 首页 WebP 已生成、进入构建并在本机 Chrome 加载成功。
 - 主机仍没有 Docker 或可用 WSL，真实 PostgreSQL/testcontainers 验证需由 Fork GitHub Actions 或其他具备容器环境的机器完成。
-- 当前工作树在迁移 `187` 最后改动后尚未完成 Go/前端/浏览器最终重跑。
+- 合并后的 Go/前端最终重跑已完成；浏览器控制器仍被环境元数据阻断。
 - Fork GitHub Actions 尚未运行。
 
 ## 后端最终命令
@@ -293,7 +312,7 @@ Vitest 至少覆盖：
 ```text
 验证日期：2026-07-22
 验证分支：feat/image-workflow-library-moderation
-验证 SHA：`f16c2106a` 内容对应的提交前工作树；最终 SHA 以推送后报告为准
+验证代码 SHA：`6412b5eb7`；最终文档提交/推送 SHA 以最终报告为准
 历史 Go 版本：1.26.5
 迁移 187 后/合并上游前 Go generate/格式：PASSED
 迁移 187 后/合并上游前后端 unit tags：PASSED，197.4s
@@ -304,8 +323,13 @@ Vitest 至少覆盖：
 迁移 187 后/合并上游前前端 Vitest：PASSED，188 files / 1266 tests
 迁移 187 后/合并上游前前端 typecheck：PASSED
 迁移 187 后/合并上游前前端 build：PASSED，974 modules
-合并 upstream/main 后后端/前端最终重跑：PENDING
-迁移 187 前浏览器：PASSED，本机 Chrome 10 场景；当前工作树 PENDING FINAL RERUN
+合并 upstream/main 后后端 unit：PASSED，-count=1，277.9s
+合并 upstream/main 后后端默认全包：PASSED，-count=1，204.4s
+合并 upstream/main 后 server build：PASSED
+合并 upstream/main 后前端 frozen/lint/typecheck：PASSED
+合并 upstream/main 后前端 Vitest：PASSED，189 files / 1277 tests
+合并 upstream/main 后前端 build：PASSED，974 modules
+合并后浏览器：BLOCKED BY TOOLING；历史 Chrome 10 场景仅作基线
 PostgreSQL/testcontainers：PENDING
 Fork CI URL/结果：PENDING（尚未运行）
 真实 OSS/上游/计费：PENDING

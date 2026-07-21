@@ -157,7 +157,7 @@ git diff --check
 git status --short
 ```
 
-`2026-07-22` 在安全提交 `f16c2106a` 前、合并最新上游前执行了上述本地门禁：Go 1.26.5 的 generate、SC 定向/三包完整测试、unit tags 全包测试（`197.4s`）、默认全包测试（`121.9s`）和独立 server build 均通过；前端 lint、188 files/1266 tests、typecheck 和 974 modules build 均通过。合并 `upstream/main` 后必须再次执行；浏览器证据仍早于最后一批 SC/后台配置改动。历史格式清单与最终待办见 [07-testing-and-validation.md](07-testing-and-validation.md)。
+`2026-07-22` 已合并 `upstream/main=5a8d6c4e4`。在 `6412b5eb7` 对应代码树上，Go 1.26.5 的 generate、交汇定向、强制 unit（`277.9s`）、强制默认全包（`204.4s`）和 server build 均通过；前端 frozen install、lint、189 files/1277 tests、typecheck 和 974 modules build 均通过。浏览器控制器因运行环境缺失 `sandboxPolicy` 元数据被阻断。完整证据与待办见 [07-testing-and-validation.md](07-testing-and-validation.md)。
 
 修改 Ent schema 时执行 `go generate ./ent`；修改 Wire provider/构造函数时执行 `go generate ./cmd/server`。不要只提交手工源文件而漏掉生成文件。
 
@@ -176,7 +176,7 @@ git status --short
 - 待审预览使用管理员签名入口。
 - 下架/撤回后旧公开链接立即失效。
 
-`2026-07-22` 本机 Chrome Playwright 10 场景曾覆盖五视口、中英文、深浅主题，0 横向溢出、0 控件裁剪、0 console error；键盘可见焦点、工作台 `aria-live`、广场 dialog 焦点进入和关闭恢复均通过。该证据早于迁移 `187` 最后改动，当前工作树必须最终重跑。
+`2026-07-22` 本机 Chrome Playwright 10 场景曾覆盖五视口、中英文、深浅主题，0 横向溢出、0 控件裁剪、0 console error；键盘可见焦点、工作台 `aria-live`、广场 dialog 焦点进入和关闭恢复均通过。该证据早于迁移 `187` 最后改动和上游合并；当前内置浏览器控制器被环境元数据阻断，下一台可用机器必须补跑。
 
 ## 10. 逻辑提交与 CI
 
@@ -243,5 +243,5 @@ Get-Content backend\cmd\server\VERSION
 ## 12. 一句话恢复上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。2026-07-22 的 Go/前端/Playwright 证据早于 187 最后改动；当前工作树最终重跑、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终提交 SHA/git describe、Fork CI 和 origin/main 推送仍为 PENDING。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。upstream/main 5a8d6c4e4 已合并，合并后 Go 强制全仓与前端 189/1277/build 已通过；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终 SHA/git describe、Fork CI 和 origin/main 推送按状态页继续核对。
 ```

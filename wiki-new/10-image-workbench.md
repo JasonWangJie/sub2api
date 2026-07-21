@@ -146,4 +146,4 @@ frontend/src/api/imageLibrary.ts
 
 ## 当前验证状态
 
-工作台主体代码和专项测试文件已存在。`2026-07-22` 曾通过 ESLint、188 个 Vitest 文件/1266 项测试、类型检查、974 模块生产构建和本机 Chrome 五视口场景，但证据早于迁移 `187` 最后改动。首页 `79,374` 字节 WebP 资源仍存在；当前工作树的最终前端与 Playwright 重跑为 `PENDING`。详细状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。
+工作台主体代码和专项测试文件已存在。`2026-07-22` 合并上游后已通过 frozen install、ESLint、189 个 Vitest 文件/1277 项测试、类型检查和 974 模块生产构建。首页 `79,374` 字节 WebP 资源仍存在；合并后的浏览器控制器被环境元数据阻断，历史五视口证据仅作基线。详细状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。

@@ -10,6 +10,9 @@
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
 | 当前功能分支 | `feat/image-workflow-library-moderation` |
+| 已合并上游 | `upstream/main 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
+| 上游合并提交 | `433cf0096` |
+| 合并后代码验证提交 | `6412b5eb7` |
 | 用户 Fork | `origin = https://github.com/JasonWangJie/sub2api.git` |
 | 原作者仓库 | `upstream = https://github.com/Wei-Shaw/sub2api.git` |
 | 持久异步迁移 | `backend/migrations/185_async_image_tasks.sql` |
@@ -54,15 +57,15 @@
 
 | 门禁 | 状态 | 完成证据要求 |
 |---|---|---|
-| 最新 Go 格式化和生成代码 | `PASSED PRE-UPSTREAM 2026-07-22` | `gofmt`、`go generate ./cmd/server` 通过且生成代码无差异；合并上游后必须重跑 |
-| 后端全量测试 | `PASSED PRE-UPSTREAM 2026-07-22` | Go 1.26.5：定向与三包测试、unit `197.4s`、默认全包 `121.9s`、server build 通过；合并后重跑 |
+| 最新 Go 格式化和生成代码 | `PASSED POST-MERGE 2026-07-22` | `gofmt`、`go generate ./cmd/server` 通过且生成代码无差异 |
+| 后端全量测试 | `PASSED POST-MERGE 2026-07-22` | Go 1.26.5：交汇定向测试；强制 unit `277.9s`、默认全包 `204.4s`、server build 通过 |
 | PostgreSQL 集成与恢复测试 | `PENDING` | `185/186/187`、两阶段 admission、多 Worker、stale lease、Outbox、intent/OSS 部分失败、对象引用、迁移幂等 |
-| 前端全量门禁 | `PASSED PRE-UPSTREAM 2026-07-22` | ESLint、typecheck、188 files/1266 tests、974 modules build 通过；合并后重跑 |
-| 浏览器验收 | `PENDING FINAL RERUN` | 最后改动前本机 Chrome 10 场景通过；当前工作树需最终复验 |
+| 前端全量门禁 | `PASSED POST-MERGE 2026-07-22` | frozen install、ESLint、typecheck、189 files/1277 tests、974 modules build 通过 |
+| 浏览器验收 | `BLOCKED BY TOOLING` | Vite :3000 正常；内置浏览器缺失 sandboxPolicy 元数据，历史 Chrome 10 场景不冒充当前结果 |
 | 首页工作台图片资源 | `PASSED 2026-07-22` | WebP `79,374` 字节，首页加载成功 |
 | 真实 OSS 厂商契约 | `PENDING` | 七牛、阿里、腾讯逐一 upload、HEAD/read、签名/公开 URL、delete |
 | 真实上游与计费核对 | `PENDING` | Gemini/OpenAI/Grok 实时与异步、余额/订阅/倍率/额度逐笔核对 |
-| 逻辑拆分提交 | `PARTIAL` | 主体三笔与 `f16c2106a` SC 安全提交已存在；交接文档和上游合并提交待完成 |
+| 逻辑拆分提交 | `PASSED` | 主体三笔、`f16c2106a` SC 安全、`81ac080ed` 文档、`433cf0096` 上游合并、`6412b5eb7` 锁文件修复 |
 | Fork CI | `PENDING` | 尚未运行；功能分支 GitHub Actions 必须全绿 |
 | 合并 `origin/main` | `PENDING` | 非强制合并并核对远端 SHA |
 

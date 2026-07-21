@@ -8,9 +8,10 @@
 
 - 发布版本文件仍是 `backend/cmd/server/VERSION = 0.1.162`，本轮不主动升级版本号。
 - 本轮开发基线是 `51b083d374decf811ac88f8b0194165db9a8ba79`，基线描述为 `v0.1.162-4-g51b083d37`。
-- 当前工作分支是 `feat/image-workflow-library-moderation`；主体功能与 SC 安全层已经形成逻辑提交，交接文档、上游合并、CI 与推送仍在进行。
+- 当前工作分支是 `feat/image-workflow-library-moderation`；主体功能、SC 安全层、交接文档、上游合并和锁文件修复均已形成逻辑提交，CI 与推送仍在进行。
 - 图片工作台、服务端图库、统一对象引用、投稿审核、举报、安全迁移、批量审核、维护 Worker 和 SC 上传安全层的代码已存在。
-- `2026-07-22` 合并上游前的 Go/前端完整门禁已覆盖迁移 `187` 最后改动并通过；Chrome 证据仍早于最后一批 SC/后台配置改动。合并 `upstream/main` 后的最终全量重跑仍为 `PENDING`。
+- `2026-07-22` 已合并 `upstream/main=5a8d6c4e4`；合并后的强制 Go 全仓、server build、前端 frozen/lint/typecheck、189 files/1277 tests 和 974 modules build 全部通过。
+- 合并后的浏览器控制器被当前环境缺失 `sandboxPolicy` 元数据阻断；历史 Chrome 十场景证据不能冒充当前复验。
 - 真实 PostgreSQL/testcontainers、真实云厂商与上游计费、最终提交 SHA/`git describe`、Fork CI 和 `origin/main` 推送仍为 `PENDING`；Fork CI 尚未运行。
 - 没有真实执行记录的项目一律不得改写为“通过”或“生产可用”。
 

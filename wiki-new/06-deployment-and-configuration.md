@@ -152,7 +152,7 @@ go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/serv
 
 当前 Windows 主机可使用非仓库目录的 Go `1.26.5` 便携工具链；本机没有 Docker/可用 WSL 时，PostgreSQL/testcontainers 集成测试必须交给 Fork GitHub Actions，不能因此跳过。
 
-`2026-07-22` 曾在该便携工具链完成 `go generate ./cmd/server`、unit tags 全包测试、默认全包测试和独立 server build，但结果早于迁移 `187` 最后改动。当前工作树必须最终重跑，具体历史耗时与待办见 [07-testing-and-validation.md](07-testing-and-validation.md)。
+`2026-07-22` 已在该便携工具链对合并上游后的代码完成 `go generate ./cmd/server`、强制 unit/default 全包测试和独立 server build；具体耗时与外部环境待办见 [07-testing-and-validation.md](07-testing-and-validation.md)。
 
 修改 Ent schema 时执行 `go generate ./ent`；修改 Wire provider 或构造函数时执行 `go generate ./cmd/server`。生成文件必须与源修改一起提交。
 

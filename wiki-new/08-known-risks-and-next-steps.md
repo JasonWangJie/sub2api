@@ -1,27 +1,27 @@
 # 已知风险与后续工作
 
-## 迁移 187 前已完成的本地门禁
+## 已完成的本地门禁
 
-`2026-07-22` 曾完成以下门禁，但证据早于 SC 上传安全层的最后改动，不能作为当前工作树最终验收：
+`2026-07-22` 已在合并 `upstream/main=5a8d6c4e4` 后完成以下门禁：
 
-1. Go 1.26.5 的 `go generate ./cmd/server`、unit tags 全包测试、默认全包测试和独立 server build。
+1. Go 1.26.5 的 `go generate ./cmd/server`、交汇定向测试、强制无缓存 unit/default 全包测试和独立 server build。
 2. 所有本轮改动 Go 文件格式化；5 个未改基线测试文件的既有格式问题已单独记录。
-3. 完整前端 ESLint、188 files/1266 tests、类型检查和 974 modules 生产构建。
-4. 本机 Chrome 10 个 Playwright 场景，覆盖五视口、中英文、深浅主题、键盘焦点、`aria-live`、dialog 焦点恢复，0 溢出/裁剪/console error。
+3. frozen lockfile、完整前端 ESLint、189 files/1277 tests、类型检查和 974 modules 生产构建。
+4. 历史本机 Chrome 10 个 Playwright 场景覆盖五视口等项目，但合并后浏览器控制器被环境元数据阻断，未标记当前视觉复验通过。
 5. 首页 `79,374` 字节工作台 WebP 的构建和页面加载。
 6. 管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容和 server cleanup `Stop()`。
 7. 历史成功异步任务归档回填、永久归档错误终止重排和当时的存储身份切换保护。
 
-迁移 `187` 的两阶段 PostgreSQL admission、Key 级 reservation、重签 alias/结果墓碑、deterministic object intent、受控 Put 超时、延迟二次删除、128 alias 上限、failed intent 配额、输入/intent identity guard 和文件名净化已经实现。合并上游前的本地 Go/前端完整回归已通过；合并后最终回归、浏览器和外部环境仍未执行。
+迁移 `187` 的两阶段 PostgreSQL admission、Key 级 reservation、重签 alias/结果墓碑、deterministic object intent、受控 Put 超时、延迟二次删除、128 alias 上限、failed intent 配额、输入/intent identity guard 和文件名净化已经实现。合并后的 Go/前端完整回归已通过；浏览器和外部环境仍未完成。
 
 ## P0：生产验收与远端交付仍需完成
 
-1. 合并最新 `upstream/main` 后重新执行 Go generate/gofmt/unit/full/build、前端完整门禁和 Playwright 场景；合并前证据不能替代最终分支结果。
+1. 在浏览器连接器可用的环境补跑桌面/移动端、中英文、深浅主题、键盘和坏图场景；当前不得把历史截图写成合并后结果。
 2. 使用真实 PostgreSQL/testcontainers 验证 `185/186/187`、两阶段 admission、多 Worker、租约心跳、Outbox、stale recovery、引用删除和旧迁移。
 3. 使用七牛、阿里、腾讯真实凭证逐厂商验证 upload、HEAD/read、公开/签名 URL、delete 和 intent crash recovery。
 4. 跑通 OpenAI/Gemini 实时与异步四象限、Grok 实时，并核对实际尺寸、数量、余额/订阅/倍率/额度。
 5. 在生产备份副本演练旧广场立即隐藏、可恢复迁移、quarantine 和回滚。
-6. 按安全、工作流/图库、审核/UI、交接文档拆分提交，推功能分支并等待 Fork CI 全绿。Fork CI 当前尚未运行。
+6. 推送已拆分的功能分支并等待 Fork CI 全绿。Fork CI 当前尚未运行。
 7. CI 通过后非强制合并到 `origin/main`，推送并报告最终 SHA、`git describe` 和 `VERSION`。
 
 ## P0 风险说明
