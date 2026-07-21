@@ -67,6 +67,13 @@ type DurableImageStorage interface {
 	Delete(ctx context.Context, ref ObjectRef) error
 }
 
+// DurableImageStorageIntentResolver returns the deterministic identity that a
+// subsequent SaveObject call will use. Persisting this intent before PutObject
+// lets retention delete an object even when the upload result is unknown.
+type DurableImageStorageIntentResolver interface {
+	ObjectIntent(key, contentType string, sizeBytes int64, checksumSHA256 string) (ObjectRef, error)
+}
+
 // ImageResultUploader 是 ImageStorage 的上层编排器（与具体厂商无关）：
 // 把上游生图响应里的每张图片（b64_json 解码 / url 下载）转存到对象存储，
 // 并把响应结果改写为只含短链接的紧凑 JSON，从而避免大 base64 落 Redis。

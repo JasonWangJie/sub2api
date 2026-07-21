@@ -107,6 +107,9 @@ export interface AsyncImageRuntimeConfig {
   download_max_redirects: number
   signed_url_expiry_seconds: number
   input_retention_hours: number
+  upload_per_minute: number
+  max_input_bytes_per_key: number
+  upload_timeout_seconds: number
   task_retention_days: number
   result_retention_days: number
 	gemini_half_k_models: string[]

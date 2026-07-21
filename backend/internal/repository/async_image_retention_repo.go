@@ -66,7 +66,12 @@ SELECT id, upload_id, user_id, api_key_id, provider, bucket, object_key,
        content_type, byte_size, checksum, width, height, url_hash, filename,
        expires_at, cleanup_claimed_at, created_at
 FROM async_image_input_objects
-WHERE url_hash = ANY($1)`, pq.Array(hashes))
+WHERE url_hash = ANY($1)
+   OR EXISTS (
+       SELECT 1 FROM async_image_input_url_aliases a
+       WHERE a.input_object_id=async_image_input_objects.id
+         AND a.url_hash = ANY($1)
+   )`, pq.Array(hashes))
 	if err != nil {
 		return nil, err
 	}

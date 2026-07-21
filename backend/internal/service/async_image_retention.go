@@ -77,10 +77,12 @@ type AsyncImageRetentionStorage interface {
 }
 
 type AsyncImageRetentionStats struct {
-	StagingDeleted int64
-	InputsDeleted  int
-	ResultsDeleted int
-	TasksDeleted   int
+	StagingDeleted       int64
+	UploadStateDeleted   int64
+	UploadIntentsDeleted int
+	InputsDeleted        int
+	ResultsDeleted       int
+	TasksDeleted         int
 }
 
 type AsyncImageRetentionService struct {
@@ -198,6 +200,15 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 	} else {
 		stats.StagingDeleted = deleted
 	}
+	intentRepo, hasIntentRepo := s.repo.(AsyncImageUploadIntentRetentionRepository)
+	if hasIntentRepo {
+		deleted, err = intentRepo.DeleteExpiredAsyncImageUploadAdmissionState(ctx, now, batch)
+		if err != nil {
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete expired async image upload admission state: %w", err))
+		} else {
+			stats.UploadStateDeleted = deleted
+		}
+	}
 
 	cfg, err := s.storage.RuntimeConfig(ctx)
 	if err != nil {
@@ -212,6 +223,11 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 	}
 
 	staleBefore := now.Add(-defaultAsyncImageCleanupClaimLease)
+	if hasIntentRepo {
+		if err := s.cleanupUploadIntents(ctx, durable, intentRepo, now, staleBefore, batch, &stats); err != nil {
+			firstErr = joinAsyncImageRetentionError(firstErr, err)
+		}
+	}
 	if err := s.cleanupInputs(ctx, durable, now, staleBefore, batch, &stats); err != nil {
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
@@ -224,6 +240,32 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
 	return stats, firstErr
+}
+
+func (s *AsyncImageRetentionService) cleanupUploadIntents(ctx context.Context, storage DurableImageStorage, repo AsyncImageUploadIntentRetentionRepository, before, staleBefore time.Time, batch int, stats *AsyncImageRetentionStats) error {
+	intents, err := repo.ClaimAsyncImageUploadCleanupIntents(ctx, before, staleBefore, batch)
+	if err != nil {
+		return fmt.Errorf("claim stale async image upload intents: %w", err)
+	}
+	var firstErr error
+	for i := range intents {
+		intent := &intents[i]
+		if err := storage.Delete(ctx, intent.ObjectRef); err != nil {
+			_ = repo.ReleaseAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image upload intent %s: %w", intent.ReservationID, err))
+			continue
+		}
+		removed, err := repo.CompleteAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+		if err != nil {
+			_ = repo.ReleaseAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("complete async image upload intent %s deletion: %w", intent.ReservationID, err))
+			continue
+		}
+		if removed {
+			stats.UploadIntentsDeleted++
+		}
+	}
+	return firstErr
 }
 
 func (s *AsyncImageRetentionService) cleanupInputs(ctx context.Context, storage DurableImageStorage, before, staleBefore time.Time, batch int, stats *AsyncImageRetentionStats) error {

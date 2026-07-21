@@ -130,6 +130,61 @@ func (s *asyncImageRetentionDurableStub) Delete(_ context.Context, ref ObjectRef
 	return s.failKeys[ref.ObjectKey]
 }
 
+type asyncImageUploadIntentRetentionRepoStub struct {
+	*asyncImageRetentionRepoStub
+	stateDeleted int64
+	intents      []AsyncImageUploadCleanupIntent
+	removed      bool
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) DeleteExpiredAsyncImageUploadAdmissionState(context.Context, time.Time, int) (int64, error) {
+	return s.stateDeleted, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) ClaimAsyncImageUploadCleanupIntents(context.Context, time.Time, time.Time, int) ([]AsyncImageUploadCleanupIntent, error) {
+	return s.intents, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) CompleteAsyncImageUploadIntentDeletion(context.Context, string, time.Time) (bool, error) {
+	*s.events = append(*s.events, "complete-upload-intent")
+	return s.removed, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) ReleaseAsyncImageUploadIntentDeletion(context.Context, string, time.Time) error {
+	*s.events = append(*s.events, "release-upload-intent")
+	return nil
+}
+
+func TestAsyncImageRetentionKeepsIntentAfterFirstSuccessfulDelete(t *testing.T) {
+	now := time.Now().UTC()
+	events := make([]string, 0)
+	claimedAt := now.Add(-time.Minute)
+	base := &asyncImageRetentionRepoStub{
+		events: &events, taskResults: map[string][]AsyncImageResult{}, sharedObjects: map[string]bool{},
+	}
+	repo := &asyncImageUploadIntentRetentionRepoStub{
+		asyncImageRetentionRepoStub: base,
+		stateDeleted:                3,
+		intents: []AsyncImageUploadCleanupIntent{{
+			ReservationID: "asyncimg_orphan", ObjectRef: ObjectRef{ObjectKey: "orphan"}, CleanupClaimedAt: claimedAt,
+		}},
+	}
+	durable := &asyncImageRetentionDurableStub{events: &events, failKeys: map[string]error{}}
+	svc := &AsyncImageRetentionService{
+		repo: repo,
+		storage: &asyncImageRetentionStorageStub{
+			durable: durable,
+			cfg:     AsyncImageRuntimeConfig{ResultRetentionDays: 90, TaskRetentionDays: 90},
+		},
+		batch: 25,
+	}
+	stats, err := svc.RunOnce(context.Background(), now)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), stats.UploadStateDeleted)
+	require.Zero(t, stats.UploadIntentsDeleted)
+	require.Equal(t, []string{"delete:orphan", "complete-upload-intent"}, events)
+}
+
 func TestAsyncImageRetentionDeletesObjectsBeforeRowsAndTasks(t *testing.T) {
 	now := time.Now().UTC()
 	events := make([]string, 0)

@@ -161,6 +161,9 @@ type AsyncImageRuntimeConfig struct {
 	DownloadMaxBytes        int64    `json:"download_max_bytes"`
 	DownloadTimeoutSeconds  int      `json:"download_timeout_seconds"`
 	DownloadMaxRedirects    int      `json:"download_max_redirects"`
+	UploadTimeoutSeconds    int      `json:"upload_timeout_seconds"`
+	UploadPerMinute         int      `json:"upload_per_minute"`
+	MaxInputBytesPerKey     int64    `json:"max_input_bytes_per_key"`
 	SignedURLExpirySeconds  int      `json:"signed_url_expiry_seconds"`
 	InputRetentionHours     int      `json:"input_retention_hours"`
 	TaskRetentionDays       int      `json:"task_retention_days"`
@@ -732,6 +735,9 @@ func asyncRuntimeFromConfig(in config.AsyncImageConfig) AsyncImageRuntimeConfig 
 		DownloadMaxBytes:        in.DownloadMaxBytes,
 		DownloadTimeoutSeconds:  in.DownloadTimeoutSeconds,
 		DownloadMaxRedirects:    in.DownloadMaxRedirects,
+		UploadTimeoutSeconds:    in.UploadTimeoutSeconds,
+		UploadPerMinute:         in.UploadPerMinute,
+		MaxInputBytesPerKey:     in.MaxInputBytesPerKey,
 		SignedURLExpirySeconds:  in.SignedURLExpirySeconds,
 		InputRetentionHours:     in.InputRetentionHours,
 		TaskRetentionDays:       in.TaskRetentionDays,
@@ -754,6 +760,9 @@ func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
 		DownloadMaxBytes:        defaultImageMaxDownloadBytes,
 		DownloadTimeoutSeconds:  30,
 		DownloadMaxRedirects:    3,
+		UploadTimeoutSeconds:    300,
+		UploadPerMinute:         20,
+		MaxInputBytesPerKey:     1 << 30,
 		SignedURLExpirySeconds:  3600,
 		InputRetentionHours:     24,
 		TaskRetentionDays:       90,
@@ -762,6 +771,14 @@ func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
 		PromptPreviewMaxChars:   160,
 	}
 }
+
+const (
+	maxAsyncImageDownloadBytes    = int64(64 << 20)
+	maxAsyncImageInputRetention   = 24 * 30
+	maxAsyncImageUploadTimeout    = 600
+	maxAsyncImageUploadsPerMinute = 1000
+	maxAsyncImageInputBytesPerKey = int64(100 << 30)
+)
 
 func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
 	defaults := defaultAsyncImageRuntimeConfig()
@@ -789,6 +806,8 @@ func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
 	}
 	if in.DownloadMaxBytes <= 0 {
 		in.DownloadMaxBytes = defaults.DownloadMaxBytes
+	} else if in.DownloadMaxBytes > maxAsyncImageDownloadBytes {
+		in.DownloadMaxBytes = maxAsyncImageDownloadBytes
 	}
 	if in.DownloadTimeoutSeconds <= 0 {
 		in.DownloadTimeoutSeconds = defaults.DownloadTimeoutSeconds
@@ -796,11 +815,28 @@ func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
 	if in.DownloadMaxRedirects <= 0 {
 		in.DownloadMaxRedirects = defaults.DownloadMaxRedirects
 	}
+	if in.UploadTimeoutSeconds <= 0 {
+		in.UploadTimeoutSeconds = defaults.UploadTimeoutSeconds
+	} else if in.UploadTimeoutSeconds > maxAsyncImageUploadTimeout {
+		in.UploadTimeoutSeconds = maxAsyncImageUploadTimeout
+	}
+	if in.UploadPerMinute <= 0 {
+		in.UploadPerMinute = defaults.UploadPerMinute
+	} else if in.UploadPerMinute > maxAsyncImageUploadsPerMinute {
+		in.UploadPerMinute = maxAsyncImageUploadsPerMinute
+	}
+	if in.MaxInputBytesPerKey <= 0 {
+		in.MaxInputBytesPerKey = defaults.MaxInputBytesPerKey
+	} else if in.MaxInputBytesPerKey > maxAsyncImageInputBytesPerKey {
+		in.MaxInputBytesPerKey = maxAsyncImageInputBytesPerKey
+	}
 	if in.SignedURLExpirySeconds <= 0 {
 		in.SignedURLExpirySeconds = defaults.SignedURLExpirySeconds
 	}
 	if in.InputRetentionHours <= 0 {
 		in.InputRetentionHours = defaults.InputRetentionHours
+	} else if in.InputRetentionHours > maxAsyncImageInputRetention {
+		in.InputRetentionHours = maxAsyncImageInputRetention
 	}
 	if in.TaskRetentionDays <= 0 {
 		in.TaskRetentionDays = defaults.TaskRetentionDays

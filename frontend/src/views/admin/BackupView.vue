@@ -154,7 +154,15 @@
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.inputRetentionHours') }}</label>
-              <input v-model.number="imageStorageForm.async_image.input_retention_hours" type="number" min="1" class="input w-full" />
+              <input v-model.number="imageStorageForm.async_image.input_retention_hours" type="number" min="1" max="720" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.uploadPerMinute') }}</label>
+              <input v-model.number="imageStorageForm.async_image.upload_per_minute" type="number" min="1" max="1000" class="input w-full" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.maxInputGiBPerKey') }}</label>
+              <input v-model.number="asyncInputMaxGiB" type="number" min="0.1" max="100" step="0.1" class="input w-full" />
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.taskRetentionDays') }}</label>
@@ -193,11 +201,15 @@
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxBytes') }}</label>
-                <input v-model.number="imageStorageForm.async_image.download_max_bytes" type="number" min="1048576" step="1048576" class="input w-full" />
+                <input v-model.number="imageStorageForm.async_image.download_max_bytes" type="number" min="1048576" max="67108864" step="1048576" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadTimeoutSeconds') }}</label>
                 <input v-model.number="imageStorageForm.async_image.download_timeout_seconds" type="number" min="1" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.uploadTimeoutSeconds') }}</label>
+                <input v-model.number="imageStorageForm.async_image.upload_timeout_seconds" type="number" min="30" max="600" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxRedirects') }}</label>
@@ -568,6 +580,9 @@ const imageStorageForm = ref<ImageStorageConfig>({
     download_max_redirects: 3,
     signed_url_expiry_seconds: 3600,
     input_retention_hours: 24,
+    upload_per_minute: 20,
+    max_input_bytes_per_key: 1024 * 1024 * 1024,
+    upload_timeout_seconds: 300,
     task_retention_days: 90,
     result_retention_days: 90,
 	gemini_half_k_models: [],
@@ -594,6 +609,13 @@ const geminiHalfKModelsText = computed({
 			.map(model => model.trim())
 			.filter(Boolean)
 	},
+})
+
+const asyncInputMaxGiB = computed({
+  get: () => Number((imageStorageForm.value.async_image.max_input_bytes_per_key / (1024 ** 3)).toFixed(2)),
+  set: (value: number) => {
+    imageStorageForm.value.async_image.max_input_bytes_per_key = Math.max(1, Math.round(Number(value || 0) * (1024 ** 3)))
+  },
 })
 
 const libraryMaxGiB = computed({

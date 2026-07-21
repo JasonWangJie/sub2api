@@ -66,9 +66,13 @@ func (r *imageLibraryRepository) HasActiveImageStorageObjects(ctx context.Contex
 		return false, errors.New("image library repository is not configured")
 	}
 	var exists bool
-	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(
-SELECT 1 FROM image_storage_objects WHERE state<>'deleted'
-)`).Scan(&exists)
+	err := r.db.QueryRowContext(ctx, `SELECT
+  EXISTS(SELECT 1 FROM image_storage_objects WHERE state<>'deleted')
+  OR EXISTS(SELECT 1 FROM async_image_input_objects)
+  OR EXISTS(
+      SELECT 1 FROM async_image_upload_reservations
+      WHERE status='reserved' OR intent_object_key IS NOT NULL
+  )`).Scan(&exists)
 	return exists, err
 }
 

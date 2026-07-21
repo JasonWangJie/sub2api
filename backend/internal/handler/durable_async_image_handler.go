@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +22,10 @@ import (
 )
 
 const (
-	asyncImageBBTaskPath = "/v1/images/tasks_async/"
-	asyncImageSCTaskPath = "/v1/tasks_sc/"
+	asyncImageBBTaskPath          = "/v1/images/tasks_async/"
+	asyncImageSCTaskPath          = "/v1/tasks_sc/"
+	asyncImageSCMultipartOverhead = int64(1 << 20)
+	asyncImageMaxSignedUploadBody = int64(1<<63 - 1)
 )
 
 type durableAsyncImagePayload struct {
@@ -513,6 +515,10 @@ func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
 		h.writeError(c, service.AsyncImageProtocolSC, err)
 		return
 	}
+	if h == nil || h.tasks == nil || h.storage == nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "upload_unavailable", "image upload service is unavailable")
+		return
+	}
 	storage, enabled, err := h.storage.DurableStorage(c.Request.Context())
 	if err != nil || !enabled || storage == nil {
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "storage_unavailable", "image input storage is not configured")
@@ -523,8 +529,48 @@ func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "configuration_unavailable", "asynchronous image configuration is unavailable")
 		return
 	}
+	multipartLimit := cfg.DownloadMaxBytes
+	if multipartLimit <= asyncImageMaxSignedUploadBody-asyncImageSCMultipartOverhead {
+		multipartLimit += asyncImageSCMultipartOverhead
+	} else {
+		multipartLimit = asyncImageMaxSignedUploadBody
+	}
+	if c.Request.ContentLength > multipartLimit {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusRequestEntityTooLarge, "upload_too_large", "uploaded image exceeds the configured size limit")
+		return
+	}
+	settings, err := h.storage.Get(c.Request.Context())
+	if err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "configuration_unavailable", "image storage configuration is unavailable")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	var idempotencyKeyPtr *string
+	if idempotencyKey != "" {
+		if len(idempotencyKey) > 255 {
+			h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key must not exceed 255 bytes")
+			return
+		}
+		idempotencyKeyPtr = &idempotencyKey
+	}
+	admission, err := h.tasks.AdmitInputUpload(c.Request.Context(), service.AdmitAsyncImageUploadParams{
+		UserID: apiKey.UserID, APIKeyID: apiKey.ID, UploadPerMinute: cfg.UploadPerMinute,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrAsyncImageUploadRateLimited) {
+			c.Header("Retry-After", "60")
+		}
+		h.writeError(c, service.AsyncImageProtocolSC, err)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, multipartLimit)
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusRequestEntityTooLarge, "upload_too_large", "uploaded image exceeds the configured size limit")
+			return
+		}
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_upload", "multipart field file is required")
 		return
 	}
@@ -540,56 +586,166 @@ func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
 		return
 	}
 	declaredType := fileHeader.Header.Get("Content-Type")
+	requestFilename := asyncImageUploadFilename(fileHeader.Filename)
+	requestHash := service.AsyncImageUploadRequestHash(data, declaredType, requestFilename)
+	reservation, err := h.tasks.ReserveInputUpload(c.Request.Context(), service.ReserveAsyncImageUploadParams{
+		AdmissionID: admission.AdmissionID, UserID: apiKey.UserID, APIKeyID: apiKey.ID, IdempotencyKey: idempotencyKeyPtr,
+		RequestHash: requestHash, ByteSize: int64(len(data)),
+		UploadPerMinute: cfg.UploadPerMinute, MaxInputBytesPerKey: cfg.MaxInputBytesPerKey,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrAsyncImageUploadRateLimited) || errors.Is(err, service.ErrAsyncImageUploadInProgress) {
+			c.Header("Retry-After", "60")
+		}
+		h.writeError(c, service.AsyncImageProtocolSC, err)
+		return
+	}
+	if reservation.Reused && reservation.InputObject != nil {
+		if err := h.writeSCUploadResponse(c, storage, apiKey, reservation.InputObject, true); err != nil {
+			if infraerrors.Reason(err) != "" {
+				h.writeError(c, service.AsyncImageProtocolSC, err)
+			} else {
+				h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "failed to create uploaded image URL")
+			}
+		}
+		return
+	}
+	if reservation.Reservation == nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "upload_unavailable", "image upload admission control is unavailable")
+		return
+	}
+	uploadID := reservation.Reservation.ReservationID
 	validated, err := (service.AsyncImageReferenceDownloader{MaxBytes: cfg.DownloadMaxBytes}).ValidateBytes(data, declaredType)
 	if err != nil {
+		h.failSCUploadReservation(uploadID, requestHash, "validation_failed")
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadRequest, "invalid_upload", err.Error())
 		return
 	}
-	settings, err := h.storage.Get(c.Request.Context())
-	if err != nil {
-		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "configuration_unavailable", "image storage configuration is unavailable")
-		return
-	}
-	uploadID, err := service.NewAsyncImageTaskID()
-	if err != nil {
-		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to allocate uploaded image")
-		return
+	filename := requestFilename
+	if filename == "" {
+		filename = "image" + asyncImageExtension(validated.MIMEType)
 	}
 	key := strings.TrimSuffix(settings.Prefix, "/") + "/inputs/" + fmt.Sprintf("%d/%s%s", apiKey.ID, uploadID, asyncImageExtension(validated.MIMEType))
-	ref, err := storage.SaveObject(c.Request.Context(), key, validated.MIMEType, validated.Data)
+	intentResolver, ok := storage.(service.DurableImageStorageIntentResolver)
+	if !ok {
+		h.failSCUploadReservation(uploadID, requestHash, "intent_unsupported")
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "upload_unavailable", "image storage cannot persist upload intent")
+		return
+	}
+	intent, err := intentResolver.ObjectIntent(key, validated.MIMEType, int64(len(validated.Data)), validated.SHA256)
 	if err != nil {
+		h.failSCUploadReservation(uploadID, requestHash, "intent_invalid")
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "upload_unavailable", "failed to prepare image upload intent")
+		return
+	}
+	if err := h.tasks.SetInputUploadObjectIntent(c.Request.Context(), service.SetAsyncImageUploadObjectIntentParams{
+		ReservationID: uploadID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
+		RequestHash: requestHash, ObjectRef: intent,
+	}); err != nil {
+		h.failSCUploadReservation(uploadID, requestHash, "intent_persistence_failed")
+		h.writeError(c, service.AsyncImageProtocolSC, err)
+		return
+	}
+	uploadCtx, cancelUpload := context.WithTimeout(c.Request.Context(), time.Duration(cfg.UploadTimeoutSeconds)*time.Second)
+	ref, err := storage.SaveObject(uploadCtx, key, validated.MIMEType, validated.Data)
+	cancelUpload()
+	if err != nil {
+		h.failSCUploadReservation(uploadID, requestHash, "object_upload_failed")
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "failed to store uploaded image")
+		return
+	}
+	if ref.Provider != intent.Provider || ref.Bucket != intent.Bucket || ref.ObjectKey != intent.ObjectKey ||
+		ref.ContentType != intent.ContentType || ref.SizeBytes != intent.SizeBytes || ref.ChecksumSHA256 != intent.ChecksumSHA256 {
+		h.failSCUploadReservation(uploadID, requestHash, "object_identity_mismatch")
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = storage.Delete(cleanupCtx, ref)
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "stored image identity did not match the reserved object")
 		return
 	}
 	ref.Width, ref.Height = validated.Width, validated.Height
 	retention := time.Duration(cfg.InputRetentionHours) * time.Hour
 	access, err := storage.SignURL(c.Request.Context(), ref, retention)
 	if err != nil {
-		_ = storage.Delete(context.Background(), ref)
+		h.failSCUploadReservation(uploadID, requestHash, "url_signing_failed")
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = storage.Delete(cleanupCtx, ref)
 		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusBadGateway, "upload_failed", "failed to create uploaded image URL")
 		return
 	}
-	filename := filepath.Base(strings.TrimSpace(fileHeader.Filename))
-	if filename == "." || filename == "" {
-		filename = "image" + asyncImageExtension(validated.MIMEType)
-	}
 	createdAt := time.Now().UTC()
-	_, err = h.tasks.RegisterInputObject(c.Request.Context(), service.RegisterAsyncImageInputObjectParams{
-		UploadID: uploadID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
+	object, err := h.tasks.CompleteInputUpload(c.Request.Context(), service.CompleteAsyncImageUploadParams{
+		ReservationID: uploadID, UserID: apiKey.UserID, APIKeyID: apiKey.ID, RequestHash: requestHash,
 		ObjectRef: ref, URLHash: service.AsyncImageInputURLHash(access.URL),
 		Filename: filename, ExpiresAt: createdAt.Add(retention),
 	})
 	if err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = storage.Delete(cleanupCtx, ref)
-		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to persist uploaded image")
+		// Only delete the OSS object when PostgreSQL confirms that the active
+		// reservation was released. A commit timeout may mean Complete already
+		// succeeded; deleting in that state would corrupt a durable input object.
+		released := h.failSCUploadReservation(uploadID, requestHash, "persistence_failed")
+		if released {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = storage.Delete(cleanupCtx, ref)
+		}
+		if infraerrors.Code(err) == http.StatusServiceUnavailable {
+			h.writeError(c, service.AsyncImageProtocolSC, err)
+		} else {
+			h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to persist uploaded image")
+		}
 		return
 	}
+	h.writeSCUploadJSON(c, object, access.URL, false)
+}
+
+func (h *DurableAsyncImageHandler) writeSCUploadResponse(c *gin.Context, storage service.DurableImageStorage, apiKey *service.APIKey, object *service.AsyncImageInputObject, replayed bool) error {
+	if object == nil || apiKey == nil || object.APIKeyID != apiKey.ID || object.UserID != apiKey.UserID {
+		return service.ErrAsyncImageUploadReservationInvalid
+	}
+	now := time.Now().UTC()
+	expiry := object.ExpiresAt.Sub(now)
+	if !object.ExpiresAt.After(now) || expiry <= 0 {
+		return service.ErrAsyncImageUploadReservationInvalid
+	}
+	access, err := storage.SignURL(c.Request.Context(), object.ObjectRef, expiry)
+	if err != nil {
+		return err
+	}
+	aliasExpiry := object.ExpiresAt
+	if !access.ExpiresAt.IsZero() && access.ExpiresAt.Before(aliasExpiry) {
+		aliasExpiry = access.ExpiresAt
+	}
+	if err := h.tasks.RegisterInputURLAlias(c.Request.Context(), service.RegisterAsyncImageInputURLAliasParams{
+		InputObjectID: object.ID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
+		URLHash: service.AsyncImageInputURLHash(access.URL), ExpiresAt: aliasExpiry,
+	}); err != nil {
+		return err
+	}
+	h.writeSCUploadJSON(c, object, access.URL, replayed)
+	return nil
+}
+
+func (h *DurableAsyncImageHandler) writeSCUploadJSON(c *gin.Context, object *service.AsyncImageInputObject, rawURL string, replayed bool) {
+	if replayed {
+		c.Header("X-Idempotency-Replayed", "true")
+	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, gin.H{
-		"url": access.URL, "filename": filename, "content_type": validated.MIMEType,
-		"bytes": len(validated.Data), "created_at": createdAt.Unix(),
+		"url": rawURL, "filename": object.Filename, "content_type": object.ObjectRef.ContentType,
+		"bytes": object.ObjectRef.SizeBytes, "created_at": object.CreatedAt.Unix(),
 	})
+}
+
+func (h *DurableAsyncImageHandler) failSCUploadReservation(reservationID, requestHash, reason string) bool {
+	if h == nil || h.tasks == nil {
+		return false
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	released, _ := h.tasks.FailInputUpload(cleanupCtx, reservationID, requestHash, reason)
+	return released
 }
 
 func asyncImagePublicStatus(task *service.AsyncImageTask, cfg service.AsyncImageRuntimeConfig) string {
@@ -678,6 +834,33 @@ func asyncImageExtension(contentType string) string {
 	default:
 		return ".png"
 	}
+}
+
+func asyncImageUploadFilename(raw string) string {
+	raw = strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/")
+	name := strings.TrimSpace(path.Base(raw))
+	if name == "." || name == ".." || name == "/" {
+		return ""
+	}
+	var cleaned strings.Builder
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		cleaned.WriteRune(r)
+	}
+	name = strings.TrimSpace(cleaned.String())
+	if len(name) <= 255 {
+		return name
+	}
+	cleaned.Reset()
+	for _, r := range name {
+		if cleaned.Len()+len(string(r)) > 255 {
+			break
+		}
+		cleaned.WriteRune(r)
+	}
+	return strings.TrimSpace(cleaned.String())
 }
 
 func (h *DurableAsyncImageHandler) writeError(c *gin.Context, protocol string, err error) {

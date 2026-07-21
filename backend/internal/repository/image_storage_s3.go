@@ -80,6 +80,27 @@ func (s *S3ImageStorage) Save(ctx context.Context, key, contentType string, data
 // SaveObject uploads bytes and returns a durable identity rather than an
 // expiring URL. The SHA-256 is stored as object metadata for later validation.
 func (s *S3ImageStorage) SaveObject(ctx context.Context, key, contentType string, data []byte) (service.ObjectRef, error) {
+	checksum := fmt.Sprintf("%x", sha256.Sum256(data))
+	intent, err := s.ObjectIntent(key, contentType, int64(len(data)), checksum)
+	if err != nil {
+		return service.ObjectRef{}, err
+	}
+	finish := servertiming.ObserveDependency(ctx, "s3")
+	defer finish()
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      &s.bucket,
+		Key:         &intent.ObjectKey,
+		Body:        bytes.NewReader(data),
+		ContentType: &intent.ContentType,
+		Metadata:    map[string]string{"sha256": intent.ChecksumSHA256},
+	})
+	if err != nil {
+		return service.ObjectRef{}, fmt.Errorf("S3 PutObject: %w", err)
+	}
+	return intent, nil
+}
+
+func (s *S3ImageStorage) ObjectIntent(key, contentType string, sizeBytes int64, checksumSHA256 string) (service.ObjectRef, error) {
 	if s == nil || s.client == nil {
 		return service.ObjectRef{}, fmt.Errorf("image storage client is nil")
 	}
@@ -91,26 +112,17 @@ func (s *S3ImageStorage) SaveObject(ctx context.Context, key, contentType string
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	checksum := fmt.Sprintf("%x", sha256.Sum256(data))
-	finish := servertiming.ObserveDependency(ctx, "s3")
-	defer finish()
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      &s.bucket,
-		Key:         &key,
-		Body:        bytes.NewReader(data),
-		ContentType: &contentType,
-		Metadata:    map[string]string{"sha256": checksum},
-	})
-	if err != nil {
-		return service.ObjectRef{}, fmt.Errorf("S3 PutObject: %w", err)
+	checksumSHA256 = strings.ToLower(strings.TrimSpace(checksumSHA256))
+	if sizeBytes <= 0 || len(checksumSHA256) != 64 {
+		return service.ObjectRef{}, fmt.Errorf("object intent size and SHA-256 are required")
 	}
 	return service.ObjectRef{
 		Provider:       s.provider,
 		Bucket:         s.bucket,
 		ObjectKey:      key,
 		ContentType:    contentType,
-		SizeBytes:      int64(len(data)),
-		ChecksumSHA256: checksum,
+		SizeBytes:      sizeBytes,
+		ChecksumSHA256: checksumSHA256,
 	}, nil
 }
 
