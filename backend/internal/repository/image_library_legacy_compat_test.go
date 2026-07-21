@@ -18,6 +18,9 @@ func TestDeleteLegacyPlazaForUserWithdrawsAndSoftDeletesInOneTransaction(t *test
 	mock.ExpectQuery(`(?s)SELECT i.id.*LEFT JOIN image_plaza_publications.*i.user_id=\$1.*p.public_id=\$2.*FOR UPDATE OF i`).
 		WithArgs(int64(42), "imgpub_public", "").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(17)))
+	mock.ExpectQuery(`(?s)SELECT EXISTS\(.*status='admin_hidden'`).
+		WithArgs(int64(17)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(`(?s)UPDATE image_library_items.*deleted_at=NOW\(\).*WHERE id=\$1 AND user_id=\$2`).
 		WithArgs(int64(17), int64(42)).
 		WillReturnResult(sqlmock.NewResult(0, 1))

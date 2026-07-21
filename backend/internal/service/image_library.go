@@ -400,15 +400,31 @@ func (s *ImageLibraryService) ImportBytes(ctx context.Context, userID int64, in 
 	if err != nil {
 		return nil, false, err
 	}
-	validated, err := ValidateImageBytes(in.ImageData, in.DeclaredMIME, policy.MaxImageBytes, policy.MaxImagePixels)
-	if err != nil {
-		return nil, false, err
-	}
 	idempotencyKey, err := imageLibraryIdempotencyKey(in.IdempotencyKey)
 	if err != nil {
 		return nil, false, err
 	}
-	return s.importValidated(ctx, userID, in, policy, validated, imageLibraryRequestHash(validated.SHA256, in), idempotencyKey, true)
+	rawChecksum := sha256.Sum256(in.ImageData)
+	requestHash := imageLibraryRequestHash(hex.EncodeToString(rawChecksum[:]), in)
+	item, reused, err := s.repo.PreflightImport(ctx, ImageLibraryImportPreflightParams{
+		UserID: userID, IdempotencyKey: idempotencyKey, RequestHash: requestHash,
+		IncomingBytes: int64(len(in.ImageData)), MaxItems: policy.MaxItemsPerUser,
+		MaxBytes: policy.MaxBytesPerUser, RateLimit: policy.ImportPerMinute,
+		RecordAttempt: true,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if reused {
+		s.decorateUserItem(ctx, item)
+		return item, true, nil
+	}
+	validated, err := ValidateImageBytes(in.ImageData, in.DeclaredMIME, policy.MaxImageBytes, policy.MaxImagePixels)
+	if err != nil {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, err
+	}
+	return s.importValidated(ctx, userID, in, policy, validated, requestHash, idempotencyKey, false)
 }
 
 // importLegacyBytes is reserved for the recoverable server-side migration.

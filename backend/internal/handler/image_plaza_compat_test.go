@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	apperrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -29,6 +30,9 @@ type imagePlazaLibraryStub struct {
 	publication   *service.ImagePublication
 	listResult    *service.PublicImagePlazaListResult
 	listParams    service.ImagePublicationListParams
+	importInput   service.ImageLibraryImportInput
+	importErr     error
+	importCalls   int
 }
 
 func (s *imagePlazaLibraryStub) ListPublished(_ context.Context, _ int64, in service.ImagePublicationListParams) (*service.PublicImagePlazaListResult, error) {
@@ -39,8 +43,10 @@ func (s *imagePlazaLibraryStub) ListPublished(_ context.Context, _ int64, in ser
 	return &service.PublicImagePlazaListResult{Items: []service.PublicImagePlazaItem{}}, nil
 }
 
-func (s *imagePlazaLibraryStub) ImportBytes(context.Context, int64, service.ImageLibraryImportInput) (*service.ImageLibraryItem, bool, error) {
-	return s.item, false, nil
+func (s *imagePlazaLibraryStub) ImportBytes(_ context.Context, _ int64, in service.ImageLibraryImportInput) (*service.ImageLibraryItem, bool, error) {
+	s.importCalls++
+	s.importInput = in
+	return s.item, false, s.importErr
 }
 
 func (s *imagePlazaLibraryStub) Publish(context.Context, service.CreateImagePublicationParams) (*service.ImagePublication, error) {
@@ -118,6 +124,33 @@ func TestLegacyImagePlazaPublishKeepsHTTP200DirectItemShape(t *testing.T) {
 	require.Equal(t, "imgpub_public", data["publication_id"])
 	require.Contains(t, data, "item")
 	require.Contains(t, data, "publication")
+}
+
+func TestLegacyImagePlazaPublishDefersStrictDecodeUntilLibraryPreflight(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	library := &imagePlazaLibraryStub{
+		importErr: apperrors.TooManyRequests("IMAGE_LIBRARY_RATE_LIMIT", "limited"),
+	}
+	h := &ImagePlazaHandler{library: library}
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	payload := map[string]any{
+		"prompt": "prompt", "title": "title", "model": "gpt-image-1",
+		"image": "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(svg),
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/image-plaza", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 42})
+
+	h.Publish(c)
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, 1, library.importCalls)
+	require.Equal(t, svg, library.importInput.ImageData)
+	require.Equal(t, "image/svg+xml", library.importInput.DeclaredMIME)
 }
 
 func TestLegacyImagePlazaListKeepsPageContractAndAppliesNewFilters(t *testing.T) {

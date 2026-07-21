@@ -73,3 +73,27 @@ func TestPrepareExpiredCleanupBatchMarksPublicationExpiredAndAppendsEvent(t *tes
 	require.True(t, batch.Done)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestPrepareOutboxCleanupProtectsActivePublicationObject(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT storage_object_id FROM image_library_items WHERE id=\$1 FOR UPDATE`).
+		WithArgs(int64(17)).
+		WillReturnRows(sqlmock.NewRows([]string{"storage_object_id"}).AddRow(int64(23)))
+	mock.ExpectExec(`UPDATE image_library_items SET deleted_at=COALESCE`).
+		WithArgs(int64(17)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)UPDATE image_storage_objects o SET state='deleting'.*image_plaza_publications p.*status IN \('pending_review','published','admin_hidden'\).*RETURNING`).
+		WithArgs(int64(23)).
+		WillReturnRows(sqlmock.NewRows([]string{"provider", "bucket", "object_key", "content_type", "byte_size", "checksum_sha256", "width", "height"}))
+	mock.ExpectCommit()
+
+	repo := NewImageLibraryRepository(db).(*imageLibraryRepository)
+	objects, err := repo.PrepareOutboxCleanup(context.Background(), 17)
+	require.NoError(t, err)
+	require.Empty(t, objects)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

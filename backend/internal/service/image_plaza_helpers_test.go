@@ -45,8 +45,14 @@ func TestValidateImageBytesRejectsTrailingPolyglot(t *testing.T) {
 }
 
 func TestDecodeImagePayloadRejectsSVGDataURI(t *testing.T) {
-	raw := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
-	_, _, _, err := DecodeImagePayload(raw)
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	raw := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(svg)
+	decoded, declaredMIME, err := DecodeBase64ImagePayload(raw)
+	require.NoError(t, err)
+	require.Equal(t, svg, decoded)
+	require.Equal(t, "image/svg+xml", declaredMIME)
+
+	_, _, _, err = DecodeImagePayload(raw)
 	require.Error(t, err)
 }
 

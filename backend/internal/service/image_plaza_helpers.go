@@ -35,12 +35,13 @@ type ValidatedImage struct {
 	SizeBytes int64
 }
 
-// DecodeImagePayload accepts raw base64 or a base64 data URL and performs a
-// complete, bounded decode. Only PNG, JPEG, and WebP are accepted.
-func DecodeImagePayload(raw string) (data []byte, mimeType string, format string, err error) {
+// DecodeBase64ImagePayload decodes the legacy plaza transport without parsing
+// the image container. Callers must pass the result to ValidateImageBytes;
+// keeping those steps separate lets persistent rate and quota checks run first.
+func DecodeBase64ImagePayload(raw string) (data []byte, declaredMIME string, err error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, "", "", apperrors.BadRequest("INVALID_IMAGE", "image is required")
+		return nil, "", apperrors.BadRequest("INVALID_IMAGE", "image is required")
 	}
 
 	declaredType := ""
@@ -48,12 +49,12 @@ func DecodeImagePayload(raw string) (data []byte, mimeType string, format string
 	if strings.HasPrefix(strings.ToLower(raw), "data:") {
 		comma := strings.IndexByte(raw, ',')
 		if comma < 0 {
-			return nil, "", "", apperrors.BadRequest("INVALID_IMAGE", "invalid image data URL")
+			return nil, "", apperrors.BadRequest("INVALID_IMAGE", "invalid image data URL")
 		}
 		meta := raw[len("data:"):comma]
 		parts := strings.Split(meta, ";")
 		if len(parts) < 2 || !strings.EqualFold(strings.TrimSpace(parts[len(parts)-1]), "base64") {
-			return nil, "", "", apperrors.BadRequest("INVALID_IMAGE", "image data URL must use base64 encoding")
+			return nil, "", apperrors.BadRequest("INVALID_IMAGE", "image data URL must use base64 encoding")
 		}
 		declaredType = strings.TrimSpace(parts[0])
 		payload = raw[comma+1:]
@@ -62,11 +63,21 @@ func DecodeImagePayload(raw string) (data []byte, mimeType string, format string
 	// Reject oversized input before allocating the decoded buffer. A little
 	// headroom accounts for base64 padding without weakening the byte limit.
 	if int64(base64.StdEncoding.DecodedLen(len(payload))) > DefaultImageLibraryMaxBytes+2 {
-		return nil, "", "", apperrors.BadRequest("IMAGE_TOO_LARGE", "image exceeds the 20 MiB limit")
+		return nil, "", apperrors.BadRequest("IMAGE_TOO_LARGE", "image exceeds the 20 MiB limit")
 	}
 	decoded, decodeErr := base64.StdEncoding.Strict().DecodeString(payload)
 	if decodeErr != nil {
-		return nil, "", "", apperrors.BadRequest("INVALID_IMAGE", "invalid base64 image")
+		return nil, "", apperrors.BadRequest("INVALID_IMAGE", "invalid base64 image")
+	}
+	return decoded, declaredType, nil
+}
+
+// DecodeImagePayload accepts raw base64 or a base64 data URL and performs a
+// complete, bounded decode. Only PNG, JPEG, and WebP are accepted.
+func DecodeImagePayload(raw string) (data []byte, mimeType string, format string, err error) {
+	decoded, declaredType, err := DecodeBase64ImagePayload(raw)
+	if err != nil {
+		return nil, "", "", err
 	}
 	validated, validateErr := ValidateImageBytes(decoded, declaredType, DefaultImageLibraryMaxBytes, DefaultImageLibraryMaxPixels)
 	if validateErr != nil {

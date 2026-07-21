@@ -450,6 +450,7 @@ UPDATE async_image_tasks SET
     upstream_succeeded_at = $9,
     error_code = NULL,
     error_message = NULL,
+    request_payload = ''::bytea,
     version = version + 1,
     updated_at = NOW()
 WHERE task_id = $1 AND version = $10

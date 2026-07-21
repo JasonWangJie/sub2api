@@ -663,11 +663,22 @@ func (r *imageLibraryRepository) DeleteForUser(ctx context.Context, userID int64
 	}
 	defer func() { _ = tx.Rollback() }()
 	var id int64
-	err = tx.QueryRowContext(ctx, `UPDATE image_library_items SET deleted_at=NOW(),visibility='private',updated_at=NOW() WHERE asset_id=$1 AND user_id=$2 AND deleted_at IS NULL RETURNING id`, assetID, userID).Scan(&id)
+	err = tx.QueryRowContext(ctx, `
+SELECT id FROM image_library_items
+WHERE asset_id=$1 AND user_id=$2 AND deleted_at IS NULL
+FOR UPDATE`, assetID, userID).Scan(&id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return service.ErrImageLibraryNotFound
 		}
+		return err
+	}
+	if err := rejectAdminHiddenLibraryDeletion(ctx, tx, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE image_library_items SET deleted_at=NOW(),visibility='private',updated_at=NOW()
+WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, id, userID); err != nil {
 		return err
 	}
 	if err := finalizeImageLibraryDeletion(ctx, tx, id, userID); err != nil {
@@ -697,6 +708,9 @@ FOR UPDATE OF i`, userID, identifier, legacyIdempotencyKey).Scan(&id)
 	if err != nil {
 		return false, err
 	}
+	if err := rejectAdminHiddenLibraryDeletion(ctx, tx, id); err != nil {
+		return true, err
+	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE image_library_items
 SET deleted_at=NOW(),visibility='private',updated_at=NOW()
@@ -718,6 +732,24 @@ WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, id, userID)
 		return false, err
 	}
 	return true, nil
+}
+
+func rejectAdminHiddenLibraryDeletion(ctx context.Context, tx *sql.Tx, itemID int64) error {
+	var hidden bool
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(
+ SELECT 1 FROM image_plaza_publications
+ WHERE library_item_id=$1 AND status='admin_hidden'
+)`, itemID).Scan(&hidden); err != nil {
+		return err
+	}
+	if hidden {
+		return apperrors.Conflict(
+			"ADMIN_HIDDEN_PUBLICATION_LOCKED",
+			"an administrator-hidden publication must be resolved before its library asset can be deleted",
+		)
+	}
+	return nil
 }
 
 func finalizeImageLibraryDeletion(ctx context.Context, tx *sql.Tx, id, userID int64) error {
@@ -1537,6 +1569,11 @@ func (r *imageLibraryRepository) PrepareOutboxCleanup(ctx context.Context, itemI
 UPDATE image_storage_objects o SET state='deleting',deletion_claimed_at=NOW(),updated_at=NOW()
 WHERE o.id=$1 AND o.state='active'
   AND NOT EXISTS (SELECT 1 FROM image_library_items i WHERE i.storage_object_id=o.id AND i.deleted_at IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM image_plaza_publications p
+    JOIN image_library_items i ON i.id=p.library_item_id
+    WHERE i.storage_object_id=o.id AND p.status IN ('pending_review','published','admin_hidden')
+  )
   AND NOT EXISTS (SELECT 1 FROM async_image_results ar WHERE ar.storage_object_id=o.id OR (ar.provider=o.provider AND ar.bucket=o.bucket AND ar.object_key=o.object_key))
 RETURNING o.provider,o.bucket,o.object_key,o.content_type,o.byte_size,o.checksum_sha256,o.width,o.height`, objectID)
 	if err != nil {

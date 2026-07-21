@@ -149,6 +149,49 @@ func TestAsyncImageTaskRepositoryTransitionUsesVersionCASAndEvent(t *testing.T) 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestAsyncImageTaskRepositoryRecordUpstreamSuccessClearsRequestPayload(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(24 * time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status, version FROM async_image_tasks WHERE task_id = \\$1 FOR UPDATE").
+		WithArgs("asyncimg_success").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "version"}).AddRow(service.AsyncImageTaskStatusInvoking, int64(4)))
+	mock.ExpectExec("DELETE FROM async_image_staging_objects WHERE task_id = \\$1").
+		WithArgs("asyncimg_success").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("(?s)INSERT INTO async_image_staging_objects .*VALUES \\(\\$1, \\$2, \\$3, \\$4, \\$5, \\$6, \\$7, \\$8, \\$9\\)").
+		WithArgs("asyncimg_success", 0, []byte("image-bytes"), "image/png", int64(11), "checksum", nil, nil, expiresAt).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("(?s)UPDATE async_image_tasks SET.*billing_payload = \\$8::jsonb,\\s*upstream_succeeded_at = \\$9,\\s*error_code = NULL,\\s*error_message = NULL,\\s*request_payload = ''::bytea,\\s*version = version \\+ 1.*WHERE task_id = \\$1 AND version = \\$10.*RETURNING").
+		WillReturnRows(asyncImageTaskRowsWithPayload(now, "asyncimg_success", "hash-success", service.AsyncImageTaskStatusUpstreamSucceeded, []byte{}))
+	mock.ExpectExec("(?s)INSERT INTO async_image_events").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	repo := NewAsyncImageTaskRepository(db)
+	task, err := repo.RecordAsyncImageUpstreamSuccess(context.Background(), service.RecordAsyncImageUpstreamSuccessParams{
+		TaskID:              "asyncimg_success",
+		ExpectedVersion:     4,
+		AccountID:           9,
+		ImageCount:          1,
+		BillingRequestID:    "client:async-image:asyncimg_success",
+		BillingPayload:      []byte(`{"amount":1}`),
+		UpstreamSucceededAt: now,
+		StagingObjects: []service.AsyncImageStagingObject{{
+			ImageIndex: 0,
+			Content:    []byte("image-bytes"), ContentType: "image/png", ByteSize: 11,
+			Checksum: "checksum", ExpiresAt: expiresAt,
+		}},
+	})
+	require.NoError(t, err)
+	require.Empty(t, task.RequestPayload)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestAsyncImageTaskRepositoryTouchHeartbeatDoesNotAdvanceVersion(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -252,6 +295,10 @@ func intPtr(value int) *int {
 }
 
 func asyncImageTaskRows(now time.Time, taskID, requestHash, status string) *sqlmock.Rows {
+	return asyncImageTaskRowsWithPayload(now, taskID, requestHash, status, []byte("ciphertext"))
+}
+
+func asyncImageTaskRowsWithPayload(now time.Time, taskID, requestHash, status string, requestPayload []byte) *sqlmock.Rows {
 	columns := []string{
 		"id", "task_id", "user_id", "api_key_id", "group_id", "account_id",
 		"protocol", "platform", "request_type", "model", "status", "billing_status", "progress",
@@ -266,7 +313,7 @@ func asyncImageTaskRows(now time.Time, taskID, requestHash, status string) *sqlm
 		int64(1), taskID, int64(1), int64(2), int64(3), nil,
 		service.AsyncImageProtocolBB, service.PlatformGemini, service.AsyncImageRequestTypeTextToImage,
 		"gemini-image", status, service.AsyncImageBillingStatusPending, 0,
-		nil, nil, nil, 1, nil, "USD", nil, requestHash, []byte("ciphertext"), nil,
+		nil, nil, nil, 1, nil, "USD", nil, requestHash, requestPayload, nil,
 		nil, nil, nil, 0, 0, 0, int64(1), nil, nil, now, nil, nil, nil, nil, now, now,
 	}
 	return sqlmock.NewRows(columns).AddRow(values...)

@@ -98,17 +98,76 @@ func imageLibraryFlowSettings(storage DurableImageStorage) *ImageStorageSettingS
 
 func TestImageLibraryImportBytesRejectsPreflightBeforeObjectWrite(t *testing.T) {
 	storage := &imageLibraryFlowStorage{}
+	var preflights []ImageLibraryImportPreflightParams
 	repo := &imageLibraryFlowRepo{
-		preflightFn: func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+		preflightFn: func(in ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			preflights = append(preflights, in)
 			return nil, false, infraerrors.Conflict("IMAGE_LIBRARY_BYTE_QUOTA", "quota exceeded")
+		},
+	}
+	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	invalidImage := []byte(`<svg><script>alert(1)</script></svg>`)
+
+	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
+		ImageData: invalidImage, DeclaredMIME: "image/svg+xml", IdempotencyKey: "import-42",
+	})
+	require.Equal(t, "IMAGE_LIBRARY_BYTE_QUOTA", infraerrors.Reason(err))
+	require.Len(t, preflights, 1)
+	require.True(t, preflights[0].RecordAttempt)
+	require.False(t, preflights[0].ContinueAttempt)
+	require.Equal(t, int64(len(invalidImage)), preflights[0].IncomingBytes)
+	require.Zero(t, storage.saveCalls)
+}
+
+func TestImageLibraryImportBytesRecordsOnlyOneAttempt(t *testing.T) {
+	storage := &imageLibraryFlowStorage{}
+	var preflights []ImageLibraryImportPreflightParams
+	repo := &imageLibraryFlowRepo{
+		preflightFn: func(in ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			preflights = append(preflights, in)
+			return nil, false, nil
+		},
+		createFn: func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error) {
+			return &ImageLibraryItem{AssetID: "img_imported"}, false, nil
+		},
+	}
+	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	imageData := testPNG(t)
+
+	_, reused, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
+		ImageData: imageData, DeclaredMIME: "image/png", IdempotencyKey: "bytes-import-42",
+	})
+	require.NoError(t, err)
+	require.False(t, reused)
+	require.Len(t, preflights, 2)
+	require.True(t, preflights[0].RecordAttempt)
+	require.False(t, preflights[0].ContinueAttempt)
+	require.False(t, preflights[1].RecordAttempt)
+	require.True(t, preflights[1].ContinueAttempt)
+	require.Equal(t, preflights[0].RequestHash, preflights[1].RequestHash)
+	require.Equal(t, int64(len(imageData)), preflights[0].IncomingBytes)
+	require.Equal(t, int64(len(imageData)), preflights[1].IncomingBytes)
+	require.Equal(t, 1, storage.saveCalls)
+}
+
+func TestImageLibraryImportBytesReleasesIdempotentAttemptAfterValidationFailure(t *testing.T) {
+	storage := &imageLibraryFlowStorage{}
+	var preflights []ImageLibraryImportPreflightParams
+	repo := &imageLibraryFlowRepo{
+		preflightFn: func(in ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			preflights = append(preflights, in)
+			return nil, false, nil
 		},
 	}
 	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
 
 	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
-		ImageData: testPNG(t), DeclaredMIME: "image/png", IdempotencyKey: "import-42",
+		ImageData: []byte(`<script>alert(1)</script>`), DeclaredMIME: "image/png",
+		IdempotencyKey: "invalid-import-42",
 	})
-	require.Equal(t, "IMAGE_LIBRARY_BYTE_QUOTA", infraerrors.Reason(err))
+	require.Equal(t, "UNSUPPORTED_IMAGE_FORMAT", infraerrors.Reason(err))
+	require.Len(t, preflights, 1)
+	require.Equal(t, 1, repo.releaseCalls)
 	require.Zero(t, storage.saveCalls)
 }
 
@@ -163,7 +222,7 @@ func TestImageLibraryIdempotentReplaySkipsObjectWrite(t *testing.T) {
 	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
 
 	item, reused, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
-		ImageData: testPNG(t), DeclaredMIME: "image/png", IdempotencyKey: "same-request",
+		ImageData: []byte(`<svg><script>alert(1)</script></svg>`), DeclaredMIME: "image/svg+xml", IdempotencyKey: "same-request",
 	})
 	require.NoError(t, err)
 	require.True(t, reused)

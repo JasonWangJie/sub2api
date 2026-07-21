@@ -139,12 +139,12 @@ func (h *ImagePlazaHandler) Publish(c *gin.Context) {
 		return
 	}
 
-	data, mime, detectedFormat, err := service.DecodeImagePayload(req.Image)
+	data, mime, err := service.DecodeBase64ImagePayload(req.Image)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	format := detectedFormat
+	format := strings.ToLower(strings.TrimSpace(req.Format))
 	if h.library != nil {
 		item, _, importErr := h.library.ImportBytes(c.Request.Context(), subject.UserID, service.ImageLibraryImportInput{
 			GenerationMode: "import", SourceType: "manual_import", Model: req.Model,
@@ -162,6 +162,9 @@ func (h *ImagePlazaHandler) Publish(c *gin.Context) {
 		if publishErr != nil {
 			response.ErrorFrom(c, publishErr)
 			return
+		}
+		if actualFormat := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(item.ContentType)), "image/"); actualFormat != "" {
+			format = actualFormat
 		}
 		size := item.ActualSize
 		if size == "" {
