@@ -63,6 +63,7 @@ const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 // The legacy row is retained for audit history; the marked filename is added as
 // an alias only when both files have the exact same checksum.
 var forkMigrationLegacyFilenames = map[string]string{
+	"182_ZJ_add_image_plaza.sql":                    "182_add_image_plaza.sql",
 	"185_ZJ_async_image_tasks.sql":                  "185_async_image_tasks.sql",
 	"186_ZJ_image_library_and_plaza_moderation.sql": "186_image_library_and_plaza_moderation.sql",
 	"187_ZJ_async_image_upload_reservations.sql":    "187_async_image_upload_reservations.sql",

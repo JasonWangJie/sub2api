@@ -336,6 +336,17 @@ func TestApplyMigrationsFS_RecordsZJAliasWithoutReapplyingLegacyMigration(t *tes
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestForkMigrationLegacyFilenamesCoversPublishedZJRenames(t *testing.T) {
+	require.Equal(t, map[string]string{
+		"182_ZJ_add_image_plaza.sql":                    "182_add_image_plaza.sql",
+		"185_ZJ_async_image_tasks.sql":                  "185_async_image_tasks.sql",
+		"186_ZJ_image_library_and_plaza_moderation.sql": "186_image_library_and_plaza_moderation.sql",
+		"187_ZJ_async_image_upload_reservations.sql":    "187_async_image_upload_reservations.sql",
+		"188_ZJ_plaza_submission_deferred_upload.sql":   "188_plaza_submission_deferred_upload.sql",
+		"189_ZJ_async_image_result_upload_intents.sql":  "189_async_image_result_upload_intents.sql",
+	}, forkMigrationLegacyFilenames)
+}
+
 func TestApplyMigrationsFS_RejectsZJAliasWhenLegacyChecksumDiffers(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
