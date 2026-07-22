@@ -67,7 +67,7 @@
 
 ## 数据与公开模型
 
-数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图；迁移 `188_plaza_submission_deferred_upload.sql` 建立本机持图延期投稿队列表 `image_plaza_submission_requests`。
+数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图；迁移 `188_plaza_submission_deferred_upload.sql` 建立本机持图延期投稿队列表 `image_plaza_submission_requests`；迁移 `189_async_image_result_upload_intents.sql` 为异步结果增加 PUT 前持久化意图，并为 Outbox 增加 claim token 所有权。
 
 关键约束：
 
@@ -82,6 +82,17 @@
 - 上传默认 20 次/Key/分钟（最大 1000）、默认 1 GiB/Key 输入额度（最大 100 GiB）、单图/请求有效图片负载硬上限 64 MiB、单次 OSS Put 默认 300 秒且最大 600 秒、输入最长保留 720 小时。相同幂等上传只重签并返回 `X-Idempotency-Replayed: true`；冲突、处理中或结果墓碑返回 `409`。
 - 每个输入对象最多保留 128 个重签 URL alias。注册由输入对象行锁串行化，过期 alias 仍作为所有权墓碑保留；第 129 个新 alias 返回结构化 `429`，不会无限扩张表。
 - SC 客户端文件名会净化且不进入对象 key；OSS 前持久化 deterministic object intent。失败或 stale intent 第一次 Delete 后保留恢复事实，至少十分钟后二次 Delete 成功才移除；未清理 failed intent 始终计入 Key 容量。存储身份 guard 同时统计输入对象和未清理 intent。
+- 异步结果的每个 OSS PUT 也必须先写入 `async_image_result_upload_intents`。对象 key 由任务提交日期、任务号和结果序号确定；部分上传或进程崩溃后只覆盖同一 key，不重新生成。结果清单落库时同事务删除 intent；过期孤儿由 retention Worker 在确认没有任务、图库或广场活动引用后删除。
+
+## 异步并发与性能边界
+
+- Redis `ready/delayed/active` 负责投递，PostgreSQL 负责任务事实。每次 Reserve 生成独立 lease token；心跳、Ack 和延迟重排都以 Lua 原子校验 token，旧 Worker 不能操作新 Worker 的租约。若唯一上游调用已经进入 `invoking`，丢失 Redis 租约的原 Worker 只保留数据库心跳并完成该次调用；上传/计费阶段则取消并交给新 Worker 幂等续跑。
+- PostgreSQL `updated_at` 同时覆盖调用、上传和账务后处理心跳。Redis 租约被恢复但数据库心跳仍在有效窗口时，后来的投递不会提前把任务标为 `execution_unknown`；只有数据库心跳也超过租约窗口才进入不确定状态。
+- Outbox 每批认领写入 UUID claim token；发布、失败回退和终态更新都校验 `id + claim_token`，超时的旧 dispatcher 不能覆盖新 dispatcher 的结果。
+- 本地图片并发门禁拒绝发生在确认未调用上游时，任务从 `invoking` 回到 `queued` 并延迟重排；真正的上游 `429` 不走该分支。
+- 单实例 `worker_concurrency` 硬上限为 64，默认 4；多实例总并发是各实例之和。Worker 数量只在进程启动时创建，修改该配置后必须重启服务。
+- Gemini 参考图默认限制为单图 40 MP、最多 8 张、总计 64 MiB/80 MP；硬上限为单图 80 MP、16 张、总计 256 MiB/320 MP。绑定的 SC OSS 输入由 Worker 直接 `Read`，不再经预签名 URL 回环下载；读取后仍重新校验 MIME、完整解码、像素和 SHA-256。
+- 单任务结果上传保持串行，避免少量图片下额外 goroutine、锁和峰值内存。扩容应先观察数据库连接池、Redis 命令延迟、图片并发门禁、staging 字节和 OSS 吞吐，再逐步提高实例数或 Worker 数。
 
 ## 计费不变量
 
@@ -114,6 +125,8 @@
 | 每用户导入限频 | 20 次/分钟 |
 | 每用户投稿限频 | 10 次/分钟 |
 | 异步参考图保留 | 24 小时 |
+| 异步 Worker | 每实例默认 4，硬上限 64；修改后重启 |
+| 参考图任务总预算 | 默认 8 张、64 MiB、80 MP |
 | SC 参考图 OSS 上传超时 | 300 秒（最大 600） |
 | 每输入对象 URL alias | 最多 128 个 |
 | 异步任务与结果保留 | 90 天 |
