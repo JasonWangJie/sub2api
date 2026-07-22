@@ -34,6 +34,8 @@
 | [10-image-workbench.md](10-image-workbench.md) | Key 分组驱动的实时/异步工作台 |
 | [11-image-library-object-model.md](11-image-library-object-model.md) | 服务端个人图库与对象引用模型 |
 | [12-moderated-plaza-and-migration.md](12-moderated-plaza-and-migration.md) | 审核广场、举报、旧广场迁移和维护 Worker |
+| [13-local-development-runbook.md](13-local-development-runbook.md) | Windows/Docker 本地前后端运行、联调和故障排查 |
+| [14-production-deployment-runbook.md](14-production-deployment-runbook.md) | Fork 镜像生产部署、HTTPS、OSS、备份、升级和回滚 |
 
 持久异步下游请求/响应示例以 [../docs/DURABLE_ASYNC_IMAGE_API.md](../docs/DURABLE_ASYNC_IMAGE_API.md) 为权威来源。旧 Redis 24 小时异步接口仍看 [../docs/ASYNC_IMAGE_TASKS.md](../docs/ASYNC_IMAGE_TASKS.md)。原始需求文档 `docs/图片生成新功能请求说明.md` 只用于理解来源，不是最终上线契约。
 

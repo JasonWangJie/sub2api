@@ -168,6 +168,8 @@
 | [wiki-new/10-image-workbench.md](wiki-new/10-image-workbench.md) | Key 分组驱动的工作台实时/异步分流 |
 | [wiki-new/11-image-library-object-model.md](wiki-new/11-image-library-object-model.md) | 服务端图库和统一对象引用 |
 | [wiki-new/12-moderated-plaza-and-migration.md](wiki-new/12-moderated-plaza-and-migration.md) | 审核广场、举报、安全迁移和维护 Worker |
+| [wiki-new/13-local-development-runbook.md](wiki-new/13-local-development-runbook.md) | 本地前后端运行、Docker 联调和常见故障 |
+| [wiki-new/14-production-deployment-runbook.md](wiki-new/14-production-deployment-runbook.md) | Fork 生产部署、HTTPS、OSS、备份、升级与回滚 |
 | [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md) | 新电脑或新 AI 的接手步骤 |
 
 ## Git 远程约定

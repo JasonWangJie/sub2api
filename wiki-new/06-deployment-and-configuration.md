@@ -1,5 +1,7 @@
 # 部署、配置、迁移与回滚
 
+本页记录图片工作流的配置边界和迁移语义。需要可直接执行的完整运维步骤时，先看 [13-local-development-runbook.md](13-local-development-runbook.md) 和 [14-production-deployment-runbook.md](14-production-deployment-runbook.md)。
+
 ## 上线前置条件
 
 - PostgreSQL 15+ 和 Redis 7+ 可用，且已经完成可恢复备份。
