@@ -200,24 +200,25 @@ git diff --cached --check
 git commit -m "<简体中文提交说明>"
 ```
 
-先推功能分支：
+本轮历史功能分支已经推送并保留用于审计：
 
 ```powershell
 git push -u origin feat/image-workflow-library-moderation
 ```
 
-当前功能分支已推送。`2026-07-22` 的只读核对显示 Fork Actions 页面仍是 `Enable Actions`，Actions API 历史运行数为 0。先由仓库所有者在 `https://github.com/JasonWangJie/sub2api/actions` 启用 Actions；历史 push 不会自动回放，且无变化的 `git push` 不会产生新事件，因此在功能分支创建并推送一个明确的空触发提交：
+`2026-07-22` 用户明确要求将功能分支直接非强制合并到 `main`，并要求后续默认直接在 `main` 开发和推送。功能代码主线合并提交为 `a9d23973d`。Fork Actions 页面仍是 `Enable Actions`，Actions API 历史运行数为 0；主线已交付不能冒充 CI 已通过。仓库所有者启用 Actions 后，历史 push 不会自动回放，且无变化的普通 push 不会产生新事件，因此在 `main` 创建并推送一个明确的空触发提交：
 
 ```powershell
 git commit --allow-empty -m "chore(ci): 触发 Fork 验证"
-git push origin feat/image-workflow-library-moderation
+git push origin main
 ```
 
-等待 CI/Security Scan 全绿。CI 未通过时不要合并 `main`。通过后使用非强制合并，并推送：
+后续常规开发直接从最新 `origin/main` 开始，并推送 `main`：
 
 ```powershell
 git switch main
-git merge --no-ff feat/image-workflow-library-moderation
+git pull --ff-only origin main
+# 完成修改、测试和提交
 git push origin main
 ```
 
@@ -250,5 +251,5 @@ Get-Content backend\cmd\server\VERSION
 ## 12. 一句话恢复上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。upstream/main 5a8d6c4e4 已合并，合并后 Go 强制全仓与前端 189/1277/build 已通过；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终 SHA/git describe、Fork CI 和 origin/main 推送按状态页继续核对。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓与前端 189/1277/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```

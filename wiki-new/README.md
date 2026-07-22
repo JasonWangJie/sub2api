@@ -8,14 +8,14 @@
 
 - 发布版本文件仍是 `backend/cmd/server/VERSION = 0.1.162`，本轮不主动升级版本号。
 - 本轮开发基线是 `51b083d374decf811ac88f8b0194165db9a8ba79`，基线描述为 `v0.1.162-4-g51b083d37`。
-- 当前工作分支是 `feat/image-workflow-library-moderation`；主体功能、SC 安全层、交接文档、上游合并和锁文件修复均已形成逻辑提交，CI 与推送仍在进行。
+- 当前及后续默认工作分支是 `main`；历史功能分支 `feat/image-workflow-library-moderation` 保留用于审计。
 - 图片工作台、服务端图库、统一对象引用、投稿审核、举报、安全迁移、批量审核、维护 Worker 和 SC 上传安全层的代码已存在。
 - `2026-07-22` 已合并 `upstream/main=5a8d6c4e4`；合并后的强制 Go 全仓、server build、前端 frozen/lint/typecheck、189 files/1277 tests 和 974 modules build 全部通过。
 - 合并后的浏览器控制器被当前环境缺失 `sandboxPolicy` 元数据阻断；历史 Chrome 十场景证据不能冒充当前复验。
-- 功能分支已推送；Fork Actions 页面仍显示 `Enable Actions`，因此 CI 尚未产生任何运行，`origin/main` 按规则未合并。真实 PostgreSQL/testcontainers、真实云厂商与上游计费也仍为 `PENDING`。
+- 功能分支已推送，功能代码以 `a9d23973d` 非强制合并进 `main` 并交付 `origin/main`。这是用户明确要求先于 CI 完成的主线交付；Fork Actions 页面仍显示 `Enable Actions`，CI 历史运行数仍为 0。真实 PostgreSQL/testcontainers、真实云厂商与上游计费也仍为 `PENDING`。
 - 没有真实执行记录的项目一律不得改写为“通过”或“生产可用”。
 
-精确状态以 [01-current-status.md](01-current-status.md) 为准。最终交付完成后，应把其中的 `PENDING` 更新为真实命令、时间、结果和提交 SHA。
+精确状态以 [01-current-status.md](01-current-status.md) 为准。后续每项外部验收完成后，应把其中对应的 `PENDING` 更新为真实命令、时间、结果和提交 SHA。
 
 ## 文档导航
 

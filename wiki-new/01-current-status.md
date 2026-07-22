@@ -9,7 +9,7 @@
 | 发布版本 | `0.1.162` |
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
-| 当前功能分支 | `feat/image-workflow-library-moderation` |
+| 当前及后续默认分支 | `main` |
 | 已合并上游 | `upstream/main 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
 | 上游合并提交 | `433cf0096` |
 | 合并后代码验证提交 | `6412b5eb7` |
@@ -18,11 +18,11 @@
 | 持久异步迁移 | `backend/migrations/185_async_image_tasks.sql` |
 | 图库/审核迁移 | `backend/migrations/186_image_library_and_plaza_moderation.sql` |
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
-| 最终提交 SHA | `PENDING` |
-| 最终 `git describe` | `PENDING` |
+| 功能代码主线合并提交 | `a9d23973d352c9923eccdaf789ffd2598d9d0ffe` |
+| 合并提交描述 | `v0.1.162-52-ga9d23973d` |
 | 功能分支远端 | 已推送 `origin/feat/image-workflow-library-moderation` |
 | 功能分支 CI | `BLOCKED`：Fork Actions 页面显示 `Enable Actions`，历史运行数为 0 |
-| 合并并推送 `origin/main` | `PENDING`：CI 未运行，按规则未合并 |
+| 合并并推送 `origin/main` | `COMPLETED`：用户明确要求直接交付主线，已非强制合并并推送 |
 
 本轮不主动修改 `backend/cmd/server/VERSION`。最终报告不能只写 `0.1.162`，必须同时写完整 SHA、`git describe`、推送目标和 CI 结果。
 
@@ -67,8 +67,8 @@
 | 真实 OSS 厂商契约 | `PENDING` | 七牛、阿里、腾讯逐一 upload、HEAD/read、签名/公开 URL、delete |
 | 真实上游与计费核对 | `PENDING` | Gemini/OpenAI/Grok 实时与异步、余额/订阅/倍率/额度逐笔核对 |
 | 逻辑拆分提交 | `PASSED` | 主体三笔、`f16c2106a` SC 安全、`81ac080ed` 文档、`433cf0096` 上游合并、`6412b5eb7` 锁文件修复 |
-| Fork CI | `BLOCKED` | 工作流文件 active 且监听 push，但 Fork 尚未 Enable Actions；启用后重跑功能分支 |
-| 合并 `origin/main` | `PENDING` | CI 未运行，不得绕过；全绿后非强制合并并核对远端 SHA |
+| Fork CI | `BLOCKED` | 工作流文件 active 且监听 push，但 Fork 尚未 Enable Actions；启用后在 `main` 明确触发并核对 |
+| 合并 `origin/main` | `PASSED 2026-07-22` | 用户明确覆盖原 CI 等待顺序；功能代码以 `a9d23973d` 非强制合并，最终远端 SHA 见交付报告或实际 `origin/main` |
 
 ## 明确未承诺或尚未完成的产品范围
 

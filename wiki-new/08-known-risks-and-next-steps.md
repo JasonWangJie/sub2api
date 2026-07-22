@@ -21,8 +21,8 @@
 3. 使用七牛、阿里、腾讯真实凭证逐厂商验证 upload、HEAD/read、公开/签名 URL、delete 和 intent crash recovery。
 4. 跑通 OpenAI/Gemini 实时与异步四象限、Grok 实时，并核对实际尺寸、数量、余额/订阅/倍率/额度。
 5. 在生产备份副本演练旧广场立即隐藏、可恢复迁移、quarantine 和回滚。
-6. 功能分支已经推送。Fork Actions 页面当前显示 `Enable Actions` 且历史运行数为 0；仓库所有者启用 Actions 后必须等待 CI/Security Scan 全绿。
-7. CI 通过后非强制合并到 `origin/main`，推送并报告最终 SHA、`git describe` 和 `VERSION`。
+6. 功能分支和 `main` 已推送；功能代码主线合并提交为 `a9d23973d`。Fork Actions 页面仍显示 `Enable Actions` 且历史运行数为 0；仓库所有者启用 Actions 后应在 `main` 明确触发并等待 CI/Security Scan 全绿。
+7. 本次主线交付由用户明确要求先于 CI 完成。后续默认直接在 `main` 开发和推送，不强推、不向 `upstream` 推送；每次仍需报告最终 SHA、`git describe`、`VERSION` 和 CI 实际状态。
 
 ## P0 风险说明
 
@@ -122,4 +122,4 @@ frontend/src/components/layout/{AppSidebar,AuthLayout}.vue
 
 ## 发布决策
 
-当前保持 `VERSION=0.1.162`。最终 SHA、`git describe`、功能分支 CI 和 `origin/main` 推送仍为 `PENDING`。生产验收完成后再决定是否创建 Fork 自己的版本说明或标签；不得移动、覆盖或复用原作者的 `v0.1.162` 标签。
+当前保持 `VERSION=0.1.162`。功能代码已通过 `a9d23973d` 合并进 `main` 并交付到 `origin/main`；Fork CI 因 Actions 未启用仍为 `BLOCKED`，不能写成通过。生产验收完成后再决定是否创建 Fork 自己的版本说明或标签；不得移动、覆盖或复用原作者的 `v0.1.162` 标签。

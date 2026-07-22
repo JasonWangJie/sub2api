@@ -10,7 +10,7 @@
 2. 阅读 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md)。
 3. 根据任务阅读异步任务、工作台、图库或审核专题。
 4. 运行 `git status --short --branch`、`git rev-parse HEAD`、`git describe --tags --always --dirty`，以实际工作树为准。
-5. 不要把本文中的开发基线当成最终交付 SHA；最终提交、推送和 CI 当前仍标记为 `PENDING`。
+5. 不要把本文中的开发基线当成当前提交；以 `origin/main` 和实际命令输出为准。Fork CI 仍未运行，不能把主线已推送误写成 CI 已通过。
 
 ## 当前版本快照
 
@@ -21,16 +21,16 @@
 | 发布版本文件 | `backend/cmd/server/VERSION = 0.1.162` |
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
-| 当前功能分支 | `feat/image-workflow-library-moderation` |
+| 当前及后续默认分支 | `main` |
 | 已合并原作者主线 | `upstream/main = 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
 | 上游合并提交 | `433cf0096` |
 | 合并后代码验证提交 | `6412b5eb7` |
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
-| 最终交付 SHA | `PENDING` |
-| 最终 `git describe` | `PENDING` |
+| 功能代码主线合并提交 | `a9d23973d352c9923eccdaf789ffd2598d9d0ffe` |
+| 合并提交描述 | `v0.1.162-52-ga9d23973d` |
 | 功能分支推送 | `origin/feat/image-workflow-library-moderation` 已推送 |
 | Fork CI | `BLOCKED`：Actions 页面显示 `Enable Actions`，仓库历史运行数为 0 |
-| 合并并推送 `origin/main` | `PENDING`：按规则等待 CI，不绕过 |
+| 合并并推送 `origin/main` | `COMPLETED`：按用户明确指示绕过原 CI 等待顺序，非强制合并并推送 |
 
 本轮不主动修改 `0.1.162` 发布版本号。最终交付必须同时报告 `VERSION`、完整 SHA、`git describe`、推送分支和 CI 链接/结果。
 
@@ -136,14 +136,14 @@
 - 历史本机 Chrome Playwright 10 个场景曾覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该证据早于最后一批 SC/后台配置和上游合并，只作为历史基线。
 - 首页 WebP 为 `79,374` 字节，已成功随页面加载。
 
-这些本地结果覆盖迁移 `187`、最后一批 SC 上传代码和本轮上游合并；后续只修改交接 Markdown 不需要重复代码门禁。功能分支/`main` 的 GitHub Actions 仍必须实际通过，浏览器复验仍需在连接器可用的环境补做。
+这些本地结果覆盖迁移 `187`、最后一批 SC 上传代码和本轮上游合并；后续只修改交接 Markdown 不需要重复代码门禁。`main` 已交付，但 GitHub Actions 仍必须在 Fork 启用后实际运行，浏览器复验仍需在连接器可用的环境补做。
 
 以下交付项仍是 `PENDING`，不能写成已完成：
 
 - 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187` 迁移验证。
 - 合并后的桌面/移动端浏览器视觉复验；当前内置浏览器连接器被环境元数据阻断。
 - 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
-- Fork Actions 尚未启用：公开 Actions 页面显示 `Enable Actions`，API 对功能分支和全仓均返回 0 个历史运行。启用后历史 push 不会自动回放，需在功能分支创建一个明确的空 CI 触发提交并推送；等待 CI/Security Scan 全绿后才能非强制合并并推送 `origin/main`，当前不能绕过。
+- Fork Actions 尚未启用：公开 Actions 页面显示 `Enable Actions`，API 对功能分支和全仓均返回 0 个历史运行。本次根据用户明确指示已先合并并推送 `main`；启用 Actions 后历史 push 不会自动回放，需要在 `main` 创建一个明确的空 CI 触发提交并推送，再核对 CI/Security Scan。
 
 最新状态与已经执行过的测试证据只看 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)，不要根据早期聊天记录推断“已经通过”。
 
@@ -164,7 +164,7 @@
 
 | 远程 | 用途 |
 |---|---|
-| `origin` | 用户 Fork：`JasonWangJie/sub2api`，功能分支和最终 `main` 推送目标 |
+| `origin` | 用户 Fork：`JasonWangJie/sub2api`；后续默认直接推送 `main` |
 | `upstream` | 原作者：`Wei-Shaw/sub2api`，只用于获取和合并原作者更新 |
 
 不得推送到 `upstream`，不得对共享 `main` 强制推送，也不得为了同步上游使用 `git reset --hard` 覆盖本地定制。
@@ -172,5 +172,5 @@
 ## 下一位 AI 的一句话上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。upstream/main 5a8d6c4e4 已合并；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS、真实上游计费、最终 SHA/git describe、Fork CI 和 origin/main 推送仍需按状态页核对。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```

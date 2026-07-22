@@ -12,9 +12,10 @@ PostgreSQL/testcontainers 集成：PENDING
 真实 OSS 厂商联调：PENDING
 真实上游与计费核对：PENDING
 Fork GitHub Actions：BLOCKED（Actions 页面显示 Enable Actions，历史运行数为 0）
+origin/main 交付：COMPLETED 2026-07-22（按用户明确指示先于 Fork CI）
 ```
 
-本地通过不代表生产可用。真实 PostgreSQL、真实厂商、真实上游账单、CI、最终提交和推送只有实际执行后才能替换对应 `PENDING`。
+本地通过不代表生产可用。`main` 已推送也不代表 CI 或生产验收通过；真实 PostgreSQL、真实厂商、真实上游账单和 CI 只有实际执行后才能替换对应 `PENDING`。
 
 ## 2026-07-22 合并 upstream/main 后的最终本地证据
 
@@ -154,7 +155,7 @@ git diff --check
 - 首页 WebP 已生成、进入构建并在本机 Chrome 加载成功。
 - 主机仍没有 Docker 或可用 WSL，真实 PostgreSQL/testcontainers 验证需由 Fork GitHub Actions 或其他具备容器环境的机器完成。
 - 合并后的 Go/前端最终重跑已完成；浏览器控制器仍被环境元数据阻断。
-- Fork GitHub Actions 尚未运行。
+- Fork GitHub Actions 尚未运行；本次按用户明确指示先完成 `main` 合并和推送，不能据此把 CI 标成通过。
 
 ## 后端最终命令
 
@@ -333,6 +334,7 @@ Vitest 至少覆盖：
 PostgreSQL/testcontainers：PENDING
 Fork CI URL/结果：BLOCKED；https://github.com/JasonWangJie/sub2api/actions 显示 Enable Actions，API total_count=0
 真实 OSS/上游/计费：PENDING
-最终 git describe：PENDING
-origin/main 推送：PENDING
+功能代码 main 合并提交：a9d23973d352c9923eccdaf789ffd2598d9d0ffe
+功能代码合并描述：v0.1.162-52-ga9d23973d
+origin/main 推送：COMPLETED 2026-07-22；最终 SHA 以 git ls-remote origin refs/heads/main 为准
 ```
