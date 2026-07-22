@@ -18,6 +18,8 @@ type asyncImageRetentionRepoStub struct {
 	tasks          []AsyncImageRetentionTask
 	taskResults    map[string][]AsyncImageResult
 	events         *[]string
+	sharedObjects  map[string]bool
+	referenceArgs  *[]string
 }
 
 func (s *asyncImageRetentionRepoStub) RegisterAsyncImageInputObject(context.Context, RegisterAsyncImageInputObjectParams) (*AsyncImageInputObject, error) {
@@ -78,6 +80,13 @@ func (s *asyncImageRetentionRepoStub) ListAsyncImageResults(_ context.Context, t
 	return s.taskResults[taskID], nil
 }
 
+func (s *asyncImageRetentionRepoStub) HasLiveImageObjectReference(_ context.Context, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error) {
+	if s.referenceArgs != nil {
+		*s.referenceArgs = append(*s.referenceArgs, ref.ObjectKey+":"+excludedTaskID)
+	}
+	return s.sharedObjects[ref.ObjectKey], nil
+}
+
 type asyncImageRetentionStorageStub struct {
 	durable DurableImageStorage
 	cfg     AsyncImageRuntimeConfig
@@ -119,6 +128,61 @@ func (s *asyncImageRetentionDurableStub) Head(context.Context, ObjectRef) (Objec
 func (s *asyncImageRetentionDurableStub) Delete(_ context.Context, ref ObjectRef) error {
 	*s.events = append(*s.events, "delete:"+ref.ObjectKey)
 	return s.failKeys[ref.ObjectKey]
+}
+
+type asyncImageUploadIntentRetentionRepoStub struct {
+	*asyncImageRetentionRepoStub
+	stateDeleted int64
+	intents      []AsyncImageUploadCleanupIntent
+	removed      bool
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) DeleteExpiredAsyncImageUploadAdmissionState(context.Context, time.Time, int) (int64, error) {
+	return s.stateDeleted, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) ClaimAsyncImageUploadCleanupIntents(context.Context, time.Time, time.Time, int) ([]AsyncImageUploadCleanupIntent, error) {
+	return s.intents, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) CompleteAsyncImageUploadIntentDeletion(context.Context, string, time.Time) (bool, error) {
+	*s.events = append(*s.events, "complete-upload-intent")
+	return s.removed, nil
+}
+
+func (s *asyncImageUploadIntentRetentionRepoStub) ReleaseAsyncImageUploadIntentDeletion(context.Context, string, time.Time) error {
+	*s.events = append(*s.events, "release-upload-intent")
+	return nil
+}
+
+func TestAsyncImageRetentionKeepsIntentAfterFirstSuccessfulDelete(t *testing.T) {
+	now := time.Now().UTC()
+	events := make([]string, 0)
+	claimedAt := now.Add(-time.Minute)
+	base := &asyncImageRetentionRepoStub{
+		events: &events, taskResults: map[string][]AsyncImageResult{}, sharedObjects: map[string]bool{},
+	}
+	repo := &asyncImageUploadIntentRetentionRepoStub{
+		asyncImageRetentionRepoStub: base,
+		stateDeleted:                3,
+		intents: []AsyncImageUploadCleanupIntent{{
+			ReservationID: "asyncimg_orphan", ObjectRef: ObjectRef{ObjectKey: "orphan"}, CleanupClaimedAt: claimedAt,
+		}},
+	}
+	durable := &asyncImageRetentionDurableStub{events: &events, failKeys: map[string]error{}}
+	svc := &AsyncImageRetentionService{
+		repo: repo,
+		storage: &asyncImageRetentionStorageStub{
+			durable: durable,
+			cfg:     AsyncImageRuntimeConfig{ResultRetentionDays: 90, TaskRetentionDays: 90},
+		},
+		batch: 25,
+	}
+	stats, err := svc.RunOnce(context.Background(), now)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), stats.UploadStateDeleted)
+	require.Zero(t, stats.UploadIntentsDeleted)
+	require.Equal(t, []string{"delete:orphan", "complete-upload-intent"}, events)
 }
 
 func TestAsyncImageRetentionDeletesObjectsBeforeRowsAndTasks(t *testing.T) {
@@ -184,6 +248,36 @@ func TestAsyncImageRetentionReleasesClaimWhenObjectDeleteFails(t *testing.T) {
 	require.Error(t, err)
 	require.Zero(t, stats.InputsDeleted)
 	require.Equal(t, []string{"delete:input", "release-input"}, events)
+}
+
+func TestAsyncImageRetentionKeepsSharedObjectAndOnlyRemovesResultRow(t *testing.T) {
+	now := time.Now().UTC()
+	events := make([]string, 0)
+	checks := make([]string, 0)
+	claim := now.Add(-time.Minute)
+	repo := &asyncImageRetentionRepoStub{
+		results: []AsyncImageResult{{
+			ID: 2, ObjectKey: "shared-result", CleanupClaimedAt: claim,
+		}},
+		taskResults:   map[string][]AsyncImageResult{},
+		events:        &events,
+		sharedObjects: map[string]bool{"shared-result": true},
+		referenceArgs: &checks,
+	}
+	durable := &asyncImageRetentionDurableStub{events: &events, failKeys: map[string]error{}}
+	svc := &AsyncImageRetentionService{
+		repo: repo,
+		storage: &asyncImageRetentionStorageStub{
+			durable: durable,
+			cfg:     AsyncImageRuntimeConfig{ResultRetentionDays: 90, TaskRetentionDays: 90},
+		},
+	}
+
+	stats, err := svc.RunOnce(context.Background(), now)
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.ResultsDeleted)
+	require.Equal(t, []string{"complete-result"}, events)
+	require.Equal(t, []string{"shared-result:"}, checks)
 }
 
 type asyncImageInputResolverRepoStub struct {

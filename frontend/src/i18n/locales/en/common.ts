@@ -154,6 +154,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     imageWorkbench: 'Image Workbench',
+    imageLibrary: 'Image Library',
     imagePlaza: 'Image Plaza',
     batchImage: 'Batch Images',
     asyncImageTasks: 'Async Image Tasks',
@@ -201,6 +202,7 @@ export default {
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
     adminAsyncImageTasks: 'Image Task Center',
+    adminImageModeration: 'Image Content',
   },
 
   // Auth

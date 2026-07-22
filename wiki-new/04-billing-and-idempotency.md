@@ -46,6 +46,8 @@ billing request id    = client:async-image:<task_id>
 - 允许透传的 `0.5K` 结果进入现有最低 `1K` 计费档，不得回退到 `2K`。
 - OpenAI 保留原生 size/quality/n 参数，不把 SC 规格近似映射到 OpenAI。
 
+同一请求返回混合尺寸图片时，不能先取最大档位再乘图片数量。例如 `1K + 4K` 必须计算为 `1K 档一张 + 4K 档一张`，而不是 `4K 档两张`。当前工作树通过 `ImageOutputSizes` 保留每张输出规格，并由 Gemini/OpenAI 各自现有计费函数按档位数量求和。
+
 相关代码主要在：
 
 ```text
@@ -98,3 +100,19 @@ AND async_image_results 已持久化
 - `billing_failed`：允许管理员续跑 Apply 或用量日志补写；不能再生成，也不能重新 Prepare。
 - Apply 已扣费但 UsageLog 写失败：重试只补日志，账务 Repository 的幂等记录防止第二次扣款。
 - `execution_unknown`：禁止 resume。若管理员决定再次生成，必须创建新任务号并明确可能产生第二次上游费用。
+
+## 工作台与图库的计费边界
+
+工作台没有独立计费器：
+
+- OpenAI 实时继续走现有 OpenAI `RecordUsage`。
+- Gemini 实时在识别到图片意图后采集全部 `inlineData` 的数量和真实尺寸，再走现有 Gemini `RecordUsage`。
+- Grok 实时继续走现有图片链路。
+- OpenAI/Gemini 异步继续使用本页的固定 Prepare/Apply。
+- 实时结果导入图库、异步结果建立图库引用、投稿、审核、举报和对象查看都不创建图片生成费用。
+
+图库容量不足或 OSS 归档失败不能推翻上游生成成功，不能重新调用上游，也不能再次扣费。异步 `FromTask` 只允许已成功且已结算任务，并以任务号与图片索引幂等复用现有对象。
+
+## 本轮计费复验状态
+
+混合尺寸、固定账单、hosted-image token 和已有计费测试包含在 `2026-07-22` 合并上游后的 Go 1.26.5 强制全包测试中并通过。真实余额/订阅/倍率/额度逐笔核对和真实上游端到端结果仍为 `PENDING`；本地自动化不能替代真实账单验收。完整状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。

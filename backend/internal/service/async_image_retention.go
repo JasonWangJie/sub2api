@@ -77,10 +77,12 @@ type AsyncImageRetentionStorage interface {
 }
 
 type AsyncImageRetentionStats struct {
-	StagingDeleted int64
-	InputsDeleted  int
-	ResultsDeleted int
-	TasksDeleted   int
+	StagingDeleted       int64
+	UploadStateDeleted   int64
+	UploadIntentsDeleted int
+	InputsDeleted        int
+	ResultsDeleted       int
+	TasksDeleted         int
 }
 
 type AsyncImageRetentionService struct {
@@ -198,6 +200,15 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 	} else {
 		stats.StagingDeleted = deleted
 	}
+	intentRepo, hasIntentRepo := s.repo.(AsyncImageUploadIntentRetentionRepository)
+	if hasIntentRepo {
+		deleted, err = intentRepo.DeleteExpiredAsyncImageUploadAdmissionState(ctx, now, batch)
+		if err != nil {
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete expired async image upload admission state: %w", err))
+		} else {
+			stats.UploadStateDeleted = deleted
+		}
+	}
 
 	cfg, err := s.storage.RuntimeConfig(ctx)
 	if err != nil {
@@ -212,6 +223,11 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 	}
 
 	staleBefore := now.Add(-defaultAsyncImageCleanupClaimLease)
+	if hasIntentRepo {
+		if err := s.cleanupUploadIntents(ctx, durable, intentRepo, now, staleBefore, batch, &stats); err != nil {
+			firstErr = joinAsyncImageRetentionError(firstErr, err)
+		}
+	}
 	if err := s.cleanupInputs(ctx, durable, now, staleBefore, batch, &stats); err != nil {
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
@@ -224,6 +240,32 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
 	return stats, firstErr
+}
+
+func (s *AsyncImageRetentionService) cleanupUploadIntents(ctx context.Context, storage DurableImageStorage, repo AsyncImageUploadIntentRetentionRepository, before, staleBefore time.Time, batch int, stats *AsyncImageRetentionStats) error {
+	intents, err := repo.ClaimAsyncImageUploadCleanupIntents(ctx, before, staleBefore, batch)
+	if err != nil {
+		return fmt.Errorf("claim stale async image upload intents: %w", err)
+	}
+	var firstErr error
+	for i := range intents {
+		intent := &intents[i]
+		if err := storage.Delete(ctx, intent.ObjectRef); err != nil {
+			_ = repo.ReleaseAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image upload intent %s: %w", intent.ReservationID, err))
+			continue
+		}
+		removed, err := repo.CompleteAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+		if err != nil {
+			_ = repo.ReleaseAsyncImageUploadIntentDeletion(ctx, intent.ReservationID, intent.CleanupClaimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("complete async image upload intent %s deletion: %w", intent.ReservationID, err))
+			continue
+		}
+		if removed {
+			stats.UploadIntentsDeleted++
+		}
+	}
+	return firstErr
 }
 
 func (s *AsyncImageRetentionService) cleanupInputs(ctx context.Context, storage DurableImageStorage, before, staleBefore time.Time, batch int, stats *AsyncImageRetentionStats) error {
@@ -258,10 +300,19 @@ func (s *AsyncImageRetentionService) cleanupResults(ctx context.Context, storage
 	var firstErr error
 	for i := range results {
 		result := &results[i]
-		if err := storage.Delete(ctx, asyncImageResultObjectRef(*result)); err != nil {
+		ref := asyncImageResultObjectRef(*result)
+		shared, sharedErr := asyncImageObjectHasLiveReference(ctx, s.repo, ref, result.ID, "")
+		if sharedErr != nil {
 			_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
-			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image result %d: %w", result.ID, err))
+			firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("check async image result %d references: %w", result.ID, sharedErr))
 			continue
+		}
+		if !shared {
+			if err := storage.Delete(ctx, ref); err != nil {
+				_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
+				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image result %d: %w", result.ID, err))
+				continue
+			}
 		}
 		if err := s.repo.CompleteAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt); err != nil {
 			_ = s.repo.ReleaseAsyncImageResultDeletion(ctx, result.ID, result.CleanupClaimedAt)
@@ -289,7 +340,17 @@ func (s *AsyncImageRetentionService) cleanupTasks(ctx context.Context, storage D
 		}
 		deleteFailed := false
 		for j := range results {
-			if deleteErr := storage.Delete(ctx, asyncImageResultObjectRef(results[j])); deleteErr != nil {
+			ref := asyncImageResultObjectRef(results[j])
+			shared, sharedErr := asyncImageObjectHasLiveReference(ctx, s.repo, ref, 0, task.TaskID)
+			if sharedErr != nil {
+				deleteFailed = true
+				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("check references for expired async image task %s: %w", task.TaskID, sharedErr))
+				continue
+			}
+			if shared {
+				continue
+			}
+			if deleteErr := storage.Delete(ctx, ref); deleteErr != nil {
 				deleteFailed = true
 				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete result for expired async image task %s: %w", task.TaskID, deleteErr))
 			}
@@ -306,6 +367,25 @@ func (s *AsyncImageRetentionService) cleanupTasks(ctx context.Context, storage D
 		stats.TasksDeleted++
 	}
 	return firstErr
+}
+
+type asyncImageLibraryReferenceChecker interface {
+	HasLiveImageLibraryObjectReference(ctx context.Context, ref ObjectRef) (bool, error)
+}
+
+type asyncImageObjectReferenceChecker interface {
+	HasLiveImageObjectReference(ctx context.Context, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error)
+}
+
+func asyncImageObjectHasLiveReference(ctx context.Context, repo AsyncImageRetentionRepository, ref ObjectRef, excludedResultID int64, excludedTaskID string) (bool, error) {
+	if checker, ok := repo.(asyncImageObjectReferenceChecker); ok {
+		return checker.HasLiveImageObjectReference(ctx, ref, excludedResultID, excludedTaskID)
+	}
+	checker, ok := repo.(asyncImageLibraryReferenceChecker)
+	if !ok {
+		return false, nil
+	}
+	return checker.HasLiveImageLibraryObjectReference(ctx, ref)
 }
 
 func asyncImageResultObjectRef(result AsyncImageResult) ObjectRef {

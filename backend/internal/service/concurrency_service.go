@@ -229,7 +229,8 @@ const (
 
 // ConcurrencyService 管理账号和用户的并发限制。
 type ConcurrencyService struct {
-	cache ConcurrencyCache
+	cache                   ConcurrencyCache
+	imageConcurrencyLimiter *ImageConcurrencyLimiter
 
 	accountLoadCacheTTL atomic.Int64
 	accountLoadCacheMu  sync.RWMutex
@@ -245,11 +246,21 @@ type cachedAccountLoadBatch struct {
 // NewConcurrencyService 创建并发控制服务。
 func NewConcurrencyService(cache ConcurrencyCache) *ConcurrencyService {
 	svc := &ConcurrencyService{
-		cache:            cache,
-		accountLoadCache: make(map[string]cachedAccountLoadBatch),
+		cache:                   cache,
+		imageConcurrencyLimiter: &ImageConcurrencyLimiter{},
+		accountLoadCache:        make(map[string]cachedAccountLoadBatch),
 	}
 	svc.SetAccountLoadBatchCacheTTL(defaultAccountLoadBatchCacheTTL)
 	return svc
+}
+
+// ImageConcurrencyLimiter returns the process-wide limiter shared by every
+// gateway handler created with this ConcurrencyService.
+func (s *ConcurrencyService) ImageConcurrencyLimiter() *ImageConcurrencyLimiter {
+	if s == nil {
+		return nil
+	}
+	return s.imageConcurrencyLimiter
 }
 
 // AcquireOpenAIWSIngressLease atomically reserves one live ingress connection

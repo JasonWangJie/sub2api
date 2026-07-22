@@ -368,6 +368,7 @@ func TestAPIContracts(t *testing.T) {
 						"video_price_1080p": null,
 						"web_search_price_per_call": null,
 						"allow_image_generation": false,
+						"allow_async_image_generation": false,
 						"allow_batch_image_generation": false,
 						"batch_image_discount_multiplier": 0,
 						"batch_image_hold_multiplier": 0,

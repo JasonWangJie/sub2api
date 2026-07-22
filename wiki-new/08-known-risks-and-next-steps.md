@@ -1,58 +1,98 @@
 # 已知风险与后续工作
 
-## P0：生产启用前必须完成
+## 已完成的本地门禁
 
-1. 使用真实 PostgreSQL、Redis 和测试 OSS 跑完整 staging/恢复/清理链路。
-2. 用七牛、阿里、腾讯真实凭证分别验证 upload、HEAD/read、presign/public URL 和 delete。
-3. 跑通 Gemini BB、Gemini SC、OpenAI generations、OpenAI edits JSON/multipart，并核对全部图片。
-4. 对 1K/2K/4K、数量、倍率、余额、订阅、Key/账号额度做生产配置抽样核账。
-5. 演练迁移、应用回滚、服务重启和加密密钥备份/恢复。
-6. 在桌面和移动尺寸检查分组表单、存储配置、用户任务中心、管理员任务中心和图片预览。
-7. 验证真实签名过期时间、90 天清理策略的缩短测试和失败重试。
+`2026-07-22` 已在合并 `upstream/main=5a8d6c4e4` 后完成以下门禁：
+
+1. Go 1.26.5 的 `go generate ./cmd/server`、交汇定向测试、强制无缓存 unit/default 全包测试和独立 server build。
+2. 所有本轮改动 Go 文件格式化；5 个未改基线测试文件的既有格式问题已单独记录。
+3. frozen lockfile、完整前端 ESLint、189 files/1277 tests、类型检查和 974 modules 生产构建。
+4. 历史本机 Chrome 10 个 Playwright 场景覆盖五视口等项目，但合并后浏览器控制器被环境元数据阻断，未标记当前视觉复验通过。
+5. 首页 `79,374` 字节工作台 WebP 的构建和页面加载。
+6. 管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容和 server cleanup `Stop()`。
+7. 历史成功异步任务归档回填、永久归档错误终止重排和当时的存储身份切换保护。
+
+迁移 `187` 的两阶段 PostgreSQL admission、Key 级 reservation、重签 alias/结果墓碑、deterministic object intent、受控 Put 超时、延迟二次删除、128 alias 上限、failed intent 配额、输入/intent identity guard 和文件名净化已经实现。合并后的 Go/前端完整回归已通过；浏览器和外部环境仍未完成。
+
+## P0：生产验收与远端交付仍需完成
+
+1. 在浏览器连接器可用的环境补跑桌面/移动端、中英文、深浅主题、键盘和坏图场景；当前不得把历史截图写成合并后结果。
+2. 使用真实 PostgreSQL/testcontainers 验证 `185/186/187`、两阶段 admission、多 Worker、租约心跳、Outbox、stale recovery、引用删除和旧迁移。
+3. 使用七牛、阿里、腾讯真实凭证逐厂商验证 upload、HEAD/read、公开/签名 URL、delete 和 intent crash recovery。
+4. 跑通 OpenAI/Gemini 实时与异步四象限、Grok 实时，并核对实际尺寸、数量、余额/订阅/倍率/额度。
+5. 在生产备份副本演练旧广场立即隐藏、可恢复迁移、quarantine 和回滚。
+6. 功能分支已经推送。Fork Actions 页面当前显示 `Enable Actions` 且历史运行数为 0；仓库所有者启用 Actions 后必须等待 CI/Security Scan 全绿。
+7. CI 通过后非强制合并到 `origin/main`，推送并报告最终 SHA、`git describe` 和 `VERSION`。
 
 ## P0 风险说明
 
-### 切换 OSS 后旧对象不可解析
+### 旧公开内容会在升级时消失
 
-系统当前只有一个全局 provider/bucket 配置，存储实现会拒绝与当前配置不匹配的旧 ObjectRef。直接切换可能让历史图片无法查看和清理。生产切换前必须保留旧配置到对象清空、迁移对象，或先实现历史凭证 resolver。
+`186` 会立即把旧 `image_plaza_items` 的 `public` 改为 `private`。这不是数据删除，而是安全隔离；旧内容未经过严格媒体校验和管理员审核。上线前需告知运营，迁移成功后的内容也只是私有资产和 `pending_review` 投稿，必须审核后才重新公开。
 
-### execution_unknown 不能自动恢复
+### 共享对象可能被误删
 
-上游没有可靠幂等保证。请求发出后、结果入库前崩溃会进入 `execution_unknown`。自动重调可能生成第二张图并产生第二次上游成本，因此当前必须人工判断。若决定再生成，应创建新任务，并明确风险。
+同一 OSS 对象可同时被异步结果、图库和有效投稿引用。任一清理器若只检查本模块，会删除其他模块仍在使用的图片。所有删除必须以统一引用查询和 `image_storage_objects` 状态为准，并覆盖异步保留清理与图库清理两条路径。
 
-### PostgreSQL staging 容量
+### OSS 删除和数据库状态可能分裂
 
-生成结果在 OSS 成功前短期存储在 PostgreSQL `BYTEA`。高并发 4K 多图会放大磁盘、WAL、备份和副本压力。上线前建立容量指标和告警，并验证 24 小时 staging 清理。
+OSS delete 成功而数据库更新失败时，对象可能长期停在 `deleting`。stale deletion recovery 必须能幂等处理“对象已不存在”，并最终把数据库状态收敛为 `deleted`。真实厂商对重复 delete/HEAD 的行为需逐一验证。
 
-### 多实例并发
+### 存储身份切换已保护，历史多凭证仍未实现
 
-配置是每实例 Worker 数。扩容应用实例会线性提高总上游并发和 OSS 吞吐，可能越过账号或厂商限制。部署系统需要显式计算总 Worker 数。
+当前仍是全站一个存储身份。只要存在非 `deleted` 图片对象、任意 SC 输入对象，或尚未清理的 upload object intent，服务端会拒绝改变 provider、bucket、endpoint、region 或 path-style，避免直接切换导致历史对象或孤立上传无法恢复。生产要切换时仍须先清空或迁移对象；按历史身份解析多套凭证的 resolver/迁移工具仍是 P1。
+
+### `execution_unknown` 不能自动恢复
+
+上游没有可靠幂等保证。请求发出后、结果入库前崩溃会进入 `execution_unknown`；自动重调可能产生第二张图和第二笔上游成本。再次生成必须创建新任务并明确风险。
+
+### 归档失败不能影响计费
+
+实时生成成功后 OSS 归档可能失败。此时必须保持生成/计费结果不变，只重试归档。异步任务则只在 OSS 与固定账单都确认后对外成功；达到成功后再建立图库引用也不能再次扣费。
+
+### 能力缓存导致模式错误
+
+工作台模式只能由 Key 当前分组决定。前端若长期使用旧能力，可能向错误入口提交。每次提交前必须重新获取 `capability_version`；变化时更新表单并停止本次操作，不能尝试另一模式。
+
+### PostgreSQL staging 和图库容量
+
+4K 多图会短期进入异步 staging，并长期计入 OSS/图库配额。需要监控 staging 字节/WAL、每用户条目和唯一对象字节、待处理 Outbox、`deleting` 对象、清理和迁移积压。
+
+### 多实例并发与关闭
+
+异步 `worker_concurrency` 按实例累加；图库维护依赖数据库 lease version 和 30 秒心跳。server shutdown 已挂接并等待持久异步与图库维护 `Stop()`；真实 PostgreSQL 多实例下仍需验证只有一个执行者、租约丢失取消和滚动关闭交接。
 
 ### 密钥连续性
 
-排队任务的请求载荷加密保存。迁移机器或重建容器时若更换加密密钥，旧任务无法解密执行。密钥备份和轮换策略必须在生产启用前确定。
+持久异步请求载荷加密保存。换电脑、重建容器或回滚时若更换密钥，排队任务无法解密。生产密钥备份和轮换必须先于启用异步分组。
+
+## 当前产品缺口
+
+以下项目要以最终代码复核；未实现时保持 P1，不得在交付报告中声称完成：
+
+- 管理全站图库按用户、Key、分组、模型、来源、状态和时间的完整筛选。
+- 图库页面对历史 `archive_failed` 记录的跨设备重试入口。
+- 工作台异步阶段是否能展示真实上传/计费阶段，而不是成功后一次性补齐。
+
+若其他协作代理已经补齐，必须在代码和测试确认后再从本节移除。
 
 ## P1：稳定性和运维增强
 
-- 实现历史 provider/bucket -> 凭证的 resolver，或提供对象迁移工具。
-- 增加 ready/delayed/inflight、状态数量、最老任务年龄、账务失败和清理积压指标与告警。
-- 对每个崩溃点做故障注入，验证不会重复调用上游和重复扣费。
-- 为 `execution_unknown` 增加管理员“创建新任务”流程，要求二次确认并产生新 task ID。
-- 修复 Windows `1ns` TTL 随机测试，恢复不带排除的 `go test ./...`。
-- 更新 `admin.system.rollback.spec.ts` 两个既有期望，恢复完整前端测试绿色。
-- 完成 Playwright 或浏览器工具的桌面/移动截图回归。
-- 决定是否把 `0.5K` 像素上限等当前代码常量开放为受控配置。
-- 增加各云厂商按环境变量启用的可选真实凭证契约测试。
+- 实现历史 provider/bucket 到凭证的 resolver 或对象迁移工具。
+- 增加异步队列、任务状态、图库 Outbox、对象状态、迁移和清理指标/告警。
+- 对上游发出、staging、OSS、账务 Apply、UsageLog、图库归档和删除的每个崩溃点做故障注入。
+- 为 `execution_unknown` 增加管理员“创建新任务”流程和二次成本确认。
+- 为各云厂商增加环境变量启用的真实凭证契约测试。
+- 对保留期批量重算提供可审计的前后预览和可恢复任务。
+- 为工作台能力目录减少硬编码 fallback，并验证模型目录与 `models_list_config` 的唯一真值边界。
 
-## P2：产品能力候选
+## P2：后续产品候选
 
-- 用户主动取消尚未开始的 queued 任务。
+- 用户取消尚未开始的 queued 任务。
 - 合规的任务删除与审计保留策略。
-- 更细的任务中心导出、告警和运营统计。
-- 多存储配置与按对象历史配置解析。
-- 视频异步任务。视频需要单独协议、计费、存储和状态设计，不能直接复用图片接口命名。
-
-这些不是当前交付遗漏，而是明确未包含的后续范围。实现前应先写新方案和验收标准。
+- 多套对象存储和历史凭证并行解析。
+- 图库导出、运营统计、审核告警和更细的清理策略。
+- 视频异步任务。视频必须单独设计协议、状态、计费和存储，不能复用图片路径命名。
 
 ## 上游同步高冲突区域
 
@@ -60,21 +100,26 @@
 
 ```text
 backend/ent/schema/group.go 及生成的 ent/group* 文件
-backend/internal/handler/gateway_handler_chat_completions.go
+backend/migrations/185_async_image_tasks.sql
+backend/migrations/186_image_library_and_plaza_moderation.sql
+backend/internal/handler/gateway_handler*.go
 backend/internal/handler/openai_images.go
-backend/internal/service/gateway_usage_billing.go
-backend/internal/service/openai_gateway_usage.go
-backend/internal/service/image_storage*.go
+backend/internal/handler/durable_async_image_*.go
+backend/internal/handler/image_{workbench,library,plaza}_handler.go
+backend/internal/service/{gateway_usage_billing,openai_gateway_usage,image_billing_size}.go
+backend/internal/service/image_{workbench,library,library_maintenance,plaza_helpers,storage_settings}.go
+backend/internal/repository/{async_image_task,async_image_retention,image_library}_repo.go
 backend/internal/server/routes/{gateway,admin,user}.go
 backend/internal/handler/wire.go
 backend/cmd/server/wire_gen.go
-frontend/src/views/admin/{GroupsView,BackupView}.vue
+frontend/src/views/user/Image{Workbench,Library,Plaza}View.vue
+frontend/src/views/admin/{GroupsView,BackupView,ImageModerationView}.vue
 frontend/src/router/index.ts
-frontend/src/components/layout/AppSidebar.vue
+frontend/src/components/layout/{AppSidebar,AuthLayout}.vue
 ```
 
-冲突解决后必须重新生成 Ent/Wire（若 schema 或 provider 变化），并回归旧同步、旧 Redis 异步和新持久异步三套路径。
+冲突解决后，按需要重新生成 Ent/Wire，并回归旧同步、旧 Redis 异步、新持久异步和站内工作台/图库/广场四类路径。
 
 ## 发布决策
 
-当前保留 `VERSION=0.1.162`。生产验收完成后再决定是否升级版本并新增 Fork 自己的 release notes/tag。不要修改或复用原作者的 `v0.1.162` 标签。
+当前保持 `VERSION=0.1.162`。最终 SHA、`git describe`、功能分支 CI 和 `origin/main` 推送仍为 `PENDING`。生产验收完成后再决定是否创建 Fork 自己的版本说明或标签；不得移动、覆盖或复用原作者的 `v0.1.162` 标签。

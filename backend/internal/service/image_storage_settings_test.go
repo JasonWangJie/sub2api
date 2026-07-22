@@ -3,12 +3,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -61,11 +64,51 @@ func (reversibleEncryptor) Decrypt(ciphertext string) (string, error) {
 	return rest, nil
 }
 
-type recordingStorage struct{ saved []string }
+type recordingStorage struct {
+	saved []string
+	data  []byte
+	ref   ObjectRef
+}
 
 func (s *recordingStorage) Save(_ context.Context, key, _ string, _ []byte) (string, error) {
 	s.saved = append(s.saved, key)
 	return "https://cdn.example.com/" + key, nil
+}
+
+func (s *recordingStorage) SaveObject(_ context.Context, key, contentType string, data []byte) (ObjectRef, error) {
+	s.saved = append(s.saved, key)
+	s.data = append([]byte(nil), data...)
+	s.ref = ObjectRef{
+		Provider: ImageStorageProviderCustomS3, Bucket: "probe-bucket",
+		ObjectKey: key, ContentType: contentType, SizeBytes: int64(len(data)),
+	}
+	return s.ref, nil
+}
+
+func (*recordingStorage) SignURL(context.Context, ObjectRef, time.Duration) (ObjectAccess, error) {
+	return ObjectAccess{URL: "https://cdn.example.com/probe"}, nil
+}
+
+func (s *recordingStorage) Read(context.Context, ObjectRef) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(s.data)), nil
+}
+
+func (s *recordingStorage) Head(context.Context, ObjectRef) (ObjectMetadata, error) {
+	return ObjectMetadata{ObjectRef: s.ref}, nil
+}
+
+func (s *recordingStorage) Delete(context.Context, ObjectRef) error {
+	s.data = nil
+	return nil
+}
+
+type imageStorageIdentityGuardStub struct {
+	inUse bool
+	err   error
+}
+
+func (s imageStorageIdentityGuardStub) HasActiveImageStorageObjects(context.Context) (bool, error) {
+	return s.inUse, s.err
 }
 
 func newImageStorageFixture(t *testing.T, fallback config.ImageStorageConfig) (*ImageStorageSettingService, *stubSettingRepo, *[]config.ImageStorageConfig) {
@@ -123,7 +166,7 @@ func TestImageStorageSettingsToggleTakesEffectWithoutRestart(t *testing.T) {
 	_, enabled = svc.resolve()
 	require.False(t, enabled, "turning it back off must also apply immediately")
 
-	require.Len(t, *built, 1, "the S3 client is built only when the feature is on")
+	require.Len(t, *built, 2, "saving probes the store once and the hot resolver builds the active client once")
 }
 
 func TestImageStorageSettingsReuseBackupCredentials(t *testing.T) {
@@ -140,8 +183,8 @@ func TestImageStorageSettingsReuseBackupCredentials(t *testing.T) {
 	_, enabled := svc.resolve()
 	require.True(t, enabled)
 
-	require.Len(t, *built, 1)
-	got := (*built)[0]
+	require.Len(t, *built, 2)
+	got := (*built)[len(*built)-1]
 	require.Equal(t, "https://acct.r2.cloudflarestorage.com", got.Endpoint)
 	require.Equal(t, "wnam", got.Region)
 	require.Equal(t, "backup-ak", got.AccessKeyID)
@@ -190,7 +233,7 @@ func TestImageStorageSettingsOwnCredentialsAreEncryptedAndMasked(t *testing.T) {
 	})
 	require.NoError(t, err)
 	svc.resolve()
-	require.Equal(t, "super-secret", (*built)[1].SecretAccessKey)
+	require.Equal(t, "super-secret", (*built)[len(*built)-1].SecretAccessKey)
 }
 
 // Persisting the service's own S3 secret must be refused when the encryption key
@@ -226,10 +269,10 @@ func TestImageStorageSettingsIncompleteStaysDisabled(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := svc.Update(ctx, ImageStorageSettings{Enabled: true, Bucket: "my-images"})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrImageStorageIncomplete)
 
 	_, enabled := svc.resolve()
-	require.False(t, enabled, "missing credentials must not enable the feature")
+	require.False(t, enabled, "an invalid setting must not replace the disabled configuration")
 	require.Empty(t, *built, "no client is built from an incomplete configuration")
 }
 
@@ -251,4 +294,45 @@ func TestImageStorageSettingsFallBackToConfigFile(t *testing.T) {
 	require.True(t, fetched.Enabled)
 	require.Equal(t, "yaml-bucket", fetched.Bucket)
 	require.Empty(t, fetched.SecretAccessKey)
+}
+
+func TestImageStorageSettingsRejectIdentityChangeWithActiveObjects(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	seedBackupS3(t, repo, BackupS3Config{
+		Endpoint: "https://old.example.test", Region: "auto", Bucket: "old-bucket",
+		AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	require.NoError(t, repo.Set(ctx, settingKeyImageStorageConfig, `{"enabled":false,"reuse_backup_s3":true,"provider":"custom_s3","bucket":"old-bucket"}`))
+	svc.identityGuard = imageStorageIdentityGuardStub{inUse: true}
+
+	_, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: false, Provider: ImageStorageProviderCustomS3, Bucket: "new-bucket",
+		Endpoint: "https://new.example.test", Region: "auto",
+	})
+	require.ErrorIs(t, err, ErrImageStorageIdentityInUse)
+
+	raw, loadErr := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, loadErr)
+	require.Contains(t, raw, "old-bucket")
+}
+
+func TestImageStorageSettingsAllowNonIdentityChangesWithActiveObjects(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	seedBackupS3(t, repo, BackupS3Config{
+		Endpoint: "https://same.example.test", Region: "auto", Bucket: "same-bucket",
+		AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	require.NoError(t, repo.Set(ctx, settingKeyImageStorageConfig, `{"enabled":false,"reuse_backup_s3":true,"provider":"custom_s3","bucket":"same-bucket","public_base_url":"https://old-cdn.example.test"}`))
+	svc.identityGuard = imageStorageIdentityGuardStub{inUse: true}
+
+	updated, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: false, ReuseBackupS3: true, Provider: ImageStorageProviderCustomS3,
+		Bucket: "same-bucket", PublicBaseURL: "https://new-cdn.example.test",
+		Library: ImageLibraryRuntimeConfig{RetentionDays: 120},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://new-cdn.example.test", updated.PublicBaseURL)
+	require.Equal(t, 120, updated.Library.RetentionDays)
 }

@@ -49,18 +49,12 @@ func (s *ImagePlazaService) Publish(ctx context.Context, userID int64, in ImageP
 	if len(in.ImageData) == 0 {
 		return nil, apperrors.BadRequest("INVALID_IMAGE", "image data is required")
 	}
-	if len(in.ImageData) > 12<<20 {
-		return nil, apperrors.BadRequest("IMAGE_TOO_LARGE", "image too large")
+	validated, err := ValidateImageBytes(in.ImageData, in.MimeType, DefaultImageLibraryMaxBytes, DefaultImageLibraryMaxPixels)
+	if err != nil {
+		return nil, err
 	}
-
-	format := strings.ToLower(strings.TrimSpace(in.Format))
-	if format == "" {
-		format = "png"
-	}
-	mime := strings.TrimSpace(in.MimeType)
-	if mime == "" {
-		mime = mimeFromFormat(format)
-	}
+	format := validated.Format
+	mime := validated.MIMEType
 	ext := extFromFormat(format)
 
 	title := strings.TrimSpace(in.Title)
@@ -80,9 +74,11 @@ func (s *ImagePlazaService) Publish(ctx context.Context, userID int64, in ImageP
 		Style:       defaultString(strings.TrimSpace(in.Style), "auto"),
 		StoragePath: "pending",
 		ContentType: mime,
-		FileSize:    int64(len(in.ImageData)),
-		Visibility:  ImagePlazaVisibilityPublic,
-		CreatedAt:   time.Now().UTC(),
+		FileSize:    validated.SizeBytes,
+		// Legacy plaza submissions are no longer made public implicitly. The
+		// unified library flow creates a pending-review publication instead.
+		Visibility: ImagePlazaVisibilityPrivate,
+		CreatedAt:  time.Now().UTC(),
 	}
 
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -95,7 +91,7 @@ func (s *ImagePlazaService) Publish(ctx context.Context, userID int64, in ImageP
 		_, _ = s.repo.Delete(ctx, item.ID, userID)
 		return nil, apperrors.InternalServer("STORAGE_ERROR", "failed to prepare storage")
 	}
-	if err := os.WriteFile(abs, in.ImageData, 0o644); err != nil {
+	if err := os.WriteFile(abs, validated.Data, 0o644); err != nil {
 		_, _ = s.repo.Delete(ctx, item.ID, userID)
 		return nil, apperrors.InternalServer("STORAGE_ERROR", "failed to store image")
 	}
@@ -106,7 +102,7 @@ func (s *ImagePlazaService) Publish(ctx context.Context, userID int64, in ImageP
 		_, _ = s.repo.Delete(ctx, item.ID, userID)
 		return nil, apperrors.InternalServer("STORAGE_ERROR", "storage updater unavailable")
 	}
-	if err := updater.UpdateStorage(ctx, item.ID, rel, mime, int64(len(in.ImageData))); err != nil {
+	if err := updater.UpdateStorage(ctx, item.ID, rel, mime, validated.SizeBytes); err != nil {
 		_ = os.Remove(abs)
 		_, _ = s.repo.Delete(ctx, item.ID, userID)
 		return nil, err
@@ -159,7 +155,22 @@ func (s *ImagePlazaService) OpenContent(ctx context.Context, id int64) (absPath 
 	if item.Visibility != ImagePlazaVisibilityPublic {
 		return "", "", ErrImagePlazaNotFound
 	}
-	abs := filepath.Join(s.dataDir, filepath.FromSlash(item.StoragePath))
+	cleanRelative := filepath.Clean(filepath.FromSlash(item.StoragePath))
+	if cleanRelative == "." || filepath.IsAbs(cleanRelative) || cleanRelative == ".." || strings.HasPrefix(cleanRelative, ".."+string(filepath.Separator)) {
+		return "", "", ErrImagePlazaNotFound
+	}
+	base, resolveErr := filepath.Abs(s.dataDir)
+	if resolveErr != nil {
+		return "", "", ErrImagePlazaNotFound
+	}
+	abs, resolveErr := filepath.Abs(filepath.Join(base, cleanRelative))
+	if resolveErr != nil {
+		return "", "", ErrImagePlazaNotFound
+	}
+	rel, resolveErr := filepath.Rel(base, abs)
+	if resolveErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", ErrImagePlazaNotFound
+	}
 	if _, statErr := os.Stat(abs); statErr != nil {
 		return "", "", ErrImagePlazaNotFound
 	}
@@ -176,7 +187,7 @@ func (s *ImagePlazaService) Delete(ctx context.Context, userID, id int64) error 
 		return err
 	}
 	if item.UserID != userID {
-		return ErrImagePlazaForbidden
+		return ErrImagePlazaNotFound
 	}
 	ok, err := s.repo.Delete(ctx, id, userID)
 	if err != nil {

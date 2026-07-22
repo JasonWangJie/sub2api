@@ -920,6 +920,9 @@ redis:
   # Redis port
   # Redis 端口
   port: 6379
+  # Redis ACL username (leave empty for default user)
+  # Redis ACL 用户名（使用默认用户时留空）
+  username: ""
   # Redis password (leave empty if no password is set)
   # Redis 密码（如果未设置密码则留空）
   password: ""
@@ -1297,6 +1300,12 @@ async_image:
   download_timeout_seconds: 30
   # 下载参考图允许跟随的最大 HTTPS 重定向次数（默认 3）；每跳都会重新做 SSRF 检查。
   download_max_redirects: 3
+  # 单次 SC 参考图写入 OSS 的超时，单位秒（默认 300，最大 600）。
+  upload_timeout_seconds: 300
+  # 每个 API Key 在任意滚动 60 秒内允许的 SC 参考图上传尝试数（默认 20）。
+  upload_per_minute: 20
+  # 每个 API Key 未过期 SC 输入对象与在途上传的总字节上限（默认 1 GiB）。
+  max_input_bytes_per_key: 1073741824
   # image_storage.public_base_url 为空时，查询结果动态签名 URL 的有效期，单位秒（默认 3600）。
   signed_url_expiry_seconds: 3600
   # SC 上传参考图的签名访问时长及保留策略目标，单位小时（默认 24）。

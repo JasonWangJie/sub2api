@@ -253,6 +253,43 @@ func TestGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersist
 	require.InDelta(t, 0.19, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
+func TestGatewayServiceRecordUsage_MixedOutputSizesUseEachConfiguredTier(t *testing.T) {
+	imagePrice1K := 0.11
+	imagePrice4K := 0.44
+	groupID := int64(903)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:        "gateway_mixed_image_sizes",
+			Model:            "gemini-image",
+			ImageCount:       2,
+			ImageInputSize:   "4K",
+			ImageOutputSizes: []string{"1024x1024", "3840x2160"},
+			Duration:         time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      803,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:             groupID,
+				RateMultiplier: 1,
+				ImagePrice1K:   &imagePrice1K,
+				ImagePrice4K:   &imagePrice4K,
+			},
+		},
+		User:    &User{ID: 603},
+		Account: &Account{ID: 703},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Equal(t, map[string]int{ImageBillingSize1K: 1, ImageBillingSize4K: 1}, usageRepo.lastLog.ImageSizeBreakdown)
+	require.InDelta(t, imagePrice1K+imagePrice4K, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, imagePrice1K+imagePrice4K, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
 func TestGatewayServiceRecordUsage_PeakRateAffectsTokenModeImageOutputTokens(t *testing.T) {
 	groupID := int64(902)
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}

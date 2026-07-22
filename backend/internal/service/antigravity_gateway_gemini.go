@@ -85,7 +85,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
-	mappedModel := s.getMappedModel(account, originalModel)
+	mappedModel := ResolveGeminiForwardModel(account, originalModel)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
@@ -397,6 +397,7 @@ handleSuccess:
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
+	imageCounter := newGeminiImageOutputCounter()
 
 	if stream {
 		// 客户端要求流式，直接透传
@@ -408,6 +409,7 @@ handleSuccess:
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
+		imageCounter = streamRes.imageCounter
 	} else {
 		// 客户端要求非流式，收集流式响应后返回
 		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
@@ -417,20 +419,14 @@ handleSuccess:
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+		imageCounter = streamRes.imageCounter
 	}
 
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
 
-	// 判断是否为图片生成模型
-	imageCount := 0
-	if isImageGenerationModel(mappedModel) {
-		// Gemini 图片生成 API 每次请求只生成一张图片（API 限制）
-		imageCount = 1
-	}
-
-	return &ForwardResult{
+	forwardResult := &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
 		Model:            originalModel,
@@ -439,10 +435,11 @@ handleSuccess:
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
 		ClientDisconnect: clientDisconnect,
-		ImageCount:       imageCount,
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
-	}, nil
+	}
+	applyGeminiImageOutputAccounting(forwardResult, imageCounter)
+	return forwardResult, nil
 }
 
 // cleanGeminiRequest 清理 Gemini 请求体中的 Schema

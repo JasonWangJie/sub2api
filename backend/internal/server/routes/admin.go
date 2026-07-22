@@ -73,6 +73,7 @@ func RegisterAdminRoutes(
 		registerBackupRoutes(admin, h, stepUpAuth)
 
 		registerAsyncImageTaskCenterRoutes(admin, h)
+		registerImageLibraryRoutes(admin, h)
 
 		// 运维监控（Ops）
 		registerOpsRoutes(admin, h)
@@ -118,6 +119,31 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerImageLibraryRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	if h.Admin.ImageLibrary == nil {
+		return
+	}
+	library := admin.Group("/image-library")
+	{
+		library.GET("", h.Admin.ImageLibrary.AdminListLibrary)
+		library.GET("/stats", h.Admin.ImageLibrary.AdminStats)
+		library.GET("/:id/view", h.Admin.ImageLibrary.AdminView)
+		library.GET("/cleanup-jobs", h.Admin.ImageLibrary.AdminListCleanupJobs)
+		library.POST("/cleanup-jobs/preview", h.Admin.ImageLibrary.AdminPreviewCleanup)
+		library.POST("/cleanup-jobs", h.Admin.ImageLibrary.AdminCreateCleanupJob)
+		library.GET("/migration", h.Admin.ImageLibrary.AdminMigrationState)
+	}
+	plaza := admin.Group("/image-plaza")
+	{
+		plaza.GET("/publications", h.Admin.ImageLibrary.AdminListPublications)
+		plaza.POST("/publications/batch", h.Admin.ImageLibrary.AdminBatchTransitionPublications)
+		plaza.GET("/publications/:publication_id/view", h.Admin.ImageLibrary.AdminViewPublication)
+		plaza.POST("/publications/:publication_id/:action", h.Admin.ImageLibrary.AdminTransitionPublication)
+		plaza.GET("/reports", h.Admin.ImageLibrary.AdminListReports)
+		plaza.POST("/reports/:report_id/resolve", h.Admin.ImageLibrary.AdminResolveReport)
 	}
 }
 

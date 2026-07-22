@@ -270,6 +270,9 @@ type AsyncImageConfig struct {
 	DownloadMaxBytes        int64    `mapstructure:"download_max_bytes"`
 	DownloadTimeoutSeconds  int      `mapstructure:"download_timeout_seconds"`
 	DownloadMaxRedirects    int      `mapstructure:"download_max_redirects"`
+	UploadTimeoutSeconds    int      `mapstructure:"upload_timeout_seconds"`
+	UploadPerMinute         int      `mapstructure:"upload_per_minute"`
+	MaxInputBytesPerKey     int64    `mapstructure:"max_input_bytes_per_key"`
 	SignedURLExpirySeconds  int      `mapstructure:"signed_url_expiry_seconds"`
 	InputRetentionHours     int      `mapstructure:"input_retention_hours"`
 	TaskRetentionDays       int      `mapstructure:"task_retention_days"`
@@ -1435,6 +1438,7 @@ func (d *DatabaseConfig) DSNWithTimezone(tz string) string {
 type RedisConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
 	DB       int    `mapstructure:"db"`
 	// 连接池与超时配置（性能优化：可配置化连接池参数）
@@ -2013,6 +2017,7 @@ func setDefaults() {
 	// Redis
 	viper.SetDefault("redis.host", "localhost")
 	viper.SetDefault("redis.port", 6379)
+	viper.SetDefault("redis.username", "")
 	viper.SetDefault("redis.password", "")
 	viper.SetDefault("redis.db", 0)
 	viper.SetDefault("redis.dial_timeout_seconds", 5)
@@ -2100,6 +2105,9 @@ func setDefaults() {
 	viper.SetDefault("async_image.download_max_bytes", int64(32*1024*1024))
 	viper.SetDefault("async_image.download_timeout_seconds", 30)
 	viper.SetDefault("async_image.download_max_redirects", 3)
+	viper.SetDefault("async_image.upload_timeout_seconds", 300)
+	viper.SetDefault("async_image.upload_per_minute", 20)
+	viper.SetDefault("async_image.max_input_bytes_per_key", int64(1<<30))
 	viper.SetDefault("async_image.signed_url_expiry_seconds", 3600)
 	viper.SetDefault("async_image.input_retention_hours", 24)
 	viper.SetDefault("async_image.task_retention_days", 90)

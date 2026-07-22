@@ -110,3 +110,19 @@ func TestResolveImageBillingSize(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveImageBillingCountsPreservesExactCountAndFallback(t *testing.T) {
+	require.Equal(t,
+		map[string]int{ImageBillingSize1K: 1, ImageBillingSize4K: 1},
+		resolveImageBillingCounts(2, ImageBillingSize4K, map[string]int{ImageBillingSize1K: 1, ImageBillingSize4K: 1}),
+	)
+	require.Equal(t,
+		map[string]int{ImageBillingSize1K: 1, ImageBillingSize2K: 1},
+		resolveImageBillingCounts(2, ImageBillingSize2K, map[string]int{ImageBillingSize1K: 1}),
+	)
+	require.Equal(t,
+		map[string]int{ImageBillingSize4K: 2},
+		resolveImageBillingCounts(2, ImageBillingSize4K, map[string]int{ImageBillingSize1K: 3}),
+		"an inconsistent breakdown must not alter the authoritative image count",
+	)
+}

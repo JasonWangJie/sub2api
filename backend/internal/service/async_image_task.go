@@ -269,6 +269,14 @@ type AsyncImageTaskRepository interface {
 	MarkAsyncImageOutboxFailed(ctx context.Context, id int64, availableAt time.Time, message string) error
 }
 
+// AsyncImageLibraryArchiveOutboxRepository is implemented by persistent
+// repositories after the image library migration. Keeping it separate lets
+// alternate/test task repositories continue to implement the core contract.
+type AsyncImageLibraryArchiveOutboxRepository interface {
+	EnqueueMissingAsyncImageLibraryArchives(ctx context.Context, limit int) (int64, error)
+	MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, publishedAt time.Time, message string) error
+}
+
 type AsyncImageTaskService struct {
 	repo AsyncImageTaskRepository
 }

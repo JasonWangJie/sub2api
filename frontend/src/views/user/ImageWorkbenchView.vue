@@ -1,1587 +1,1158 @@
 <template>
   <AppLayout>
-    <div class="img-lab space-y-4">
-      <div class="img-lab-hero card">
-        <div class="img-lab-hero__glow" aria-hidden="true"></div>
-        <div class="relative flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p class="img-lab-kicker">IMAGE // WORKBENCH</p>
-            <h1 class="img-lab-title">{{ t('imageWorkbench.title') }}</h1>
-            <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">
-              {{ t('imageWorkbench.description') }}
-            </p>
-          </div>
-          <button type="button" class="btn btn-secondary" :disabled="loadingKeys || generating" @click="refreshAll">
-            <Icon name="refresh" size="sm" class="mr-1.5" :class="loadingKeys && 'animate-spin'" />
-            {{ t('common.refresh') }}
+    <div class="workbench">
+      <header class="workbench-header">
+        <div class="min-w-0">
+          <h1>{{ t('imageWorkbench.title') }}</h1>
+          <p>{{ t('imageWorkflow.workbench.description') }}</p>
+        </div>
+        <div class="workbench-header__actions">
+          <RouterLink to="/async-image-tasks" class="btn btn-secondary inline-flex items-center gap-2">
+            <Icon name="clock" size="sm" />
+            {{ t('imageWorkflow.workbench.taskCenter') }}
+          </RouterLink>
+          <RouterLink to="/image-library" class="btn btn-secondary inline-flex items-center gap-2">
+            <Icon name="inbox" size="sm" />
+            {{ t('imageWorkflow.library.title') }}
+          </RouterLink>
+          <button type="button" class="workbench-icon-button" :disabled="loadingKeys || generating" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="refreshAll">
+            <Icon name="refresh" size="sm" :class="loadingKeys && 'animate-spin'" />
           </button>
         </div>
-      </div>
+      </header>
 
-      <div class="img-lab-grid">
-        <!-- Left: key / model / reference -->
-        <aside class="img-lab-col space-y-4">
-          <section class="card img-lab-panel">
-            <h2 class="img-lab-panel__title mb-1">{{ t('imageWorkbench.selectKey') }}</h2>
-            <p class="img-lab-keyhint mb-3">
-              {{ t('imageWorkbench.detectedImageKeys', { n: imageCapableKeys.length }) }}
-            </p>
+      <div class="workbench-grid">
+        <aside class="workbench-column workbench-column--config">
+          <section class="workbench-panel" aria-labelledby="workbench-key-heading">
+            <div class="workbench-panel__heading">
+              <div>
+                <h2 id="workbench-key-heading">{{ t('imageWorkbench.selectKey') }}</h2>
+                <p>{{ t('imageWorkflow.workbench.keyCount', { count: workbenchKeys.length }) }}</p>
+              </div>
+              <span v-if="capabilityLoading" class="workbench-spinner" aria-hidden="true"></span>
+            </div>
+
             <Select
               v-model="form.apiKeyId"
-              :options="apiKeyOptions"
-              :disabled="loadingKeys || generating"
+              :options="keyOptions"
+              :disabled="loadingKeys || generating || asyncTask.active"
               :searchable="true"
               :placeholder="t('imageWorkbench.selectKeyPlaceholder')"
               class="w-full"
             >
-              <template #selected="{ option }">
-                <span v-if="option" class="truncate font-medium">{{ option.label }}</span>
-                <span v-else class="text-gray-400">{{ t('imageWorkbench.selectKeyPlaceholder') }}</span>
-              </template>
               <template #option="{ option, selected }">
-                <div
-                  class="img-lab-keyopt"
-                  :class="{ 'is-disabled': option.disabled, 'is-selected': selected }"
-                >
-                  <div class="img-lab-keyopt__main">
-                    <div class="img-lab-keyopt__row">
-                      <span class="img-lab-keyopt__label">{{ option.label }}</span>
-                      <span v-if="option.imageEnabled" class="img-lab-keyopt__badge">
-                        {{ t('imageWorkbench.imageEnabledBadge') }}
-                      </span>
-                    </div>
-                    <p v-if="option.subtitle" class="img-lab-keyopt__sub">{{ option.subtitle }}</p>
+                <div class="key-option">
+                  <div class="min-w-0">
+                    <p class="key-option__name">{{ option.label }}</p>
+                    <p class="key-option__meta">{{ option.subtitle }}</p>
                   </div>
-                  <Icon
-                    v-if="selected && !option.disabled"
-                    name="check"
-                    size="sm"
-                    class="img-lab-keyopt__check"
-                    :stroke-width="2"
-                  />
+                  <Icon v-if="selected" name="check" size="sm" class="text-teal-600" />
                 </div>
               </template>
             </Select>
 
-            <div v-if="selectedKey && selectedKeyAllowsImage" class="img-lab-keycard mt-3">
-              <div class="img-lab-keycard__tags">
-                <span class="img-lab-tag img-lab-tag--group">
-                  {{ selectedKey.group?.name || selectedKey.name }}
-                </span>
-                <span class="img-lab-tag img-lab-tag--ok">
-                  {{ t('imageWorkbench.usableForImage') }}
-                </span>
-                <span class="img-lab-tag img-lab-tag--rate">
-                  {{ rateMultiplierLabel }}
-                </span>
-                <span v-if="price2kLabel" class="img-lab-tag img-lab-tag--price">
-                  {{ price2kLabel }}
-                </span>
+            <div v-if="selectedKey" class="key-summary">
+              <div class="key-summary__row">
+                <span>{{ t('imageWorkflow.workbench.platform') }}</span>
+                <strong>{{ platformLabel }}</strong>
               </div>
-              <div class="img-lab-keycard__rows">
-                <div class="img-lab-keycard__row">
-                  <span>{{ t('imageWorkbench.apiKeyLabel') }}</span>
-                  <span class="font-mono">{{ maskApiKey(selectedKey.key) }}</span>
-                </div>
-                <div class="img-lab-keycard__row">
-                  <span>{{ t('imageWorkbench.price2kLabel') }}</span>
-                  <span class="font-mono text-teal-700 dark:text-teal-300">{{ price2kValue }}</span>
-                </div>
-                <div class="img-lab-keycard__row">
-                  <span>{{ t('imageWorkbench.statusLabel') }}</span>
-                  <span :class="selectedKey.status === 'active' ? 'text-emerald-600 dark:text-emerald-400' : ''">
-                    {{ selectedKey.status }}
-                  </span>
-                </div>
+              <div class="key-summary__row">
+                <span>{{ t('imageWorkflow.workbench.group') }}</span>
+                <strong>{{ selectedKey.group?.name || '—' }}</strong>
+              </div>
+              <div class="key-summary__row">
+                <span>{{ t('imageWorkbench.apiKeyLabel') }}</span>
+                <strong class="font-mono">{{ maskApiKey(selectedKey.key) }}</strong>
               </div>
             </div>
-            <p v-else-if="!loadingKeys && !imageCapableKeys.length" class="mt-3 text-xs text-amber-600 dark:text-amber-400">
-              {{ t('imageWorkbench.noImageKeyHint') }}
-            </p>
-            <p v-else-if="!selectedKey" class="mt-3 text-xs text-gray-500 dark:text-dark-400">
-              {{ t('imageWorkbench.noKeyHint') }}
-            </p>
-          </section>
 
-          <section class="card img-lab-panel">
-            <h2 class="img-lab-panel__title">{{ t('imageWorkbench.model') }}</h2>
-            <div class="img-lab-models">
-              <button
-                v-for="m in MODEL_OPTIONS"
-                :key="m"
-                type="button"
-                class="img-lab-model"
-                :class="{ 'is-active': form.model === m }"
-                :disabled="generating"
-                @click="form.model = m"
-              >
-                {{ m }}
-              </button>
+            <div v-if="capabilityError" class="workbench-alert is-error" role="alert">
+              <Icon name="exclamationCircle" size="sm" />
+              <span>{{ capabilityError }}</span>
+            </div>
+
+            <div v-else-if="capabilities" class="execution-mode" :class="`is-${capabilities.execution_mode}`" role="status">
+              <span class="execution-mode__icon">
+                <Icon :name="isAsyncMode ? 'clock' : 'bolt'" size="md" />
+              </span>
+              <div class="min-w-0">
+                <strong>{{ modeLabel }}</strong>
+                <p>{{ isAsyncMode ? t('imageWorkflow.mode.asyncHint') : t('imageWorkflow.mode.realtimeHint') }}</p>
+              </div>
+              <span class="execution-mode__lock" :title="t('imageWorkflow.mode.controlledByGroup')">
+                <Icon name="lock" size="xs" />
+              </span>
             </div>
           </section>
 
-          <section class="card img-lab-panel">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <h2 class="img-lab-panel__title mb-0">{{ t('imageWorkbench.reference') }}</h2>
-              <span class="img-lab-refcount">{{ referenceImages.length }}/{{ MAX_REFERENCE_IMAGES }}</span>
+          <section class="workbench-panel" aria-labelledby="workbench-model-heading">
+            <div class="workbench-panel__heading">
+              <div>
+                <h2 id="workbench-model-heading">{{ t('imageWorkbench.model') }}</h2>
+                <p>{{ t('imageWorkflow.workbench.modelFromGroup') }}</p>
+              </div>
+            </div>
+            <label class="field-label" for="image-model">{{ t('imageWorkbench.model') }}</label>
+            <select id="image-model" v-model="form.model" class="input w-full" :disabled="!capabilities || generating || asyncTask.active">
+              <option v-for="model in modelOptions" :key="model.id" :value="model.id">{{ model.label }}</option>
+            </select>
+          </section>
+
+          <section v-if="capabilities?.supports_reference_images && maxReferences > 0" class="workbench-panel" aria-labelledby="workbench-reference-heading">
+            <div class="workbench-panel__heading">
+              <div>
+                <h2 id="workbench-reference-heading">{{ t('imageWorkbench.reference') }}</h2>
+                <p>{{ t('imageWorkflow.workbench.referenceCount', { count: referenceImages.length, max: maxReferences }) }}</p>
+              </div>
             </div>
 
-            <label
-              class="img-lab-upload"
-              :class="{ 'is-disabled': generating || referenceImages.length >= MAX_REFERENCE_IMAGES }"
-            >
+            <label class="reference-drop" :class="{ 'is-disabled': generating || asyncTask.active || referenceImages.length >= maxReferences }">
               <input
-                ref="fileInputRef"
+                ref="fileInput"
                 type="file"
+                class="sr-only"
                 accept="image/png,image/jpeg,image/webp"
                 multiple
-                class="hidden"
-                :disabled="generating || referenceImages.length >= MAX_REFERENCE_IMAGES"
+                :disabled="generating || asyncTask.active || referenceImages.length >= maxReferences"
                 @change="onReferenceChange"
               />
-              <Icon name="upload" size="lg" class="text-primary-500" />
-              <span class="img-lab-upload__title">{{ t('imageWorkbench.uploadTitle') }}</span>
-              <span class="img-lab-upload__hint">{{ t('imageWorkbench.uploadHint') }}</span>
+              <Icon name="upload" size="md" />
+              <span>{{ t('imageWorkbench.uploadTitle') }}</span>
+              <small>{{ t('imageWorkflow.workbench.referenceLimitHint') }}</small>
             </label>
 
-            <div v-if="referenceImages.length" class="img-lab-reflist">
-              <div v-for="item in referenceImages" :key="item.id" class="img-lab-refitem">
-                <div class="img-lab-refitem__media">
-                  <img :src="item.previewUrl" :alt="item.name" loading="lazy" decoding="async" />
-                  <button
-                    type="button"
-                    class="img-lab-refitem__remove"
-                    :title="t('common.delete')"
-                    :disabled="generating"
-                    @click.stop.prevent="removeReference(item.id)"
-                  >
-                    <Icon name="x" size="sm" />
-                  </button>
-                </div>
-                <div class="img-lab-refitem__name" :title="item.name">{{ truncateFileName(item.name) }}</div>
+            <div v-if="referenceImages.length" class="reference-list">
+              <div v-for="reference in referenceImages" :key="reference.id" class="reference-item">
+                <img :src="reference.previewUrl" :alt="reference.file.name" />
+                <span :title="reference.file.name">{{ reference.file.name }}</span>
+                <button type="button" :title="t('common.delete')" :aria-label="t('common.delete')" :disabled="generating || asyncTask.active" @click="removeReference(reference.id)">
+                  <Icon name="x" size="xs" />
+                </button>
               </div>
             </div>
           </section>
         </aside>
 
-        <!-- Center: prompt + preview -->
-        <main class="img-lab-col img-lab-col--main space-y-4">
-          <section class="card img-lab-panel">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <h2 class="img-lab-panel__title mb-0">{{ t('imageWorkbench.promptParams') }}</h2>
-              <span class="img-lab-signal" aria-hidden="true">
-                <i></i>{{ generating ? 'RENDERING' : 'READY' }}
-              </span>
+        <main class="workbench-column workbench-column--stage">
+          <section class="workbench-panel workbench-panel--stage" aria-labelledby="workbench-prompt-heading">
+            <div class="workbench-panel__heading">
+              <div>
+                <h2 id="workbench-prompt-heading">{{ t('imageWorkbench.promptParams') }}</h2>
+                <p>{{ t('imageWorkflow.workbench.privateByDefault') }}</p>
+              </div>
+              <span v-if="capabilities" class="protocol-badge">{{ protocolLabel }}</span>
             </div>
 
-            <div class="img-lab-endpoint mb-3" role="status">
-              <span class="img-lab-endpoint__dot" aria-hidden="true"></span>
-              <span>
-                {{
-                  referenceImages.length
-                    ? t('imageWorkbench.endpointEdits', { url: gatewayEndpointEdits })
-                    : t('imageWorkbench.endpointGenerations', { url: gatewayEndpointGenerations })
-                }}
-              </span>
-            </div>
-
+            <label class="field-label" for="image-prompt">{{ t('imageWorkflow.workbench.prompt') }}</label>
             <textarea
+              id="image-prompt"
               v-model="form.prompt"
-              class="input img-lab-prompt"
-              rows="5"
+              class="input prompt-input"
+              rows="6"
+              maxlength="8000"
               :placeholder="t('imageWorkbench.promptPlaceholder')"
-              :disabled="generating"
-            />
+              :disabled="generating || asyncTask.active"
+              :aria-describedby="promptError ? 'image-prompt-error' : undefined"
+            ></textarea>
+            <div class="prompt-footer">
+              <p v-if="promptError" id="image-prompt-error" class="field-error" role="alert">{{ promptError }}</p>
+              <span v-else></span>
+              <span>{{ form.prompt.length }} / 8000</span>
+            </div>
 
-            <div class="img-lab-params mt-4">
-              <label class="img-lab-field">
+            <div v-if="capabilities" class="parameter-grid">
+              <label v-if="isGemini && sizeOptions.length" class="parameter-field">
+                <span>{{ t('imageWorkflow.workbench.resolution') }}</span>
+                <select v-model="form.size" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="size in sizeOptions" :key="size" :value="size">{{ size }}</option>
+                </select>
+              </label>
+              <label v-else-if="sizeOptions.length" class="parameter-field">
                 <span>{{ t('imageWorkbench.size') }}</span>
-                <Select
-                  v-model="form.size"
-                  :options="sizeOptions"
-                  :searchable="true"
-                  :disabled="generating"
-                />
+                <select v-model="form.size" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="size in sizeOptions" :key="size" :value="size">{{ size }}</option>
+                </select>
               </label>
-              <label class="img-lab-field">
-                <span>{{ t('imageWorkbench.count') }}</span>
-                <Select v-model="form.n" :options="countOptions" :disabled="generating" />
+
+              <label v-if="isGemini && aspectRatioOptions.length" class="parameter-field">
+                <span>{{ t('imageWorkflow.workbench.aspectRatio') }}</span>
+                <select v-model="form.aspectRatio" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="ratio in aspectRatioOptions" :key="ratio" :value="ratio">{{ ratio }}</option>
+                </select>
               </label>
-              <label class="img-lab-field">
+
+              <label v-if="!isGemini && qualityOptions.length" class="parameter-field">
                 <span>{{ t('imageWorkbench.quality') }}</span>
-                <Select v-model="form.quality" :options="qualityOptions" :disabled="generating" />
+                <select v-model="form.quality" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="quality in qualityOptions" :key="quality" :value="quality">{{ quality }}</option>
+                </select>
               </label>
-              <label class="img-lab-field">
+
+              <label v-if="!isGemini && (capabilities?.max_images || 1) > 1" class="parameter-field">
+                <span>{{ t('imageWorkbench.count') }}</span>
+                <select v-model.number="form.count" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="count in countOptions" :key="count" :value="count">{{ count }}</option>
+                </select>
+              </label>
+
+              <label v-if="!isGemini && formatOptions.length" class="parameter-field">
                 <span>{{ t('imageWorkbench.format') }}</span>
-                <Select v-model="form.format" :options="formatOptions" :disabled="generating" />
+                <select v-model="form.format" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="format in formatOptions" :key="format" :value="format">{{ format.toUpperCase() }}</option>
+                </select>
               </label>
-              <label class="img-lab-field">
+
+              <label v-if="showBackground" class="parameter-field">
                 <span>{{ t('imageWorkbench.background') }}</span>
-                <Select v-model="form.background" :options="backgroundOptions" :disabled="generating" />
-              </label>
-              <label class="img-lab-field">
-                <span>{{ t('imageWorkbench.style') }}</span>
-                <Select v-model="form.style" :options="styleOptions" :disabled="generating" />
+                <select v-model="form.background" class="input" :disabled="generating || asyncTask.active">
+                  <option v-for="background in backgroundOptions" :key="background" :value="background">{{ background }}</option>
+                </select>
               </label>
             </div>
 
-            <div class="mt-4 flex flex-wrap items-center gap-3">
-              <label class="img-lab-switch">
-                <input v-model="form.syncPlaza" type="checkbox" :disabled="generating" />
-                <span>{{ t('imageWorkbench.syncPlaza') }}</span>
-              </label>
-            </div>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button type="button" class="btn btn-primary img-lab-go" :disabled="!canGenerate" @click="startGenerate">
-                <span v-if="generating" class="img-lab-go__spin" aria-hidden="true"></span>
-                {{ generating ? t('imageWorkbench.generating') : t('imageWorkbench.start') }}
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="generating" @click="form.prompt = ''">
-                {{ t('imageWorkbench.clearPrompt') }}
-              </button>
-              <button type="button" class="btn btn-ghost" :disabled="generating" @click="resetForm">
+            <div class="generate-row">
+              <button type="button" class="btn btn-secondary" :disabled="generating || asyncTask.active" @click="resetForm">
                 {{ t('imageWorkbench.reset') }}
+              </button>
+              <button
+                type="button"
+                class="generate-button"
+                :class="{ 'is-async': isAsyncMode }"
+                :disabled="!canGenerate"
+                @click="startGenerate"
+              >
+                <span v-if="generating" class="workbench-spinner is-light" aria-hidden="true"></span>
+                <Icon v-else :name="isAsyncMode ? 'clock' : 'bolt'" size="sm" />
+                {{ generateButtonLabel }}
               </button>
             </div>
           </section>
 
-          <section class="card img-lab-panel">
-            <h2 class="img-lab-panel__title">{{ t('imageWorkbench.resultPreview') }}</h2>
-            <div class="img-lab-preview">
-              <div v-if="latestImage" class="img-lab-preview__frame">
-                <img :src="latestImage.imageDataUrl" :alt="latestImage.title" />
-                <div class="img-lab-preview__scan" aria-hidden="true"></div>
+          <section v-if="unknownSubmission" class="workbench-panel unknown-submission" role="alert">
+            <div>
+              <strong>{{ t('imageWorkflow.workbench.submissionUnknown') }}</strong>
+              <p>{{ t('imageWorkflow.workbench.submissionUnknownHint') }}</p>
+              <code>{{ pendingSubmission?.request.idempotency_key }}</code>
+            </div>
+            <button type="button" class="btn btn-secondary" :disabled="generating" @click="retryUnknownSubmission">
+              {{ t('imageWorkflow.workbench.confirmSameRequest') }}
+            </button>
+          </section>
+
+          <section v-if="asyncTask.taskId" class="workbench-panel async-runtime" aria-labelledby="async-runtime-heading" aria-live="polite">
+            <div class="async-runtime__header">
+              <div>
+                <p class="async-runtime__eyebrow">{{ t('imageWorkflow.mode.async') }}</p>
+                <h2 id="async-runtime-heading">{{ taskStatusLabel }}</h2>
               </div>
-              <div v-else class="img-lab-preview__empty">
-                <div class="img-lab-preview__grid" aria-hidden="true"></div>
-                <p>{{ t('imageWorkbench.emptyPreview') }}</p>
+              <div class="async-runtime__id">
+                <code>{{ asyncTask.taskId }}</code>
+                <button type="button" :title="t('common.copy')" :aria-label="t('common.copy')" @click="copyTaskId">
+                  <Icon name="copy" size="sm" />
+                </button>
               </div>
             </div>
-            <div v-if="latestImage" class="mt-3 flex flex-wrap gap-2">
-              <button type="button" class="btn btn-secondary" @click="downloadImage(latestImage)">
-                <Icon name="download" size="sm" class="mr-1" />{{ t('imageWorkbench.download') }}
-              </button>
-              <button type="button" class="btn btn-secondary" @click="togglePublic(latestImage)">
-                {{ latestImage.public ? t('imageWorkbench.unpublish') : t('imageWorkbench.publish') }}
-              </button>
-              <button type="button" class="btn btn-secondary" @click="openPreview(latestImage)">
-                <Icon name="eye" size="sm" class="mr-1" />{{ t('imageWorkbench.view') }}
-              </button>
-              <button type="button" class="btn btn-primary" @click="reuseRecord(latestImage)">
-                {{ t('imageWorkbench.oneClick') }}
-              </button>
+            <div class="task-track" :aria-label="taskStatusLabel">
+              <div v-for="stage in taskStages" :key="stage.key" class="task-stage" :class="stage.state">
+                <span><Icon :name="stage.state === 'done' ? 'check' : stage.state === 'failed' ? 'x' : 'clock'" size="xs" /></span>
+                <strong>{{ stage.label }}</strong>
+              </div>
+            </div>
+            <div class="task-progress" aria-hidden="true"><span :style="{ width: `${asyncTask.progress}%` }"></span></div>
+            <p v-if="asyncTask.error" class="workbench-alert is-error" role="alert">
+              <Icon name="exclamationCircle" size="sm" />
+              {{ asyncTask.error }}
+            </p>
+            <div class="async-runtime__footer">
+              <span>{{ t('imageWorkflow.workbench.safeLeave') }}</span>
+              <RouterLink to="/async-image-tasks" class="text-link">{{ t('imageWorkflow.workbench.openTaskCenter') }}</RouterLink>
+            </div>
+          </section>
+
+          <section class="workbench-panel result-panel" aria-labelledby="workbench-results-heading" aria-live="polite">
+            <div class="workbench-panel__heading">
+              <div>
+                <h2 id="workbench-results-heading">{{ t('imageWorkbench.resultPreview') }}</h2>
+                <p>{{ resultSummary }}</p>
+              </div>
+            </div>
+
+            <div v-if="generating && !results.length" class="result-empty">
+              <span class="workbench-spinner" aria-hidden="true"></span>
+              <strong>{{ isAsyncMode ? t('imageWorkflow.workbench.submittingTask') : t('imageWorkflow.workbench.generatingRealtime') }}</strong>
+            </div>
+            <div v-else-if="!results.length" class="result-empty">
+              <Icon name="grid" size="lg" />
+              <strong>{{ t('imageWorkbench.emptyPreview') }}</strong>
+              <span>{{ t('imageWorkflow.workbench.emptyResultHint') }}</span>
+            </div>
+            <div v-else class="result-grid">
+              <article v-for="result in results" :key="result.id" class="result-item">
+                <a :href="result.url" target="_blank" rel="noopener" class="result-item__media">
+                  <img :src="result.url" :alt="form.prompt" loading="lazy" decoding="async" />
+                </a>
+                <div class="result-item__footer">
+                  <span class="archive-state" :class="`is-${result.archiveStatus}`">
+                    <span v-if="result.archiveStatus === 'archiving'" class="workbench-spinner" aria-hidden="true"></span>
+                    <Icon v-else :name="result.archiveStatus === 'archived' ? 'checkCircle' : 'exclamationCircle'" size="xs" />
+                    {{ archiveStatusLabel(result.archiveStatus) }}
+                  </span>
+                  <button v-if="result.archiveStatus === 'failed'" type="button" class="text-link" @click="retryArchive(result)">
+                    {{ t('imageWorkflow.workbench.retryArchive') }}
+                  </button>
+                  <a :href="result.url" target="_blank" rel="noopener" class="result-icon-button" :title="t('imageWorkbench.view')" :aria-label="t('imageWorkbench.view')">
+                    <Icon name="externalLink" size="sm" />
+                  </a>
+                </div>
+              </article>
             </div>
           </section>
         </main>
 
-        <!-- Right: history -->
-        <aside class="img-lab-col">
-          <section class="card img-lab-panel img-lab-history">
-            <div class="mb-3 flex items-center justify-between">
-              <h2 class="img-lab-panel__title mb-0">{{ t('imageWorkbench.history') }}</h2>
-              <span class="text-xs text-gray-500 dark:text-dark-400">{{ history.length }}</span>
-            </div>
-            <div v-if="!history.length" class="img-lab-history__empty">
-              {{ t('imageWorkbench.emptyHistory') }}
-            </div>
-            <ul v-else class="img-lab-history__list">
-              <li v-for="item in history" :key="item.id" class="img-lab-history__item">
-                <button type="button" class="img-lab-history__thumb" @click="selectHistory(item)">
-                  <img :src="item.imageDataUrl" :alt="item.title" />
-                </button>
-                <div class="img-lab-history__body">
-                  <p class="img-lab-history__prompt">{{ item.title || item.prompt }}</p>
-                  <p class="img-lab-history__meta">
-                    {{ item.model }} · {{ formatTime(item.createdAt) }}
-                  </p>
-                  <div class="img-lab-history__actions">
-                    <button type="button" @click="selectHistory(item)">{{ t('imageWorkbench.detail') }}</button>
-                    <button type="button" @click="togglePublic(item)">
-                      {{ item.public ? t('imageWorkbench.unpublish') : t('imageWorkbench.publish') }}
-                    </button>
-                    <button type="button" @click="downloadImage(item)">{{ t('imageWorkbench.download') }}</button>
-                    <button type="button" class="is-danger" @click="removeHistory(item)">{{ t('common.delete') }}</button>
-                  </div>
-                </div>
-              </li>
-            </ul>
+        <aside class="workbench-column workbench-column--library">
+          <section class="workbench-panel">
+            <ImageLibraryPanel ref="libraryPanel" compact @reuse="reuseLibraryItem" @view="viewLibraryItem" />
           </section>
         </aside>
       </div>
     </div>
-
-    <BaseDialog :show="previewOpen" :title="t('imageWorkbench.view')" width="wide" @close="previewOpen = false">
-      <div v-if="previewTarget" class="space-y-3">
-        <img :src="previewTarget.imageDataUrl" :alt="previewTarget.title" class="w-full rounded-xl" />
-        <p class="text-sm text-gray-600 dark:text-dark-300 whitespace-pre-wrap">{{ previewTarget.prompt }}</p>
-      </div>
-    </BaseDialog>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import Select from '@/components/common/Select.vue'
-import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ImageLibraryPanel from '@/features/image-workflow/ImageLibraryPanel.vue'
 import { keysAPI } from '@/api'
 import * as imageAPI from '@/api/imageWorkbench'
-import { publishImagePlaza } from '@/api/imagePlaza'
-import { getSiteGatewayBase } from '@/api/client'
-import { useAppStore } from '@/stores'
-import type { ApiKey } from '@/types'
-import type { SelectOption } from '@/components/common/Select.vue'
-import { maskApiKey } from '@/utils/maskApiKey'
-import { getDefaultImagePreviewPrice } from '@/views/admin/groupsImagePricing'
+import { archiveAsyncTask, imageLibraryViewURL, importImageFile, importImageURL } from '@/api/imageLibrary'
 import {
-  deleteGalleryImage,
-  downloadDataUrl,
-  listGalleryImages,
-  saveGalleryImage,
-  truncatePrompt,
-  updateGalleryImage,
-  type GalleryImageRecord
-} from '@/utils/imageGalleryStore'
+  removePendingImageArchive,
+  savePendingImageArchive,
+  type PendingImageArchive,
+} from '@/features/image-workflow/archiveRecovery'
+import { deriveWorkbenchAccess, sameCapabilitySnapshot } from '@/features/image-workflow/policy'
+import type { ImageLibraryItem, ImageWorkbenchCapabilities } from '@/features/image-workflow/types'
+import type { ApiKey } from '@/types'
+import { maskApiKey } from '@/utils/maskApiKey'
+import { useAppStore, useAuthStore } from '@/stores'
 
-interface ApiKeySelectOption extends SelectOption {
-  imageEnabled?: boolean
-  subtitle?: string
-  keyId?: number
-}
-
-const MODEL_OPTIONS = ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1'] as const
-const MAX_REFERENCE_IMAGES = 5
-
-interface ReferenceImageItem {
+interface ReferenceImage {
   id: string
   file: File
-  name: string
   previewUrl: string
 }
 
-const SIZE_MAP: Record<string, string> = {
-  '1k_square': '1024x1024',
-  '1k_landscape': '1536x1024',
-  '1k_portrait': '1024x1536',
-  '2k_square': '2048x2048',
-  '2k_landscape': '2048x1152',
-  '2k_portrait': '1152x2048',
-  '4k_square': '4096x4096',
-  '4k_landscape': '4096x2304',
-  '4k_portrait': '2304x4096'
+type ArchiveStatus = 'archiving' | 'archived' | 'failed'
+interface WorkbenchResult {
+  id: string
+  url: string
+  archiveStatus: ArchiveStatus
+  archiveError?: string
+  archiveKey: string
+  taskId?: string
+  resultIndex?: number
+  libraryItem?: ImageLibraryItem
+  recovery?: PendingImageArchive
+}
+
+interface AsyncTaskState {
+  active: boolean
+  taskId: string
+  protocol: 'bb' | 'sc'
+  status: 'queued' | 'processing' | 'succeeded' | 'failed'
+  progress: number
+  error: string
+}
+
+interface PendingSubmission {
+  request: imageAPI.PreparedAsyncSubmission
+  keyId: number
+  capabilityVersion: string
+  capabilities: ImageWorkbenchCapabilities
 }
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
-
+const appStore = useAppStore()
+const authStore = useAuthStore()
 const loadingKeys = ref(false)
+const capabilityLoading = ref(false)
+const capabilityError = ref('')
 const generating = ref(false)
 const apiKeys = ref<ApiKey[]>([])
-const history = ref<GalleryImageRecord[]>([])
-const latestImage = ref<GalleryImageRecord | null>(null)
-const referenceImages = ref<ReferenceImageItem[]>([])
-const fileInputRef = ref<HTMLInputElement | null>(null)
-const previewOpen = ref(false)
-const previewTarget = ref<GalleryImageRecord | null>(null)
-let abortCtrl: AbortController | null = null
+const capabilities = ref<ImageWorkbenchCapabilities | null>(null)
+const referenceImages = ref<ReferenceImage[]>([])
+const results = ref<WorkbenchResult[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+const libraryPanel = ref<InstanceType<typeof ImageLibraryPanel> | null>(null)
+const promptError = ref('')
+const unknownSubmission = ref(false)
+const pendingSubmission = ref<PendingSubmission | null>(null)
+let requestController: AbortController | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const form = reactive({
   apiKeyId: '' as string | number,
-  model: 'gpt-image-2' as string,
+  model: '',
   prompt: '',
-  size: '1k_square',
-  n: '1',
-  quality: 'auto',
-  format: 'png',
-  background: 'auto',
-  style: 'auto',
-  syncPlaza: true
+  size: '',
+  aspectRatio: '',
+  quality: '',
+  count: 1,
+  format: '',
+  background: '',
 })
 
-const gatewayBase = computed(() => getSiteGatewayBase())
-const gatewayEndpointGenerations = computed(() => `${gatewayBase.value}/images/generations`)
-const gatewayEndpointEdits = computed(() => `${gatewayBase.value}/images/edits`)
-
-const sizeOptions = computed<SelectOption[]>(() => [
-  { value: '1k_square', label: t('imageWorkbench.sizes.square1k') },
-  { value: '1k_landscape', label: t('imageWorkbench.sizes.landscape1k') },
-  { value: '1k_portrait', label: t('imageWorkbench.sizes.portrait1k') },
-  { value: '2k_square', label: t('imageWorkbench.sizes.square2k') },
-  { value: '2k_landscape', label: t('imageWorkbench.sizes.landscape2k') },
-  { value: '2k_portrait', label: t('imageWorkbench.sizes.portrait2k') },
-  { value: '4k_square', label: t('imageWorkbench.sizes.square4k') },
-  { value: '4k_landscape', label: t('imageWorkbench.sizes.landscape4k') },
-  { value: '4k_portrait', label: t('imageWorkbench.sizes.portrait4k') }
-])
-
-const countOptions: SelectOption[] = [
-  { value: '1', label: '1' },
-  { value: '2', label: '2' },
-  { value: '3', label: '3' },
-  { value: '4', label: '4' }
-]
-
-const qualityOptions = computed<SelectOption[]>(() => [
-  { value: 'auto', label: t('imageWorkbench.auto') },
-  { value: 'high', label: t('imageWorkbench.qualityHigh') },
-  { value: 'medium', label: t('imageWorkbench.qualityMedium') },
-  { value: 'low', label: t('imageWorkbench.qualityLow') }
-])
-
-const formatOptions: SelectOption[] = [
-  { value: 'png', label: 'PNG' },
-  { value: 'jpeg', label: 'JPEG' },
-  { value: 'webp', label: 'WEBP' }
-]
-
-const backgroundOptions = computed<SelectOption[]>(() => [
-  { value: 'auto', label: t('imageWorkbench.auto') },
-  { value: 'transparent', label: t('imageWorkbench.backgroundTransparent') },
-  { value: 'opaque', label: t('imageWorkbench.backgroundOpaque') }
-])
-
-const styleOptions = computed<SelectOption[]>(() => [
-  { value: 'auto', label: t('imageWorkbench.auto') },
-  { value: 'vivid', label: t('imageWorkbench.styleVivid') },
-  { value: 'natural', label: t('imageWorkbench.styleNatural') }
-])
-
-function keyAllowsImage(key: ApiKey): boolean {
-  return key.status === 'active' && key.group?.allow_image_generation === true
-}
-
-function keySubtitle(key: ApiKey): string {
-  const groupName = key.group?.name || t('imageWorkbench.ungrouped')
-  const platform = key.group?.platform || '—'
-  return `${groupName} · ${platform}`
-}
-
-function keyOptionLabel(key: ApiKey): string {
-  return `${key.name} ${maskApiKey(key.key)}`
-}
-
-const imageCapableKeys = computed(() => apiKeys.value.filter(keyAllowsImage))
-
-const apiKeyOptions = computed<ApiKeySelectOption[]>(() => {
-  if (!apiKeys.value.length) {
-    return [{ value: '', label: t('imageWorkbench.noKeys'), disabled: true }]
-  }
-  // Image-capable keys first, then disabled others
-  const sorted = [...apiKeys.value].sort((a, b) => {
-    const ae = keyAllowsImage(a) ? 0 : 1
-    const be = keyAllowsImage(b) ? 0 : 1
-    if (ae !== be) return ae - be
-    return b.id - a.id
-  })
-  return sorted.map((key) => {
-    const imageEnabled = keyAllowsImage(key)
-    return {
-      value: String(key.id),
-      label: keyOptionLabel(key),
-      subtitle: keySubtitle(key),
-      imageEnabled,
-      disabled: !imageEnabled,
-      keyId: key.id
-    }
-  })
+const asyncTask = reactive<AsyncTaskState>({
+  active: false,
+  taskId: '',
+  protocol: 'bb',
+  status: 'queued',
+  progress: 0,
+  error: '',
 })
 
-const selectedKey = computed(() => {
-  const id = Number(form.apiKeyId || 0)
-  return apiKeys.value.find((k) => k.id === id) || null
+const workbenchKeys = computed(() => apiKeys.value.filter((key) => deriveWorkbenchAccess(key).supported))
+const selectedKey = computed(() => apiKeys.value.find((key) => String(key.id) === String(form.apiKeyId)) || null)
+const keyOptions = computed<SelectOption[]>(() => workbenchKeys.value.map((key) => ({
+  value: String(key.id),
+  label: `${key.name} ${maskApiKey(key.key)}`,
+  subtitle: `${key.group?.name || t('imageWorkbench.ungrouped')} · ${key.group?.platform || '—'} · ${deriveWorkbenchAccess(key).mode === 'async' ? t('imageWorkflow.mode.async') : t('imageWorkflow.mode.realtime')}`,
+})))
+const isGemini = computed(() => capabilities.value?.platform === 'gemini')
+const isAsyncMode = computed(() => capabilities.value?.execution_mode === 'async')
+const modelOptions = computed(() => capabilities.value?.models || [])
+const maxReferences = computed(() => Math.max(0, Number(capabilities.value?.max_reference_images || 0)))
+const sizeOptions = computed(() => {
+  if (!capabilities.value) return []
+  return isGemini.value ? capabilities.value.resolutions : capabilities.value.sizes
 })
-
-const selectedKeyAllowsImage = computed(() => !!selectedKey.value && keyAllowsImage(selectedKey.value))
-
-const rateMultiplierLabel = computed(() => {
-  const group = selectedKey.value?.group
-  if (!group) return '1.00x'
-  const rate =
-    group.image_rate_independent && group.image_rate_multiplier > 0
-      ? group.image_rate_multiplier
-      : group.rate_multiplier || 1
-  return `${Number(rate).toFixed(2)}x`
+const aspectRatioOptions = computed(() => {
+  const options = capabilities.value?.aspect_ratios || []
+  return referenceImages.value.length ? options : options.filter((item) => item !== 'auto')
 })
-
-const price2kAmount = computed(() => {
-  const group = selectedKey.value?.group
-  if (!group) return null
-  if (group.image_price_2k != null && Number.isFinite(Number(group.image_price_2k))) {
-    return Number(group.image_price_2k)
-  }
-  return getDefaultImagePreviewPrice(group.platform || 'openai', 'image_price_2k')
+const qualityOptions = computed(() => capabilities.value?.qualities || [])
+const formatOptions = computed(() => capabilities.value?.output_formats || [])
+const backgroundOptions = computed(() => capabilities.value?.backgrounds || [])
+const countOptions = computed(() => Array.from({ length: Math.max(1, capabilities.value?.max_images || 1) }, (_, index) => index + 1))
+const showBackground = computed(() => !isGemini.value && backgroundOptions.value.length > 0)
+const platformLabel = computed(() => {
+  const platform = capabilities.value?.platform || selectedKey.value?.group?.platform || ''
+  return platform === 'openai' ? 'OpenAI' : platform === 'gemini' ? 'Gemini' : platform === 'grok' ? 'Grok' : '—'
 })
-
-const price2kValue = computed(() => {
-  const amount = price2kAmount.value
-  if (amount == null) return '—'
-  return `$${amount.toFixed(3)}`
+const modeLabel = computed(() => isAsyncMode.value ? t('imageWorkflow.mode.async') : t('imageWorkflow.mode.realtime'))
+const protocolLabel = computed(() => {
+  if (!capabilities.value) return ''
+  if (capabilities.value.platform === 'gemini') return isAsyncMode.value ? 'Gemini SC' : 'Gemini Native'
+  if (capabilities.value.platform === 'openai') return isAsyncMode.value ? 'OpenAI Async' : 'OpenAI Images'
+  return 'Grok Images'
 })
-
-const price2kLabel = computed(() => {
-  const amount = price2kAmount.value
-  if (amount == null) return ''
-  return `2K ${price2kValue.value}`
+const canGenerate = computed(() => Boolean(
+  selectedKey.value?.key
+  && capabilities.value
+  && form.model
+  && form.prompt.trim()
+  && !generating.value
+  && !asyncTask.active
+  && !capabilityLoading.value,
+))
+const generateButtonLabel = computed(() => {
+  if (generating.value) return isAsyncMode.value ? t('imageWorkflow.workbench.submittingTask') : t('imageWorkbench.generating')
+  return isAsyncMode.value ? t('imageWorkflow.workbench.submitAsync') : t('imageWorkflow.workbench.generateRealtime')
 })
-
-const canGenerate = computed(
-  () =>
-    !!selectedKey.value?.key &&
-    selectedKeyAllowsImage.value &&
-    !!form.prompt.trim() &&
-    !generating.value
-)
-
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleString()
-}
+const taskStatusLabel = computed(() => t(`imageWorkflow.task.${asyncTask.status}`))
+const resultSummary = computed(() => results.value.length
+  ? t('imageWorkflow.workbench.resultCount', { count: results.value.length })
+  : t('imageWorkflow.workbench.noResult'))
+const taskStages = computed(() => {
+  const failed = asyncTask.status === 'failed'
+  const rank = asyncTask.status === 'queued' ? 0 : asyncTask.status === 'processing' ? 1 : asyncTask.status === 'succeeded' ? 2 : 1
+  return [
+    { key: 'queued', label: t('imageWorkflow.task.queued'), state: rank > 0 ? 'done' : failed ? 'failed' : 'active' },
+    { key: 'processing', label: t('imageWorkflow.task.processing'), state: failed ? 'failed' : rank > 1 ? 'done' : rank === 1 ? 'active' : 'idle' },
+    { key: 'succeeded', label: t('imageWorkflow.task.succeeded'), state: rank >= 2 ? 'done' : 'idle' },
+  ]
+})
 
 async function loadKeys() {
   loadingKeys.value = true
   try {
-    const res = await keysAPI.list(1, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
-    apiKeys.value = res.items || []
-    const currentOk =
-      form.apiKeyId && imageCapableKeys.value.some((k) => String(k.id) === String(form.apiKeyId))
-    if (!currentOk) {
-      form.apiKeyId = imageCapableKeys.value.length ? String(imageCapableKeys.value[0].id) : ''
+    const response = await keysAPI.list(1, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
+    apiKeys.value = response.items || []
+    if (!workbenchKeys.value.some((key) => String(key.id) === String(form.apiKeyId))) {
+      form.apiKeyId = workbenchKeys.value[0] ? String(workbenchKeys.value[0].id) : ''
     }
-  } catch (error: any) {
-    appStore.showError(error?.message || t('imageWorkbench.loadKeysFailed'))
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkbench.loadKeysFailed'))
   } finally {
     loadingKeys.value = false
   }
 }
 
-async function loadHistory() {
-  history.value = await listGalleryImages()
-  if (!latestImage.value && history.value.length) {
-    latestImage.value = history.value[0]
+async function loadCapabilities(key: ApiKey, quiet = false) {
+  if (!quiet) capabilityLoading.value = true
+  capabilityError.value = ''
+  try {
+    const next = await imageAPI.getCapabilities(key.id, key)
+    capabilities.value = next
+    applyCapabilityDefaults(next)
+    return next
+  } catch (cause: any) {
+    if (!quiet) capabilities.value = null
+    capabilityError.value = cause?.message || t('imageWorkflow.workbench.capabilityFailed')
+    throw cause
+  } finally {
+    if (!quiet) capabilityLoading.value = false
   }
+}
+
+function applyCapabilityDefaults(next: ImageWorkbenchCapabilities) {
+  const modelIDs = next.models.map((model) => model.id)
+  if (!modelIDs.includes(form.model)) form.model = modelIDs[0] || ''
+  const sizes = next.platform === 'gemini' ? next.resolutions : next.sizes
+  if (!sizes.includes(form.size)) form.size = sizes[0] || ''
+  const ratios = next.aspect_ratios.filter((ratio) => ratio !== 'auto' || referenceImages.value.length > 0)
+  if (!ratios.includes(form.aspectRatio)) form.aspectRatio = ratios[0] || ''
+  if (!next.qualities.includes(form.quality)) form.quality = next.qualities[0] || ''
+  if (!next.output_formats.includes(form.format)) form.format = next.output_formats[0] || ''
+  if (!next.backgrounds.includes(form.background)) form.background = next.backgrounds[0] || ''
+  form.count = Math.min(Math.max(1, form.count), Math.max(1, next.max_images || 1))
+  if (!next.supports_reference_images) clearReferences()
 }
 
 async function refreshAll() {
-  await Promise.all([loadKeys(), loadHistory()])
-}
-
-function truncateFileName(name: string, max = 14): string {
-  const text = (name || '').trim()
-  if (text.length <= max) return text
-  const extIdx = text.lastIndexOf('.')
-  if (extIdx > 0 && text.length - extIdx <= 5) {
-    const ext = text.slice(extIdx)
-    const keep = Math.max(4, max - ext.length - 1)
-    return `${text.slice(0, keep)}…${ext}`
-  }
-  return `${text.slice(0, max - 1)}…`
-}
-
-function readFileAsDataURL(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(reader.error || new Error('Failed to read image'))
-    reader.readAsDataURL(file)
-  })
-}
-
-async function cloneImageFile(file: File): Promise<File> {
-  const buffer = await file.arrayBuffer()
-  const type = file.type || 'image/png'
-  return new File([buffer], file.name || 'image.png', {
-    type,
-    lastModified: file.lastModified || Date.now()
-  })
-}
-
-async function onReferenceChange(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = Array.from(input.files || [])
-  // Clear immediately so the same file can be re-selected; cloned copies keep previews alive.
-  input.value = ''
-  if (!files.length) return
-
-  const room = MAX_REFERENCE_IMAGES - referenceImages.value.length
-  if (room <= 0) {
-    appStore.showError(t('imageWorkbench.referenceLimit', { n: MAX_REFERENCE_IMAGES }))
-    return
-  }
-
-  const slice = files.slice(0, room)
-  const accepted: ReferenceImageItem[] = []
-
-  try {
-    for (const file of slice) {
-      const mime = file.type || ''
-      const okType =
-        ['image/png', 'image/jpeg', 'image/webp'].includes(mime) ||
-        /\.(png|jpe?g|webp)$/i.test(file.name || '')
-      if (!okType) {
-        appStore.showError(t('imageWorkbench.invalidImage'))
-        continue
-      }
-
-      const cloned = await cloneImageFile(file)
-      const previewUrl = await readFileAsDataURL(cloned)
-      if (!previewUrl.startsWith('data:image/')) {
-        appStore.showError(t('imageWorkbench.invalidImage'))
-        continue
-      }
-
-      accepted.push({
-        id: `ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        file: cloned,
-        name: cloned.name || 'image.png',
-        previewUrl
-      })
-    }
-  } catch {
-    appStore.showError(t('imageWorkbench.invalidImage'))
-    return
-  }
-
-  if (accepted.length) {
-    referenceImages.value = [...referenceImages.value, ...accepted]
-  }
-  if (files.length > room) {
-    appStore.showError(t('imageWorkbench.referenceLimit', { n: MAX_REFERENCE_IMAGES }))
-  }
-}
-
-function removeReference(id: string) {
-  referenceImages.value = referenceImages.value.filter((item) => item.id !== id)
-}
-
-function clearReference() {
-  referenceImages.value = []
-  if (fileInputRef.value) fileInputRef.value.value = ''
+  await loadKeys()
+  if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
+  await libraryPanel.value?.refresh()
 }
 
 function resetForm() {
-  form.model = 'gpt-image-2'
   form.prompt = ''
-  form.size = '1k_square'
-  form.n = '1'
-  form.quality = 'auto'
-  form.format = 'png'
-  form.background = 'auto'
-  form.style = 'auto'
-  form.syncPlaza = true
-  clearReference()
+  promptError.value = ''
+  if (capabilities.value) applyCapabilityDefaults(capabilities.value)
+  clearReferences()
 }
 
-function selectHistory(item: GalleryImageRecord) {
-  latestImage.value = item
+async function onReferenceChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  const room = maxReferences.value - referenceImages.value.length
+  for (const file of files.slice(0, room)) {
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+      appStore.showError(t('imageWorkflow.workbench.invalidReference'))
+      continue
+    }
+    referenceImages.value.push({ id: randomID('ref'), file, previewUrl: URL.createObjectURL(file) })
+  }
+  if (files.length > room) appStore.showError(t('imageWorkbench.referenceLimit', { n: maxReferences.value }))
+  if (form.aspectRatio === 'auto' && !referenceImages.value.length) form.aspectRatio = aspectRatioOptions.value[0] || ''
 }
 
-function openPreview(item: GalleryImageRecord) {
-  previewTarget.value = item
-  previewOpen.value = true
+function removeReference(id: string) {
+  const target = referenceImages.value.find((item) => item.id === id)
+  if (target) URL.revokeObjectURL(target.previewUrl)
+  referenceImages.value = referenceImages.value.filter((item) => item.id !== id)
+  if (!referenceImages.value.length && form.aspectRatio === 'auto') form.aspectRatio = aspectRatioOptions.value[0] || ''
 }
 
-function downloadImage(item: GalleryImageRecord) {
-  const ext = item.format === 'jpeg' ? 'jpg' : item.format || 'png'
-  downloadDataUrl(item.imageDataUrl, `sub2api-${item.id}.${ext}`)
-}
-
-async function togglePublic(item: GalleryImageRecord) {
-  const next = await updateGalleryImage(item.id, { public: !item.public })
-  if (!next) return
-  await loadHistory()
-  if (latestImage.value?.id === item.id) latestImage.value = next
-  appStore.showSuccess(next.public ? t('imageWorkbench.published') : t('imageWorkbench.unpublished'))
-}
-
-async function removeHistory(item: GalleryImageRecord) {
-  await deleteGalleryImage(item.id)
-  if (latestImage.value?.id === item.id) latestImage.value = null
-  await loadHistory()
-}
-
-function reuseRecord(item: GalleryImageRecord) {
-  form.model = item.model
-  form.prompt = item.prompt
-  form.quality = item.quality || 'auto'
-  form.format = item.format || 'png'
-  form.n = String(item.n || 1)
-  form.background = item.background || item.sampling || 'auto'
-  form.style = item.style || 'auto'
-  const sizeKey = Object.entries(SIZE_MAP).find(([, v]) => v === item.size)?.[0]
-  if (sizeKey) form.size = sizeKey
-  appStore.showSuccess(t('imageWorkbench.reused'))
+function clearReferences() {
+  referenceImages.value.forEach((item) => URL.revokeObjectURL(item.previewUrl))
+  referenceImages.value = []
+  if (fileInput.value) fileInput.value.value = ''
+  if (form.aspectRatio === 'auto') {
+    form.aspectRatio = (capabilities.value?.aspect_ratios || []).find((ratio) => ratio !== 'auto') || ''
+  }
 }
 
 async function startGenerate() {
   const key = selectedKey.value
-  if (!key?.key || !form.prompt.trim() || !keyAllowsImage(key)) {
-    if (key && !keyAllowsImage(key)) {
-      appStore.showError(t('imageWorkbench.keyNotAllowImage'))
-    }
+  const snapshot = capabilities.value
+  promptError.value = ''
+  if (!key || !snapshot) return
+  if (!form.prompt.trim()) {
+    promptError.value = t('imageWorkflow.workbench.promptRequired')
     return
   }
 
   generating.value = true
-  abortCtrl?.abort()
-  abortCtrl = new AbortController()
-
+  requestController?.abort()
+  requestController = new AbortController()
   try {
-    const size = SIZE_MAP[form.size] || '1024x1024'
-    const n = Math.min(4, Math.max(1, Number(form.n) || 1))
-    const res = referenceImages.value.length
-      ? await imageAPI.editImage(
-          key.key,
-          {
-            model: form.model,
-            prompt: form.prompt.trim(),
-            imageFiles: referenceImages.value.map((item) => item.file),
-            n,
-            size,
-            quality: form.quality,
-            background: form.background,
-            style: form.style,
-            response_format: 'b64_json'
-          },
-          abortCtrl.signal
-        )
-      : await imageAPI.generateImage(
-          key.key,
-          {
-            model: form.model,
-            prompt: form.prompt.trim(),
-            n,
-            size,
-            quality: form.quality,
-            response_format: 'b64_json',
-            output_format: form.format,
-            background: form.background,
-            style: form.style
-          },
-          abortCtrl.signal
-        )
-
-    const items = res?.data || []
-    if (!items.length) throw new Error(t('imageWorkbench.emptyResult'))
-
-    let last: GalleryImageRecord | null = null
-    for (const item of items) {
-      const dataUrl = imageAPI.resultToDataUrl(item, form.format)
-      if (!dataUrl) continue
-      last = await saveGalleryImage({
-        prompt: form.prompt.trim(),
-        title: truncatePrompt(form.prompt.trim()),
-        model: form.model,
-        size,
-        quality: form.quality,
-        format: form.format,
-        n,
-        background: form.background,
-        style: form.style,
-        apiKeyId: key.id,
-        apiKeyName: key.name,
-        imageDataUrl: dataUrl,
-        public: form.syncPlaza,
-        source: 'workbench'
-      })
-
-      if (form.syncPlaza) {
-        try {
-          await publishImagePlaza({
-            prompt: form.prompt.trim(),
-            title: truncatePrompt(form.prompt.trim()),
-            model: form.model,
-            size,
-            quality: form.quality,
-            format: form.format,
-            background: form.background,
-            style: form.style,
-            image: dataUrl
-          })
-        } catch (publishErr: any) {
-          appStore.showError(publishErr?.message || t('imageWorkbench.publishFailed'))
-        }
-      }
+    const fresh = await loadCapabilities(key, true)
+    if (!sameCapabilitySnapshot(snapshot, fresh)) {
+      capabilities.value = fresh
+      applyCapabilityDefaults(fresh)
+      appStore.showError(t('imageWorkflow.workbench.capabilityChanged'))
+      return
     }
 
-    await loadHistory()
-    if (last) latestImage.value = last
-    appStore.showSuccess(t('imageWorkbench.generateSuccess'))
-  } catch (error: any) {
-    if (error?.name === 'AbortError') return
-    appStore.showError(error?.message || t('imageWorkbench.generateFailed'))
+    results.value = []
+    if (fresh.execution_mode === 'async') await submitAsync(key, fresh)
+    else await runRealtime(key, fresh)
+  } catch (cause: any) {
+    if (cause?.name === 'AbortError') return
+    appStore.showError(cause?.message || t('imageWorkbench.generateFailed'))
   } finally {
     generating.value = false
   }
 }
 
-function applyQueryPrefill() {
-  const q = route.query
-  if (typeof q.prompt === 'string' && q.prompt) form.prompt = q.prompt
-  if (typeof q.model === 'string' && MODEL_OPTIONS.includes(q.model as any)) form.model = q.model
-  if (typeof q.size === 'string' && SIZE_MAP[q.size]) form.size = q.size
+async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
+  let response: imageAPI.ImageGenerateResponse
+  if (current.platform === 'gemini') {
+    const references = await Promise.all(referenceImages.value.map(async ({ file }) => ({
+      mimeType: file.type,
+      base64: await fileToBase64(file),
+    })))
+    response = await imageAPI.generateGeminiImage(key.key, {
+      model: form.model,
+      prompt: form.prompt.trim(),
+      resolution: selectedCapabilityOption(sizeOptions.value, form.size),
+      aspect_ratio: selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio),
+      references,
+    }, requestController?.signal)
+  } else if (referenceImages.value.length) {
+    response = await imageAPI.editImage(key.key, {
+      model: form.model,
+      prompt: form.prompt.trim(),
+      imageFiles: referenceImages.value.map((item) => item.file),
+      n: form.count,
+      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      quality: selectedCapabilityOption(qualityOptions.value, form.quality),
+      response_format: 'b64_json',
+      output_format: selectedCapabilityOption(formatOptions.value, form.format),
+      background: showBackground.value ? selectedCapabilityOption(backgroundOptions.value, form.background) : undefined,
+    }, requestController?.signal)
+  } else {
+    response = await imageAPI.generateImage(key.key, {
+      model: form.model,
+      prompt: form.prompt.trim(),
+      n: form.count,
+      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      quality: selectedCapabilityOption(qualityOptions.value, form.quality),
+      response_format: 'b64_json',
+      output_format: selectedCapabilityOption(formatOptions.value, form.format),
+      background: showBackground.value ? selectedCapabilityOption(backgroundOptions.value, form.background) : undefined,
+    }, requestController?.signal)
+  }
+
+  if (!response.data?.length) throw new Error(t('imageWorkbench.emptyResult'))
+  const operationKey = imageAPI.createImageIdempotencyKey()
+  results.value = response.data
+    .map((item, index): WorkbenchResult | null => {
+      const url = imageAPI.resultToDataUrl(item, item.output_format || form.format || 'png')
+      return url ? { id: randomID('result'), url, archiveStatus: 'archiving', archiveKey: `${operationKey}-${index}` } : null
+    })
+    .filter((item): item is WorkbenchResult => item !== null)
+  await Promise.allSettled(results.value.map((result) => archiveResult(result, current)))
+  appStore.showSuccess(t('imageWorkbench.generateSuccess'))
 }
 
-async function getAndReuse(id: string) {
-  const { getGalleryImage } = await import('@/utils/imageGalleryStore')
-  const item = await getGalleryImage(id)
-  if (item) reuseRecord(item)
+async function submitAsync(key: ApiKey, current: ImageWorkbenchCapabilities) {
+  const idempotencyKey = imageAPI.createImageIdempotencyKey()
+  let prepared: imageAPI.PreparedAsyncSubmission
+  if (current.platform === 'gemini') {
+    const uploadedURLs: string[] = []
+    for (const reference of referenceImages.value) {
+      uploadedURLs.push(await imageAPI.uploadGeminiReference(key.key, reference.file, requestController?.signal))
+    }
+    prepared = imageAPI.prepareGeminiAsyncSubmission(key.key, {
+      model: form.model,
+      prompt: form.prompt.trim(),
+      resolution: selectedCapabilityOption(sizeOptions.value, form.size),
+      aspect_ratio: selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio),
+      image_urls: uploadedURLs,
+    }, idempotencyKey)
+  } else {
+    prepared = await imageAPI.prepareOpenAIAsyncSubmission(key.key, {
+      model: form.model,
+      prompt: form.prompt.trim(),
+      imageFiles: referenceImages.value.map((item) => item.file),
+      n: form.count,
+      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      quality: selectedCapabilityOption(qualityOptions.value, form.quality),
+      output_format: selectedCapabilityOption(formatOptions.value, form.format),
+      background: showBackground.value ? selectedCapabilityOption(backgroundOptions.value, form.background) : undefined,
+    }, idempotencyKey)
+  }
+
+  pendingSubmission.value = {
+    request: prepared,
+    keyId: key.id,
+    capabilityVersion: current.capability_version,
+    capabilities: current,
+  }
+  let submission: imageAPI.AsyncImageSubmission
+  try {
+    submission = await prepared.send(requestController?.signal)
+  } catch (cause: any) {
+    const status = Number(cause?.status || 0)
+    if (!status || status === 408 || status >= 500) unknownSubmission.value = true
+    else pendingSubmission.value = null
+    throw cause
+  }
+
+  unknownSubmission.value = false
+  pendingSubmission.value = null
+  beginAsyncTask(submission, key, current)
 }
+
+function beginAsyncTask(submission: imageAPI.AsyncImageSubmission, key: ApiKey, current: ImageWorkbenchCapabilities) {
+
+  Object.assign(asyncTask, {
+    active: true,
+    taskId: submission.task_id,
+    protocol: submission.protocol,
+    status: 'queued',
+    progress: 0,
+    error: '',
+  })
+  appStore.showSuccess(t('imageWorkflow.workbench.taskSubmitted'))
+  schedulePoll(key, current)
+}
+
+async function retryUnknownSubmission() {
+  const pending = pendingSubmission.value
+  const key = selectedKey.value
+  if (!pending || !key || key.id !== pending.keyId || capabilities.value?.capability_version !== pending.capabilityVersion) {
+    appStore.showError(t('imageWorkflow.workbench.retryContextChanged'))
+    return
+  }
+  generating.value = true
+  try {
+    const submission = await pending.request.send()
+    unknownSubmission.value = false
+    pendingSubmission.value = null
+    beginAsyncTask(submission, key, pending.capabilities)
+  } catch (cause: any) {
+    const status = Number(cause?.status || 0)
+    if (status && status !== 408 && status < 500) {
+      unknownSubmission.value = false
+      pendingSubmission.value = null
+    }
+    appStore.showError(cause?.message || t('imageWorkflow.workbench.pollFailed'))
+  } finally {
+    generating.value = false
+  }
+}
+
+function schedulePoll(key: ApiKey, current: ImageWorkbenchCapabilities, delay = 1200) {
+  clearPollTimer()
+  pollTimer = setTimeout(() => void pollTask(key, current), delay)
+}
+
+async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
+  if (!asyncTask.active || !asyncTask.taskId) return
+  try {
+    const state = await imageAPI.pollAsyncImage(key.key, asyncTask.taskId, asyncTask.protocol)
+    asyncTask.status = state.status
+    asyncTask.progress = Math.max(0, Math.min(100, state.progress))
+    if (state.status === 'succeeded') {
+      asyncTask.active = false
+      asyncTask.progress = 100
+      const operationKey = imageAPI.createImageIdempotencyKey()
+      results.value = state.images.map((image, index) => ({
+        id: randomID('result'),
+        url: image.url,
+        archiveStatus: 'archiving',
+        archiveKey: `${operationKey}-${index}`,
+        taskId: asyncTask.taskId,
+        resultIndex: index,
+      }))
+      await Promise.allSettled(results.value.map(async (result) => {
+        result.recovery = buildTaskRecovery(result)
+        if (result.recovery) await savePendingImageArchive(result.recovery)
+      }))
+      try {
+        const archived = await archiveAsyncTask(asyncTask.taskId, state.images.map((_, index) => index))
+        results.value.forEach((result, index) => {
+          result.archiveStatus = 'archived'
+          result.libraryItem = archived[index]
+        })
+        await libraryPanel.value?.refresh()
+      } catch (cause: any) {
+        await Promise.allSettled(results.value.map(async (result) => {
+          result.archiveStatus = 'failed'
+          result.archiveError = cause?.message
+          result.recovery = buildTaskRecovery(result, result.archiveError)
+          if (result.recovery) await savePendingImageArchive(result.recovery)
+        }))
+      }
+      appStore.showSuccess(t('imageWorkflow.workbench.taskCompleted'))
+      return
+    }
+    if (state.status === 'failed') {
+      asyncTask.active = false
+      asyncTask.error = state.fail_reason || t('imageWorkflow.workbench.taskFailed')
+      return
+    }
+    schedulePoll(key, current, 2500)
+  } catch (cause: any) {
+    asyncTask.error = cause?.message || t('imageWorkflow.workbench.pollFailed')
+    // A query failure never changes execution mode or resubmits the model request.
+    schedulePoll(key, current, 5000)
+  }
+}
+
+async function archiveResult(result: WorkbenchResult, current = capabilities.value) {
+  if (!current || !selectedKey.value) return
+  result.archiveStatus = 'archiving'
+  result.archiveError = ''
+  const metadata = {
+    api_key_id: selectedKey.value.id,
+    group_id: selectedKey.value.group_id,
+    platform: current.platform,
+    execution_mode: current.execution_mode,
+    source: 'realtime_import',
+    model: form.model,
+    prompt: form.prompt.trim(),
+    title: truncateTitle(form.prompt),
+    requested_size: selectedCapabilityOption(sizeOptions.value, form.size),
+    aspect_ratio: isGemini.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+    quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
+    output_format: selectedCapabilityOption(formatOptions.value, form.format),
+    visibility: 'private',
+  }
+  const file = result.url.startsWith('data:')
+    ? dataURLToFile(result.url, `result.${form.format || 'image'}`)
+    : undefined
+  result.recovery = buildRealtimeRecovery(result, metadata, file)
+  if (result.recovery) await savePendingImageArchive(result.recovery).catch(() => undefined)
+  try {
+    result.libraryItem = file
+      ? await importImageFile(file, metadata, result.archiveKey)
+      : await importImageURL(result.url, metadata, result.archiveKey)
+    result.archiveStatus = 'archived'
+    result.recovery = undefined
+    await removePendingImageArchive(result.archiveKey).catch(() => undefined)
+    await libraryPanel.value?.refresh()
+  } catch (cause: any) {
+    result.archiveStatus = 'failed'
+    result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
+    if (result.recovery) {
+      result.recovery = { ...result.recovery, errorMessage: result.archiveError }
+      await savePendingImageArchive(result.recovery).catch(() => undefined)
+    }
+  }
+}
+
+async function retryArchive(result: WorkbenchResult) {
+  if (!result.recovery && !result.taskId) {
+    await archiveResult(result)
+    return
+  }
+  result.archiveStatus = 'archiving'
+  try {
+    if (result.recovery?.kind === 'file') {
+      if (!result.recovery.file) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
+      const file = result.recovery.file instanceof File
+        ? result.recovery.file
+        : new File([result.recovery.file], result.recovery.fileName || 'recovered-image', { type: result.recovery.file.type })
+      result.libraryItem = await importImageFile(file, result.recovery.metadata || {}, result.recovery.id)
+    } else if (result.recovery?.kind === 'url') {
+      if (!result.recovery.remoteUrl) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
+      result.libraryItem = await importImageURL(result.recovery.remoteUrl, result.recovery.metadata || {}, result.recovery.id)
+    } else {
+      const taskId = result.recovery?.taskId || result.taskId
+      const resultIndex = result.recovery?.resultIndex ?? result.resultIndex
+      if (!taskId) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
+      const archived = await archiveAsyncTask(taskId, resultIndex == null ? undefined : [resultIndex])
+      result.libraryItem = archived[0]
+    }
+    result.archiveStatus = 'archived'
+    result.archiveError = ''
+    result.recovery = undefined
+    await removePendingImageArchive(result.archiveKey).catch(() => undefined)
+    await libraryPanel.value?.refresh()
+  } catch (cause: any) {
+    result.archiveStatus = 'failed'
+    result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
+    if (result.recovery) {
+      result.recovery = { ...result.recovery, errorMessage: result.archiveError }
+      await savePendingImageArchive(result.recovery).catch(() => undefined)
+    }
+  }
+}
+
+function buildRealtimeRecovery(result: WorkbenchResult, metadata: Record<string, unknown>, file?: File): PendingImageArchive | undefined {
+  const userId = Number(authStore.user?.id || 0)
+  if (userId <= 0) return undefined
+  return {
+    id: result.archiveKey,
+    userId,
+    kind: file ? 'file' : 'url',
+    title: String(metadata.title || t('imageWorkflow.library.untitled')),
+    file,
+    fileName: file?.name,
+    remoteUrl: file ? undefined : result.url,
+    previewUrl: file ? undefined : result.url,
+    metadata,
+    errorMessage: result.archiveError,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+  }
+}
+
+function buildTaskRecovery(result: WorkbenchResult, errorMessage?: string): PendingImageArchive | undefined {
+  const userId = Number(authStore.user?.id || 0)
+  if (userId <= 0 || !result.taskId) return undefined
+  return {
+    id: result.archiveKey,
+    userId,
+    kind: 'task',
+    title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
+    taskId: result.taskId,
+    resultIndex: result.resultIndex,
+    previewUrl: result.url,
+    errorMessage,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+  }
+}
+
+function archiveStatusLabel(status: ArchiveStatus) {
+  return t(`imageWorkflow.archive.${status}`)
+}
+
+function reuseLibraryItem(item: ImageLibraryItem) {
+  form.prompt = item.prompt || ''
+  if (modelOptions.value.some((model) => model.id === item.model)) form.model = item.model
+  if (item.requested_size && sizeOptions.value.includes(item.requested_size)) form.size = item.requested_size
+  if (item.aspect_ratio && aspectRatioOptions.value.includes(item.aspect_ratio)) form.aspectRatio = item.aspect_ratio
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function viewLibraryItem(item: ImageLibraryItem) {
+  window.open(imageLibraryViewURL(item), '_blank', 'noopener,noreferrer')
+}
+
+async function copyTaskId() {
+  try {
+    await navigator.clipboard.writeText(asyncTask.taskId)
+    appStore.showSuccess(t('common.copied'))
+  } catch {
+    appStore.showError(t('common.copyFailed'))
+  }
+}
+
+function clearPollTimer() {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+function randomID(prefix: string) {
+  return `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`}`
+}
+
+function selectedCapabilityOption(options: string[], value: string): string | undefined {
+  return options.includes(value) ? value : undefined
+}
+
+function truncateTitle(value: string) {
+  const normalized = value.trim().replace(/\s+/g, ' ')
+  return normalized.length > 80 ? `${normalized.slice(0, 79)}…` : normalized
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '')
+    reader.onerror = () => reject(reader.error || new Error('Failed to read image'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function dataURLToFile(dataURL: string, filename: string): File {
+  const [header, payload] = dataURL.split(',', 2)
+  const mime = /data:([^;]+)/.exec(header)?.[1] || 'image/png'
+  const bytes = Uint8Array.from(atob(payload || ''), (char) => char.charCodeAt(0))
+  return new File([bytes], filename, { type: mime })
+}
+
+watch(() => form.apiKeyId, async () => {
+  clearPollTimer()
+  asyncTask.active = false
+  asyncTask.taskId = ''
+  results.value = []
+  unknownSubmission.value = false
+  pendingSubmission.value = null
+  clearReferences()
+  if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
+  else capabilities.value = null
+})
+
+watch(aspectRatioOptions, (options) => {
+  if (isGemini.value && !options.includes(form.aspectRatio)) form.aspectRatio = options[0] || '1:1'
+})
 
 onMounted(async () => {
-  await refreshAll()
-  applyQueryPrefill()
-  if (typeof route.query.reuse === 'string' && route.query.reuse) {
-    await getAndReuse(route.query.reuse)
-  }
-  if (Object.keys(route.query).length) {
-    router.replace({ path: route.path, query: {} })
-  }
+  await loadKeys()
+  if (selectedKey.value && !capabilities.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
+  if (typeof route.query.prompt === 'string') form.prompt = route.query.prompt
+  if (typeof route.query.model === 'string' && modelOptions.value.some((model) => model.id === route.query.model)) form.model = route.query.model
+  if (typeof route.query.size === 'string' && sizeOptions.value.includes(route.query.size)) form.size = route.query.size
+  if (Object.keys(route.query).length) await nextTick(() => router.replace({ path: route.path }))
 })
 
 onUnmounted(() => {
-  clearReference()
-  abortCtrl?.abort()
+  requestController?.abort()
+  clearPollTimer()
+  clearReferences()
 })
 </script>
 
 <style scoped>
-.img-lab {
-  --lab-cyan: #14b8a6;
-  --lab-line: color-mix(in srgb, var(--lab-cyan) 28%, transparent);
-  font-family: 'Sora', ui-sans-serif, system-ui, sans-serif;
-}
-
-.img-lab-hero {
-  position: relative;
-  overflow: hidden;
-  padding: 1.1rem 1.25rem;
-  border: 1px solid var(--lab-line);
-  background:
-    radial-gradient(900px 180px at 10% -40%, rgba(20, 184, 166, 0.18), transparent 60%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.04), transparent);
-}
-
-.dark .img-lab-hero {
-  background:
-    radial-gradient(900px 180px at 10% -40%, rgba(20, 184, 166, 0.22), transparent 60%),
-    linear-gradient(180deg, rgba(2, 6, 23, 0.55), rgba(15, 23, 42, 0.2));
-}
-
-.img-lab-hero__glow {
-  position: absolute;
-  inset: auto -10% -60% auto;
-  width: 280px;
-  height: 280px;
-  background: radial-gradient(circle, rgba(20, 184, 166, 0.25), transparent 70%);
-  filter: blur(20px);
-  pointer-events: none;
-}
-
-.img-lab-kicker {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.7rem;
-  letter-spacing: 0.16em;
-  color: var(--lab-cyan);
-  margin-bottom: 0.25rem;
-}
-
-.img-lab-title {
-  font-family: 'Oxanium', ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.45rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.img-lab-grid {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.5fr) minmax(260px, 1fr);
-  gap: 1rem;
-  align-items: start;
-}
-
-@media (max-width: 1180px) {
-  .img-lab-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .img-lab-col--main {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 760px) {
-  .img-lab-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.img-lab-panel {
-  padding: 1rem 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 16%, transparent);
-}
-
-.img-lab-panel__title {
-  font-family: 'Oxanium', ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.92rem;
-  font-weight: 650;
-  margin-bottom: 0.75rem;
-  letter-spacing: 0.02em;
-}
-
-.img-lab-keyhint {
-  font-size: 0.78rem;
-  color: #64748b;
-}
-
-.dark .img-lab-keyhint {
-  color: #94a3b8;
-}
-
-.img-lab-keyopt {
-  display: flex;
-  width: 100%;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.img-lab-keyopt.is-disabled {
-  opacity: 0.95;
-}
-
-.img-lab-keyopt__main {
-  min-width: 0;
-  flex: 1;
-}
-
-.img-lab-keyopt__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.img-lab-keyopt__label {
-  font-size: 0.84rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.img-lab-keyopt.is-disabled .img-lab-keyopt__label {
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.img-lab-keyopt__badge {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.65rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.35);
-}
-
-.dark .img-lab-keyopt__badge {
-  color: #6ee7b7;
-  background: rgba(16, 185, 129, 0.2);
-}
-
-.img-lab-keyopt__sub {
-  margin-top: 0.2rem;
-  font-size: 0.7rem;
-  color: #64748b;
-  line-height: 1.35;
-}
-
-.dark .img-lab-keyopt__sub {
-  color: #94a3b8;
-}
-
-.img-lab-keyopt__check {
-  margin-top: 0.15rem;
-  flex-shrink: 0;
-  color: #14b8a6;
-}
-
-.img-lab-keycard {
-  border-radius: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 22%, transparent);
-  background: rgba(255, 255, 255, 0.72);
-  padding: 0.75rem 0.85rem;
-}
-
-.dark .img-lab-keycard {
-  background: rgba(15, 23, 42, 0.55);
-}
-
-.img-lab-keycard__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 0.7rem;
-}
-
-.img-lab-tag {
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 0.18rem 0.5rem;
-  border-radius: 999px;
-  line-height: 1.3;
-}
-
-.img-lab-tag--group {
-  background: rgba(20, 184, 166, 0.12);
-  color: #0f766e;
-  border: 1px solid rgba(20, 184, 166, 0.28);
-}
-
-.dark .img-lab-tag--group {
-  color: #5eead4;
-}
-
-.img-lab-tag--ok {
-  background: rgba(16, 185, 129, 0.14);
-  color: #047857;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.dark .img-lab-tag--ok {
-  color: #6ee7b7;
-}
-
-.img-lab-tag--rate {
-  background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
-  border: 1px solid rgba(245, 158, 11, 0.28);
-}
-
-.dark .img-lab-tag--rate {
-  color: #fcd34d;
-}
-
-.img-lab-tag--price {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  background: rgba(20, 184, 166, 0.1);
-  color: #0f766e;
-  border: 1px solid rgba(20, 184, 166, 0.3);
-}
-
-.dark .img-lab-tag--price {
-  color: #5eead4;
-}
-
-.img-lab-keycard__rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.img-lab-keycard__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.78rem;
-  color: #64748b;
-}
-
-.img-lab-keycard__row > span:last-child {
-  color: #0f172a;
-  font-weight: 500;
-}
-
-.dark .img-lab-keycard__row {
-  color: #94a3b8;
-}
-
-.dark .img-lab-keycard__row > span:last-child {
-  color: #e2e8f0;
-}
-
-.img-lab-keymeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.img-lab-chip {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.68rem;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 30%, transparent);
-  color: #0f766e;
-  background: rgba(20, 184, 166, 0.08);
-}
-
-.dark .img-lab-chip {
-  color: #5eead4;
-}
-
-.img-lab-chip.is-live {
-  border-color: rgba(16, 185, 129, 0.45);
-  color: #059669;
-  background: rgba(16, 185, 129, 0.12);
-}
-
-.dark .img-lab-chip.is-live {
-  color: #6ee7b7;
-}
-
-.img-lab-chip.is-off {
-  border-color: rgba(248, 113, 113, 0.4);
-  color: #dc2626;
-}
-
-.img-lab-models {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.img-lab-model {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.75rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: transparent;
-  color: inherit;
-  transition: all 0.2s ease;
-}
-
-.img-lab-model:hover {
-  border-color: var(--lab-cyan);
-}
-
-.img-lab-model.is-active {
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.95), rgba(13, 148, 136, 0.95));
-  border-color: transparent;
-  color: white;
-  box-shadow: 0 0 18px rgba(20, 184, 166, 0.35);
-}
-
-.img-lab-refcount {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.75rem;
-  color: #64748b;
-}
-
-.dark .img-lab-refcount {
-  color: #94a3b8;
-}
-
-.img-lab-upload {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  min-height: 132px;
-  border: 1.5px dashed color-mix(in srgb, var(--lab-cyan) 45%, transparent);
-  border-radius: 0.9rem;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  text-align: center;
-  padding: 0.9rem 0.75rem;
-  color: #64748b;
-  background: rgba(20, 184, 166, 0.03);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-}
-
-.img-lab-upload:hover:not(.is-disabled) {
-  border-color: var(--lab-cyan);
-  box-shadow: inset 0 0 24px rgba(20, 184, 166, 0.08);
-  background: rgba(20, 184, 166, 0.06);
-}
-
-.img-lab-upload.is-disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.img-lab-upload__title {
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: #334155;
-}
-
-.dark .img-lab-upload__title {
-  color: #e2e8f0;
-}
-
-.img-lab-upload__hint {
-  font-size: 0.7rem;
-  line-height: 1.4;
-  opacity: 0.85;
-  max-width: 16rem;
-}
-
-.img-lab-reflist {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-  gap: 0.55rem;
-  margin-top: 0.75rem;
-}
-
-.img-lab-refitem {
-  border-radius: 0.65rem;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 18%, transparent);
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.dark .img-lab-refitem {
-  background: rgba(15, 23, 42, 0.55);
-}
-
-.img-lab-refitem__media {
-  position: relative;
-  aspect-ratio: 1;
-  background: #0b1220;
-}
-
-.img-lab-refitem__media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  background: #111827;
-}
-
-.img-lab-refitem__remove {
-  position: absolute;
-  top: 0.28rem;
-  right: 0.28rem;
-  width: 1.35rem;
-  height: 1.35rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #fff;
-  cursor: pointer;
-}
-
-.img-lab-refitem__remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.9);
-}
-
-.img-lab-refitem__remove:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.img-lab-refitem__name {
-  padding: 0.28rem 0.35rem;
-  font-size: 0.65rem;
-  line-height: 1.2;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background: rgba(148, 163, 184, 0.12);
-}
-
-.dark .img-lab-refitem__name {
-  color: #94a3b8;
-  background: rgba(15, 23, 42, 0.55);
-}
-
-.img-lab-endpoint {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.65rem;
-  border: 1px solid rgba(20, 184, 166, 0.28);
-  background: rgba(20, 184, 166, 0.08);
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.72rem;
-  line-height: 1.45;
-  color: #0f766e;
-  word-break: break-all;
-}
-
-.dark .img-lab-endpoint {
-  color: #5eead4;
-  background: rgba(20, 184, 166, 0.12);
-  border-color: rgba(20, 184, 166, 0.35);
-}
-
-.img-lab-endpoint__dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-top: 0.3rem;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: var(--lab-cyan);
-  box-shadow: 0 0 8px var(--lab-cyan);
-}
-
-.img-lab-prompt {
-  width: 100%;
-  resize: vertical;
-  min-height: 120px;
-  font-family: 'Sora', ui-sans-serif, system-ui, sans-serif;
-}
-
-.img-lab-params {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem 0.9rem;
-}
-
-@media (max-width: 560px) {
-  .img-lab-params {
-    grid-template-columns: 1fr;
-  }
-}
-
-.img-lab-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  color: #64748b;
-}
-
-.dark .img-lab-field {
-  color: #94a3b8;
-}
-
-.img-lab-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.img-lab-signal {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  color: var(--lab-cyan);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.img-lab-signal i {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 999px;
-  background: var(--lab-cyan);
-  box-shadow: 0 0 10px var(--lab-cyan);
-  animation: lab-pulse 1.6s ease-in-out infinite;
-}
-
-.img-lab-go {
-  min-width: 140px;
-  position: relative;
-}
-
-.img-lab-go__spin {
-  display: inline-block;
-  width: 0.85rem;
-  height: 0.85rem;
-  margin-right: 0.4rem;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: white;
-  border-radius: 999px;
-  animation: lab-spin 0.7s linear infinite;
-  vertical-align: -0.1rem;
-}
-
-.img-lab-preview {
-  min-height: 260px;
-  border-radius: 0.9rem;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 18%, transparent);
-  background: radial-gradient(circle at 30% 20%, rgba(20, 184, 166, 0.08), transparent 45%),
-    linear-gradient(160deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.02));
-}
-
-.dark .img-lab-preview {
-  background: radial-gradient(circle at 30% 20%, rgba(20, 184, 166, 0.12), transparent 45%),
-    linear-gradient(160deg, #0b1220, #111827);
-}
-
-.img-lab-preview__frame {
-  position: relative;
-}
-
-.img-lab-preview__frame img {
-  display: block;
-  width: 100%;
-  max-height: 420px;
-  object-fit: contain;
-  background: #0b1220;
-}
-
-.img-lab-preview__scan {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent, rgba(20, 184, 166, 0.12), transparent);
-  background-size: 100% 220%;
-  animation: lab-scan 3.2s linear infinite;
-  pointer-events: none;
-  mix-blend-mode: screen;
-}
-
-.img-lab-preview__empty {
-  min-height: 260px;
-  display: grid;
-  place-items: center;
-  position: relative;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-
-.img-lab-preview__grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(20, 184, 166, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20, 184, 166, 0.08) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(circle at center, black, transparent 75%);
-}
-
-.img-lab-history {
-  max-height: calc(100vh - 12rem);
-  display: flex;
-  flex-direction: column;
-}
-
-.img-lab-history__list {
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-right: 0.15rem;
-}
-
-.img-lab-history__item {
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 0.65rem;
-  padding: 0.55rem;
-  border-radius: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--lab-cyan) 14%, transparent);
-  background: rgba(20, 184, 166, 0.03);
-}
-
-.img-lab-history__thumb {
-  width: 72px;
-  height: 72px;
-  border-radius: 0.55rem;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  cursor: pointer;
-}
-
-.img-lab-history__thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.img-lab-history__prompt {
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.img-lab-history__meta {
-  margin-top: 0.2rem;
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.68rem;
-  color: #64748b;
-}
-
-.dark .img-lab-history__meta {
-  color: #94a3b8;
-}
-
-.img-lab-history__actions {
-  margin-top: 0.35rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.img-lab-history__actions button {
-  font-size: 0.68rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 0.35rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: transparent;
-  color: inherit;
-}
-
-.img-lab-history__actions button:hover {
-  border-color: var(--lab-cyan);
-  color: var(--lab-cyan);
-}
-
-.img-lab-history__actions .is-danger:hover {
-  border-color: #f87171;
-  color: #f87171;
-}
-
-.img-lab-history__empty {
-  font-size: 0.82rem;
-  color: #64748b;
-  padding: 1.5rem 0.5rem;
-  text-align: center;
-}
-
-@keyframes lab-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scale(0.9);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-}
-
-@keyframes lab-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes lab-scan {
-  0% {
-    background-position: 0 -40%;
-  }
-  100% {
-    background-position: 0 140%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .img-lab-signal i,
-  .img-lab-go__spin,
-  .img-lab-preview__scan {
-    animation: none !important;
-  }
+.workbench { max-width: 1720px; margin: 0 auto; color: #111827; }
+.dark .workbench { color: #f3f4f6; }
+.workbench-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.workbench-header h1 { font-size: 1.5rem; font-weight: 750; line-height: 1.25; }
+.workbench-header p { margin-top: 0.3rem; color: #6b7280; font-size: 0.875rem; }
+.dark .workbench-header p { color: #9ca3af; }
+.workbench-header__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.workbench-icon-button,
+.result-icon-button { display: inline-grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid #d1d5db; border-radius: 6px; color: #4b5563; }
+.dark .workbench-icon-button,
+.dark .result-icon-button { border-color: #374151; color: #d1d5db; }
+.workbench-icon-button:hover,
+.result-icon-button:hover { border-color: #0d9488; color: #0f766e; }
+
+.workbench-grid { display: grid; grid-template-columns: minmax(230px, 0.78fr) minmax(420px, 1.55fr) minmax(250px, 0.9fr); gap: 0.875rem; align-items: start; }
+.workbench-column { min-width: 0; display: flex; flex-direction: column; gap: 0.875rem; }
+.workbench-panel { min-width: 0; padding: 0.9rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.dark .workbench-panel { border-color: #374151; background: #111827; }
+.workbench-panel__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
+.workbench-panel__heading h2 { font-size: 0.875rem; font-weight: 750; line-height: 1.4; }
+.workbench-panel__heading p { margin-top: 0.15rem; color: #6b7280; font-size: 0.72rem; line-height: 1.4; }
+.dark .workbench-panel__heading p { color: #9ca3af; }
+.field-label { display: block; margin-bottom: 0.35rem; color: #4b5563; font-size: 0.75rem; font-weight: 650; }
+.dark .field-label { color: #d1d5db; }
+
+.key-option { display: flex; width: 100%; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.key-option__name { overflow: hidden; font-size: 0.8rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.key-option__meta { margin-top: 0.15rem; overflow: hidden; color: #6b7280; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.key-summary { margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid #e5e7eb; }
+.dark .key-summary { border-color: #374151; }
+.key-summary__row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.18rem 0; color: #6b7280; font-size: 0.7rem; }
+.dark .key-summary__row { color: #9ca3af; }
+.key-summary__row strong { min-width: 0; overflow: hidden; color: #1f2937; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.dark .key-summary__row strong { color: #e5e7eb; }
+
+.execution-mode { position: relative; display: flex; align-items: flex-start; gap: 0.65rem; margin-top: 0.75rem; padding: 0.7rem; border: 1px solid #99f6e4; border-radius: 6px; background: #f0fdfa; color: #115e59; }
+.execution-mode.is-async { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.dark .execution-mode { border-color: rgba(45, 212, 191, 0.35); background: rgba(13, 148, 136, 0.12); color: #99f6e4; }
+.dark .execution-mode.is-async { border-color: rgba(251, 191, 36, 0.4); background: rgba(146, 64, 14, 0.18); color: #fde68a; }
+.execution-mode__icon { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 6px; }
+.execution-mode strong { display: block; font-size: 0.8rem; }
+.execution-mode p { margin-top: 0.15rem; padding-right: 1rem; font-size: 0.68rem; line-height: 1.4; }
+.execution-mode__lock { position: absolute; top: 0.5rem; right: 0.5rem; opacity: 0.7; }
+
+.reference-drop { display: flex; min-height: 6.5rem; cursor: pointer; flex-direction: column; align-items: center; justify-content: center; gap: 0.3rem; border: 1px dashed #9ca3af; border-radius: 6px; color: #0f766e; text-align: center; font-size: 0.75rem; font-weight: 650; }
+.reference-drop small { color: #6b7280; font-size: 0.65rem; font-weight: 400; }
+.reference-drop:hover { border-color: #0d9488; background: #f0fdfa; }
+.dark .reference-drop:hover { background: rgba(13, 148, 136, 0.1); }
+.reference-drop.is-disabled { cursor: not-allowed; opacity: 0.55; }
+.reference-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+.reference-item { display: grid; grid-template-columns: 2rem minmax(0, 1fr) 1.5rem; align-items: center; gap: 0.45rem; padding: 0.3rem; border: 1px solid #e5e7eb; border-radius: 6px; }
+.dark .reference-item { border-color: #374151; }
+.reference-item img { width: 2rem; height: 2rem; border-radius: 4px; object-fit: cover; }
+.reference-item span { overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.reference-item button { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border-radius: 4px; color: #6b7280; }
+.reference-item button:hover { background: #fee2e2; color: #b91c1c; }
+
+.prompt-input { width: 100%; min-height: 9rem; resize: vertical; line-height: 1.6; }
+.prompt-footer { display: flex; justify-content: space-between; gap: 1rem; margin-top: 0.3rem; color: #9ca3af; font-size: 0.65rem; }
+.field-error { color: #b91c1c; }
+.parameter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.9rem; }
+.parameter-field { min-width: 0; }
+.parameter-field > span { display: block; margin-bottom: 0.3rem; color: #4b5563; font-size: 0.7rem; font-weight: 650; }
+.dark .parameter-field > span { color: #d1d5db; }
+.parameter-field .input { width: 100%; }
+.generate-row { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid #e5e7eb; }
+.dark .generate-row { border-color: #374151; }
+.generate-button { display: inline-flex; min-width: 9.5rem; min-height: 2.5rem; align-items: center; justify-content: center; gap: 0.45rem; padding: 0.55rem 1rem; border-radius: 6px; background: #0f766e; color: #fff; font-size: 0.8rem; font-weight: 750; }
+.generate-button:hover:not(:disabled) { background: #115e59; }
+.generate-button.is-async { background: #b45309; }
+.generate-button.is-async:hover:not(:disabled) { background: #92400e; }
+.generate-button:disabled { cursor: not-allowed; opacity: 0.5; }
+.protocol-badge { padding: 0.2rem 0.45rem; border: 1px solid #d1d5db; border-radius: 4px; color: #4b5563; font-size: 0.65rem; font-weight: 700; white-space: nowrap; }
+.dark .protocol-badge { border-color: #4b5563; color: #d1d5db; }
+
+.workbench-alert { display: flex; align-items: flex-start; gap: 0.4rem; margin-top: 0.65rem; padding: 0.55rem 0.65rem; border-radius: 6px; font-size: 0.72rem; line-height: 1.45; }
+.workbench-alert.is-error { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.dark .workbench-alert.is-error { border-color: rgba(248, 113, 113, 0.35); background: rgba(127, 29, 29, 0.18); color: #fca5a5; }
+.unknown-submission { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-left: 3px solid #d97706; }
+.unknown-submission strong { color: #92400e; font-size: 0.8rem; }
+.dark .unknown-submission strong { color: #fcd34d; }
+.unknown-submission p { margin-top: 0.2rem; color: #6b7280; font-size: 0.7rem; line-height: 1.45; }
+.unknown-submission code { display: block; margin-top: 0.35rem; overflow-wrap: anywhere; color: #92400e; font-size: 0.65rem; }
+.workbench-spinner { display: inline-block; width: 1rem; height: 1rem; flex: 0 0 auto; border: 2px solid #99f6e4; border-top-color: #0f766e; border-radius: 50%; animation: workbench-spin 0.75s linear infinite; }
+.workbench-spinner.is-light { border-color: rgba(255,255,255,0.4); border-top-color: #fff; }
+
+.async-runtime { border-left: 3px solid #d97706; }
+.async-runtime__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.async-runtime__eyebrow { color: #b45309; font-size: 0.65rem; font-weight: 750; text-transform: uppercase; }
+.async-runtime h2 { margin-top: 0.15rem; font-size: 0.95rem; font-weight: 750; }
+.async-runtime__id { display: flex; min-width: 0; align-items: center; gap: 0.4rem; padding: 0.35rem 0.45rem; border: 1px solid #e5e7eb; border-radius: 6px; }
+.dark .async-runtime__id { border-color: #374151; }
+.async-runtime__id code { max-width: 230px; overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.task-track { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; margin-top: 0.9rem; }
+.task-stage { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 0.3rem; color: #9ca3af; text-align: center; }
+.task-stage span { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 1px solid #d1d5db; border-radius: 50%; }
+.task-stage strong { width: 100%; overflow: hidden; font-size: 0.62rem; text-overflow: ellipsis; white-space: nowrap; }
+.task-stage.active { color: #b45309; }
+.task-stage.done { color: #047857; }
+.task-stage.failed { color: #b91c1c; }
+.task-progress { height: 0.3rem; margin-top: 0.75rem; overflow: hidden; border-radius: 3px; background: #e5e7eb; }
+.dark .task-progress { background: #374151; }
+.task-progress span { display: block; height: 100%; border-radius: 3px; background: #d97706; transition: width 0.2s ease; }
+.async-runtime__footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.75rem; color: #6b7280; font-size: 0.7rem; }
+.text-link { color: #0f766e; font-size: 0.72rem; font-weight: 700; }
+.text-link:hover { text-decoration: underline; }
+
+.result-empty { display: flex; min-height: 15rem; flex-direction: column; align-items: center; justify-content: center; gap: 0.45rem; border: 1px dashed #d1d5db; border-radius: 6px; color: #6b7280; text-align: center; }
+.dark .result-empty { border-color: #374151; color: #9ca3af; }
+.result-empty strong { color: #4b5563; font-size: 0.8rem; }
+.dark .result-empty strong { color: #d1d5db; }
+.result-empty span { font-size: 0.7rem; }
+.result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; }
+.result-item { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 6px; }
+.dark .result-item { border-color: #374151; }
+.result-item__media { display: block; width: 100%; aspect-ratio: 1 / 1; background: #f3f4f6; }
+.dark .result-item__media { background: #030712; }
+.result-item__media img { width: 100%; height: 100%; object-fit: contain; }
+.result-item__footer { display: flex; min-height: 2.6rem; align-items: center; gap: 0.45rem; padding: 0.4rem; }
+.archive-state { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 0.35rem; color: #6b7280; font-size: 0.67rem; }
+.archive-state.is-archived { color: #047857; }
+.archive-state.is-failed { color: #b91c1c; }
+
+@keyframes workbench-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .workbench-spinner { animation: none; } .task-progress span { transition: none; } }
+@media (max-width: 1240px) {
+  .workbench-grid { grid-template-columns: minmax(230px, 0.8fr) minmax(420px, 1.4fr); }
+  .workbench-column--library { grid-column: 1 / -1; }
+}
+@media (max-width: 720px) {
+  .workbench-grid { grid-template-columns: 1fr; }
+  .workbench-column--library { grid-column: auto; }
+  .parameter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workbench-header { flex-direction: column; }
+  .workbench-header__actions { justify-content: flex-start; }
+}
+@media (max-width: 520px) {
+  .parameter-grid { grid-template-columns: 1fr; }
+  .generate-row { align-items: stretch; flex-direction: column-reverse; }
+  .generate-button { width: 100%; }
+  .async-runtime__header { flex-direction: column; }
+  .async-runtime__id { width: 100%; justify-content: space-between; }
+  .task-track { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; padding-bottom: 0.25rem; }
+  .async-runtime__footer { align-items: flex-start; flex-direction: column; }
+  .unknown-submission { align-items: stretch; flex-direction: column; }
 }
 </style>

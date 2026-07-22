@@ -19,6 +19,7 @@ func ProvideAdminHandlers(
 	dataManagementHandler *admin.DataManagementHandler,
 	backupHandler *admin.BackupHandler,
 	asyncImageTaskCenterHandler *AsyncImageTaskCenterHandler,
+	imageLibraryHandler *ImageLibraryHandler,
 	oauthHandler *admin.OAuthHandler,
 	openaiOAuthHandler *admin.OpenAIOAuthHandler,
 	geminiOAuthHandler *admin.GeminiOAuthHandler,
@@ -58,6 +59,7 @@ func ProvideAdminHandlers(
 		DataManagement:         dataManagementHandler,
 		Backup:                 backupHandler,
 		AsyncImageTasks:        asyncImageTaskCenterHandler,
+		ImageLibrary:           imageLibraryHandler,
 		OAuth:                  oauthHandler,
 		OpenAIOAuth:            openaiOAuthHandler,
 		GeminiOAuth:            geminiOAuthHandler,
@@ -187,6 +189,8 @@ func ProvideHandlers(
 	durableAsyncImageHandler *DurableAsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	imagePlazaHandler *ImagePlazaHandler,
+	imageLibraryHandler *ImageLibraryHandler,
+	imageWorkbenchHandler *ImageWorkbenchHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -212,6 +216,8 @@ func ProvideHandlers(
 		DurableAsyncImage: durableAsyncImageHandler,
 		BatchImage:        batchImageHandler,
 		ImagePlaza:        imagePlazaHandler,
+		ImageLibrary:      imageLibraryHandler,
+		ImageWorkbench:    imageWorkbenchHandler,
 	}
 }
 
@@ -237,7 +243,9 @@ var ProviderSet = wire.NewSet(
 	NewAsyncImageHandler,
 	NewDurableAsyncImageHandler,
 	ProvideBatchImageHandler,
-	NewImagePlazaHandler,
+	ProvideImagePlazaHandler,
+	NewImageLibraryHandler,
+	NewImageWorkbenchHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

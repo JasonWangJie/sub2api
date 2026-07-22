@@ -1,66 +1,73 @@
-/**
- * Global Image Plaza APIs (JWT session)
- */
+/** Public, approved Image Plaza APIs (dashboard JWT session). */
 
 import { apiClient } from './client'
+import type { CursorPage, ImagePlazaItem } from '@/features/image-workflow/types'
 
-export interface ImagePlazaItem {
-  id: number
-  user_id: number
-  user_email?: string
-  prompt: string
-  title: string
-  model: string
-  size: string
-  quality: string
-  format: string
-  background: string
-  style: string
-  content_type: string
-  file_size: number
-  visibility: string
-  image_url: string
-  created_at: string
-}
+export type { ImagePlazaItem }
 
-export interface ImagePlazaListResponse {
-  items: ImagePlazaItem[]
-  total: number
-  page: number
-  page_size: number
-}
+export const IMAGE_PLAZA_REPORT_REASONS = [
+  'spam',
+  'sexual',
+  'violence',
+  'copyright',
+  'privacy',
+  'other',
+] as const
 
-export interface PublishImagePlazaPayload {
-  prompt: string
-  title?: string
-  model: string
-  size?: string
-  quality?: string
-  format?: string
-  background?: string
-  style?: string
-  image: string // data URL or base64
-}
+export type ImagePlazaReportReason = (typeof IMAGE_PLAZA_REPORT_REASONS)[number]
 
-export async function listImagePlaza(params?: {
+export interface ImagePlazaListParams {
   q?: string
-  page?: number
-  page_size?: number
-}): Promise<ImagePlazaListResponse> {
-  const { data } = await apiClient.get<ImagePlazaListResponse>('/image-plaza', { params })
-  return data
+  cursor?: string
+  limit?: number
+  platform?: string
+  model?: string
+  aspect_ratio?: string
+  sort?: 'newest' | 'oldest'
 }
 
-export async function publishImagePlaza(payload: PublishImagePlazaPayload): Promise<ImagePlazaItem> {
-  const { data } = await apiClient.post<ImagePlazaItem>('/image-plaza', payload)
-  return data
+function normalizeItem(item: any): ImagePlazaItem {
+  const id = item?.publication_id ?? item?.id
+  const prompt = item?.share_prompt === false ? null : (item?.prompt ?? null)
+  return {
+    ...item,
+    id,
+    publication_id: item?.publication_id ?? id,
+    asset_id: item?.asset_id ?? null,
+    title: String(item?.title || prompt || ''),
+    prompt,
+    share_prompt: item?.share_prompt !== false && Boolean(prompt),
+    platform: String(item?.platform || ''),
+    model: String(item?.model || ''),
+    public_identity: String(item?.public_identity || item?.publisher_name || item?.user_label || 'Member'),
+    is_owner: Boolean(item?.is_owner),
+    image_url: String(item?.image_url || item?.view_url || ''),
+    published_at: String(item?.published_at || item?.created_at || ''),
+  }
 }
 
-export async function deleteImagePlaza(id: number): Promise<void> {
-  await apiClient.delete(`/image-plaza/${id}`)
+export async function listImagePlaza(
+  params: ImagePlazaListParams = {},
+  signal?: AbortSignal,
+): Promise<CursorPage<ImagePlazaItem>> {
+  const { data } = await apiClient.get('/image-plaza', { params, signal })
+  return {
+    items: Array.isArray(data?.items) ? data.items.map(normalizeItem) : [],
+    next_cursor: data?.next_cursor || null,
+    total: data?.total == null ? undefined : Number(data.total),
+  }
 }
 
-export function resolvePlazaImageUrl(item: Pick<ImagePlazaItem, 'id' | 'image_url'>): string {
-  if (item.image_url) return item.image_url
-  return `/api/v1/image-plaza/${item.id}/content`
+export async function reportImagePlaza(
+  publicationID: string | number,
+  payload: { reason: ImagePlazaReportReason; detail?: string },
+): Promise<void> {
+  await apiClient.post(`/image-plaza/${encodeURIComponent(String(publicationID))}/reports`, {
+    reason: payload.reason,
+    details: payload.detail,
+  })
+}
+
+export function resolvePlazaImageUrl(item: Pick<ImagePlazaItem, 'id' | 'image_url' | 'view_url'>): string {
+  return item.image_url || item.view_url || `/api/v1/image-plaza/${encodeURIComponent(String(item.id))}/content`
 }

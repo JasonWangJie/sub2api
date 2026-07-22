@@ -3,11 +3,10 @@
     <div class="space-y-6">
       <!-- Title -->
       <div class="login-hero text-center">
-        <div class="login-hash mb-2" aria-hidden="true">0xAUTH · SESSION/INIT</div>
-        <h2 class="login-hero-title text-2xl font-bold">
+        <h1 class="login-hero-title text-2xl font-bold text-gray-900 dark:text-white">
           {{ t('auth.welcomeBack') }}
-        </h2>
-        <p class="login-hero-sub mt-2 text-sm">
+        </h1>
+        <p class="login-hero-sub mt-2 text-sm text-gray-500 dark:text-dark-400">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
@@ -33,8 +32,13 @@
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'login-email-error' : undefined"
             />
           </div>
+          <p v-if="errors.email" id="login-email-error" class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ errors.email }}
+          </p>
         </div>
 
         <!-- Password Input -->
@@ -56,17 +60,24 @@
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.passwordPlaceholder')"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'login-password-error' : undefined"
             />
             <button
               type="button"
               @click="showPassword = !showPassword"
               :disabled="authActionDisabled"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              class="absolute inset-y-0 right-0 flex min-h-11 min-w-11 items-center justify-center text-gray-400 transition-colors hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:text-dark-300"
+              :aria-label="t('auth.passwordLabel')"
+              :title="t('auth.passwordLabel')"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
+          <p v-if="errors.password" id="login-password-error" class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ errors.password }}
+          </p>
           <div class="mt-1 flex items-center justify-between">
             <span></span>
             <router-link
@@ -94,7 +105,7 @@
         <button
           type="submit"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
-          class="btn btn-primary login-submit w-full"
+          class="btn btn-primary w-full"
         >
           <svg
             v-if="isLoading"
@@ -555,76 +566,12 @@ function handle2FACancel(): void {
 
 <style scoped>
 .login-hero-title {
-  font-family: 'Oxanium', 'Sora', ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.02em;
-  color: #e8f7ff;
-}
-
-.login-hash {
-  font-family: 'Oxanium', ui-monospace, monospace;
-  font-size: 0.62rem;
-  letter-spacing: 0.16em;
-  color: rgba(46, 230, 214, 0.7);
-}
-
-:global(html:not(.dark)) .login-hash {
-  color: rgba(13, 148, 136, 0.75);
-}
-
-:global(html:not(.dark)) .login-hero-title {
-  color: #0b1c24;
-}
-
-.login-hero-sub {
-  color: rgba(198, 226, 239, 0.68);
-}
-
-:global(html:not(.dark)) .login-hero-sub {
-  color: rgba(15, 48, 58, 0.68);
-}
-
-.login-submit {
-  position: relative;
-  overflow: hidden;
-  box-shadow:
-    0 0 0 1px rgba(46, 230, 214, 0.35),
-    0 10px 28px rgba(46, 230, 214, 0.28) !important;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.login-submit:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 0 0 1px rgba(46, 230, 214, 0.5),
-    0 14px 32px rgba(46, 230, 214, 0.38) !important;
-}
-
-.login-submit::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
-  transform: translateX(-120%);
-  animation: login-sheen 4.5s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes login-sheen {
-  0%,
-  55% {
-    transform: translateX(-120%);
-  }
-  75%,
-  100% {
-    transform: translateX(120%);
-  }
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: all 0.3s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .fade-enter-from,
@@ -634,8 +581,7 @@ function handle2FACancel(): void {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-submit::after {
-    animation: none;
-  }
+  .fade-enter-active,
+  .fade-leave-active { transition: none; }
 }
 </style>

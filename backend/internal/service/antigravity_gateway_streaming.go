@@ -20,6 +20,7 @@ type antigravityStreamResult struct {
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
+	imageCounter     *geminiImageOutputCounter
 }
 
 // antigravityClientWriter 封装流式响应的客户端写入，自动检测断开并标记。
@@ -108,6 +109,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	scanBuf := getSSEScannerBuf64K()
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	usage := &ClaudeUsage{}
+	imageCounter := newGeminiImageOutputCounter()
 	var firstTokenMs *int
 
 	type scanEvent struct {
@@ -190,16 +192,16 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}, nil
+				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected(), imageCounter: imageCounter}, nil
 			}
 			if ev.err != nil {
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity gemini"); handled {
-					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect}, nil
+					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect, imageCounter: imageCounter}, nil
 				}
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					logger.LegacyPrintf("service.antigravity_gateway", "SSE line too long (antigravity): max_size=%d error=%v", maxLineSize, ev.err)
 					sendErrorEvent("response_too_large")
-					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
+					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, imageCounter: imageCounter}, ev.err
 				}
 				sendErrorEvent("stream_read_error")
 				return nil, ev.err
@@ -221,6 +223,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if parseErr == nil && inner != nil {
 					payload = string(inner)
 				}
+				imageCounter.AddJSONBytes(inner)
 
 				// 解析 usage
 				if u := extractGeminiUsage(inner); u != nil {
@@ -261,11 +264,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			}
 			if cw.Disconnected() {
 				logger.LegacyPrintf("service.antigravity_gateway", "Upstream timeout after client disconnect (antigravity gemini), returning collected usage")
-				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
+				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true, imageCounter: imageCounter}, nil
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity)")
 			sendErrorEvent("stream_timeout")
-			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, imageCounter: imageCounter}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
 			if cw.Disconnected() {
@@ -295,6 +298,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 
 	usage := &ClaudeUsage{}
+	imageCounter := newGeminiImageOutputCounter()
 	var firstTokenMs *int
 	var last map[string]any
 	var lastWithParts map[string]any
@@ -386,6 +390,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			if err := json.Unmarshal(inner, &parsed); err != nil {
 				continue
 			}
+			imageCounter.AddResponse(parsed)
 
 			// 记录首 token 时间
 			if firstTokenMs == nil {
@@ -469,7 +474,7 @@ returnResponse:
 	}
 	c.Data(http.StatusOK, "application/json", respBody)
 
-	return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+	return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, imageCounter: imageCounter}, nil
 }
 
 // getOrCreateGeminiParts 获取 Gemini 响应的 parts 结构，返回深拷贝和更新回调
