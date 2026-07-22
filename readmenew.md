@@ -6,11 +6,13 @@
 
 换电脑、换会话或交给新的 AI 后，按以下顺序恢复上下文：
 
-1. 阅读 [wiki-new/README.md](wiki-new/README.md)。
-2. 阅读 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md)。
+1. 阅读 [wiki-new/文档索引.md](wiki-new/文档索引.md)。
+2. 阅读 [wiki-new/当前状态与完成度.md](wiki-new/当前状态与完成度.md) 和 [wiki-new/智能助手交接清单.md](wiki-new/智能助手交接清单.md)。
 3. 根据任务阅读异步任务、工作台、图库或审核专题。
 4. 运行 `git status --short --branch`、`git rev-parse HEAD`、`git describe --tags --always --dirty`，以实际工作树为准。
 5. 不要把本文中的开发基线当成当前提交；以 `origin/main` 和实际命令输出为准。Fork CI 仍未运行，不能把主线已推送误写成 CI 已通过。
+
+`wiki-new/` 下所有 Markdown 文件统一使用简体中文语义文件名。后续新增文档不得恢复英文 slug、拼音或英文编号前缀；文件重命名后必须同步更新全仓链接并检查断链。
 
 ## 当前版本快照
 
@@ -93,7 +95,7 @@
 - `execution_unknown` 禁止自动重调；若确需再生成，必须创建新任务号并接受第二次上游成本风险。
 - 异步上游失败时任务 `error_message` 应包含 HTTP 状态码与脱敏后的上游正文摘要，不能只写笼统的 `upstream image generation failed`。
 
-详情见 [wiki-new/04-billing-and-idempotency.md](wiki-new/04-billing-and-idempotency.md)。
+详情见 [wiki-new/计费与幂等.md](wiki-new/计费与幂等.md)。
 
 ## 存储、配额与安全默认值
 
@@ -140,7 +142,7 @@
 `2026-07-22` 已把原作者 `upstream/main` 的 `5a8d6c4e4` 非快进合并为 `433cf0096`，并在代码验证提交 `6412b5eb7` 对应的合并后树上取得以下本地证据：
 
 - Go `1.26.5`：图片计费、SC 上传、分组、hosted-image、Grok/调度定向测试通过；`go generate ./cmd/server` 成功且无生成差异；强制无缓存 `go test -tags=unit ./... -count=1` 用时 `277.9s`，`go test ./... -count=1` 用时 `204.4s`，独立 server build 成功。
-- 所有本轮新增或修改的 Go 文件均通过 `gofmt`。仓库另有 5 个未被本轮修改的基线测试文件未格式化，路径和判定见 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)。
+- 所有本轮新增或修改的 Go 文件均通过 `gofmt`。仓库另有 5 个未被本轮修改的基线测试文件未格式化，路径和判定见 [wiki-new/测试与验收记录.md](wiki-new/测试与验收记录.md)。
 - `pnpm install --frozen-lockfile`、ESLint、`vue-tsc --noEmit`、189 个 Vitest 文件/1277 项测试和 974 模块生产构建全部通过。合并中发现并以 `6412b5eb7` 修复了 `package.json` 与锁文件顶层 overrides 不一致。
 - 本地 Vite 在 `http://127.0.0.1:3000/` 启动成功；内置浏览器控制器因当前运行环境缺失 `sandboxPolicy` 元数据而无法建立会话，因此合并后的视觉复验没有标记为通过。
 - 历史本机 Chrome Playwright 10 个场景曾覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该证据早于最后一批 SC/后台配置和上游合并，只作为历史基线。
@@ -155,22 +157,22 @@
 - 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
 - Fork Actions 尚未启用：公开 Actions 页面显示 `Enable Actions`，API 对功能分支和全仓均返回 0 个历史运行。本次根据用户明确指示已先合并并推送 `main`；启用 Actions 后历史 push 不会自动回放，需要在 `main` 创建一个明确的空 CI 触发提交并推送，再核对 CI/Security Scan。
 
-最新状态与已经执行过的测试证据只看 [wiki-new/01-current-status.md](wiki-new/01-current-status.md) 和 [wiki-new/07-testing-and-validation.md](wiki-new/07-testing-and-validation.md)，不要根据早期聊天记录推断“已经通过”。
+最新状态与已经执行过的测试证据只看 [wiki-new/当前状态与完成度.md](wiki-new/当前状态与完成度.md) 和 [wiki-new/测试与验收记录.md](wiki-new/测试与验收记录.md)，不要根据早期聊天记录推断“已经通过”。
 
 ## 文档索引
 
 | 文档 | 内容 |
 |---|---|
-| [wiki-new/README.md](wiki-new/README.md) | 二次开发 Wiki 入口和真值顺序 |
-| [wiki-new/02-architecture.md](wiki-new/02-architecture.md) | 持久异步任务状态机和恢复边界 |
-| [wiki-new/03-api-contracts.md](wiki-new/03-api-contracts.md) | 下游异步协议与站内图片 API |
-| [wiki-new/05-storage-and-retention.md](wiki-new/05-storage-and-retention.md) | OSS、对象引用、签名和保留策略 |
-| [wiki-new/10-image-workbench.md](wiki-new/10-image-workbench.md) | Key 分组驱动的工作台实时/异步分流 |
-| [wiki-new/11-image-library-object-model.md](wiki-new/11-image-library-object-model.md) | 服务端图库和统一对象引用 |
-| [wiki-new/12-moderated-plaza-and-migration.md](wiki-new/12-moderated-plaza-and-migration.md) | 审核广场、举报、安全迁移和维护 Worker |
-| [wiki-new/13-local-development-runbook.md](wiki-new/13-local-development-runbook.md) | 本地前后端运行、Docker 联调和常见故障 |
-| [wiki-new/14-production-deployment-runbook.md](wiki-new/14-production-deployment-runbook.md) | Fork 生产部署、HTTPS、OSS、备份、升级与回滚 |
-| [wiki-new/09-ai-handoff-checklist.md](wiki-new/09-ai-handoff-checklist.md) | 新电脑或新 AI 的接手步骤 |
+| [wiki-new/文档索引.md](wiki-new/文档索引.md) | 二次开发 Wiki 入口和真值顺序 |
+| [wiki-new/异步生图架构.md](wiki-new/异步生图架构.md) | 持久异步任务状态机和恢复边界 |
+| [wiki-new/接口契约.md](wiki-new/接口契约.md) | 下游异步协议与站内图片 API |
+| [wiki-new/对象存储与保留策略.md](wiki-new/对象存储与保留策略.md) | OSS、对象引用、签名和保留策略 |
+| [wiki-new/图片工作台.md](wiki-new/图片工作台.md) | Key 分组驱动的工作台实时/异步分流 |
+| [wiki-new/图片图库与对象模型.md](wiki-new/图片图库与对象模型.md) | 服务端图库和统一对象引用 |
+| [wiki-new/图片广场审核与迁移.md](wiki-new/图片广场审核与迁移.md) | 审核广场、举报、安全迁移和维护 Worker |
+| [wiki-new/本地开发运行手册.md](wiki-new/本地开发运行手册.md) | 本地前后端运行、Docker 联调和常见故障 |
+| [wiki-new/生产部署升级与回滚手册.md](wiki-new/生产部署升级与回滚手册.md) | Fork 生产部署、HTTPS、OSS、备份、升级与回滚 |
+| [wiki-new/智能助手交接清单.md](wiki-new/智能助手交接清单.md) | 新电脑或新 AI 的接手步骤 |
 
 ## Git 远程约定
 
@@ -184,5 +186,5 @@
 ## 下一位 AI 的一句话上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复，188 是本机延期投稿（审核通过后再同步 OSS）。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/文档索引.md、当前状态与完成度.md、测试与验收记录.md 和 智能助手交接清单.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复，188 是本机延期投稿（审核通过后再同步 OSS）。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```
