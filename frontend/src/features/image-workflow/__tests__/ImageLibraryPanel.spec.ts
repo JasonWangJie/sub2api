@@ -101,7 +101,7 @@ describe('ImageLibraryPanel', () => {
     wrapper.unmount()
   })
 
-  it('recovers a persisted async archive without regenerating the image', async () => {
+  it('removes obsolete local task recovery because durable outbox owns async archival', async () => {
     mocks.listPendingImageArchives.mockResolvedValue([{
       id: 'archive_1',
       userId: 19,
@@ -113,18 +113,14 @@ describe('ImageLibraryPanel', () => {
       expiresAt: Date.now() + 60_000,
       errorMessage: 'storage temporarily unavailable',
     }])
-    mocks.archiveAsyncTask.mockResolvedValue([{ ...item, id: 'img_recovered' }])
     const wrapper = mountPanel()
     await flushPromises()
 
-    await wrapper.get('.library-recovery__retry').trigger('click')
-    await flushPromises()
-
-    expect(mocks.archiveAsyncTask).toHaveBeenCalledWith('asyncimg_123', [2])
+    expect(wrapper.find('.library-recovery__retry').exists()).toBe(false)
+    expect(mocks.archiveAsyncTask).not.toHaveBeenCalled()
     expect(mocks.importImageFile).not.toHaveBeenCalled()
     expect(mocks.importImageURL).not.toHaveBeenCalled()
     expect(mocks.removePendingImageArchive).toHaveBeenCalledWith('archive_1')
-    expect(mocks.showSuccess).toHaveBeenCalledWith('imageWorkflow.library.archiveRecovered')
     wrapper.unmount()
   })
 })

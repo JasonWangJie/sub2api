@@ -142,7 +142,7 @@
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.workerConcurrency') }}</label>
-              <input v-model.number="imageStorageForm.async_image.worker_concurrency" type="number" min="1" class="input w-full" />
+              <input v-model.number="imageStorageForm.async_image.worker_concurrency" type="number" min="1" max="64" class="input w-full" />
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.executionTimeoutSeconds') }}</label>
@@ -181,7 +181,7 @@
             <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.workerLeaseSeconds') }}</label>
-                <input v-model.number="imageStorageForm.async_image.worker_lease_seconds" type="number" min="30" class="input w-full" />
+                <input v-model.number="imageStorageForm.async_image.worker_lease_seconds" type="number" min="45" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.recoveryIntervalSeconds') }}</label>
@@ -193,15 +193,31 @@
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.storageRetryAttempts') }}</label>
-                <input v-model.number="imageStorageForm.async_image.storage_retry_attempts" type="number" min="0" class="input w-full" />
+                <input v-model.number="imageStorageForm.async_image.storage_retry_attempts" type="number" min="1" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.billingRetryAttempts') }}</label>
-                <input v-model.number="imageStorageForm.async_image.billing_retry_attempts" type="number" min="0" class="input w-full" />
+                <input v-model.number="imageStorageForm.async_image.billing_retry_attempts" type="number" min="1" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxBytes') }}</label>
                 <input v-model.number="imageStorageForm.async_image.download_max_bytes" type="number" min="1048576" max="67108864" step="1048576" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadMaxPixels') }}</label>
+                <input v-model.number="imageStorageForm.async_image.download_max_pixels" type="number" min="1000000" max="80000000" step="1000000" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.maxReferenceImages') }}</label>
+                <input v-model.number="imageStorageForm.async_image.max_reference_images" type="number" min="1" max="16" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.maxReferenceTotalBytes') }}</label>
+                <input v-model.number="imageStorageForm.async_image.max_reference_total_bytes" type="number" min="1048576" max="268435456" step="1048576" class="input w-full" />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.maxReferenceTotalPixels') }}</label>
+                <input v-model.number="imageStorageForm.async_image.max_reference_total_pixels" type="number" min="1000000" max="320000000" step="1000000" class="input w-full" />
               </div>
               <div>
                 <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.downloadTimeoutSeconds') }}</label>
@@ -576,6 +592,10 @@ const imageStorageForm = ref<ImageStorageConfig>({
     billing_retry_attempts: 10,
     retry_backoff_seconds: 30,
     download_max_bytes: 33554432,
+    download_max_pixels: 40000000,
+    max_reference_images: 8,
+    max_reference_total_bytes: 67108864,
+    max_reference_total_pixels: 80000000,
     download_timeout_seconds: 30,
     download_max_redirects: 3,
     signed_url_expiry_seconds: 3600,

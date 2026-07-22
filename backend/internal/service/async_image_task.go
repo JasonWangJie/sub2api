@@ -49,6 +49,7 @@ var (
 	ErrAsyncImageIdempotencyConflict = infraerrors.New(http.StatusConflict, "ASYNC_IMAGE_IDEMPOTENCY_CONFLICT", "idempotency key reused with a different asynchronous image request")
 	ErrAsyncImageInvalidInput        = infraerrors.New(http.StatusBadRequest, "ASYNC_IMAGE_INVALID_INPUT", "invalid asynchronous image task input")
 	ErrAsyncImageInvalidTransition   = infraerrors.New(http.StatusConflict, "ASYNC_IMAGE_INVALID_TRANSITION", "asynchronous image task state changed or transition is invalid")
+	ErrAsyncImageOutboxClaimLost     = infraerrors.New(http.StatusConflict, "ASYNC_IMAGE_OUTBOX_CLAIM_LOST", "asynchronous image outbox claim is no longer owned by this dispatcher")
 )
 
 // AsyncImageTask is the durable PostgreSQL representation. RequestPayload is
@@ -212,6 +213,15 @@ type AsyncImageResult struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+type AsyncImageResultUploadIntent struct {
+	ID               int64
+	TaskID           string
+	ImageIndex       int
+	ObjectRef        ObjectRef
+	ExpiresAt        time.Time
+	CleanupClaimedAt *time.Time
+}
+
 type AsyncImageEvent struct {
 	ID         int64           `json:"id"`
 	TaskID     string          `json:"task_id"`
@@ -231,6 +241,7 @@ type AsyncImageOutboxEntry struct {
 	Attempts    int             `json:"attempts"`
 	AvailableAt time.Time       `json:"available_at"`
 	ClaimedAt   *time.Time      `json:"claimed_at,omitempty"`
+	ClaimToken  string          `json:"-"`
 	PublishedAt *time.Time      `json:"published_at,omitempty"`
 	LastError   *string         `json:"last_error,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
@@ -252,11 +263,12 @@ type AsyncImageTaskRepository interface {
 	GetAsyncImageTaskForAPIKey(ctx context.Context, apiKeyID int64, taskID string) (*AsyncImageTask, error)
 	GetAsyncImageTaskForUser(ctx context.Context, userID int64, taskID string) (*AsyncImageTask, error)
 	ListAsyncImageTasks(ctx context.Context, filter AsyncImageTaskFilter) ([]*AsyncImageTask, int64, error)
-	ListRecoverableAsyncImageTasks(ctx context.Context, statuses []string, updatedBefore time.Time, limit int) ([]*AsyncImageTask, error)
+	ListRecoverableAsyncImageTasks(ctx context.Context, statuses []string, updatedBefore time.Time, storageRetryLimit, billingRetryLimit, limit int) ([]*AsyncImageTask, error)
 	TouchAsyncImageTask(ctx context.Context, taskID string, statuses []string) error
 	TransitionAsyncImageTask(ctx context.Context, transition AsyncImageTaskTransition) (*AsyncImageTask, error)
 	RecordAsyncImageUpstreamSuccess(ctx context.Context, params RecordAsyncImageUpstreamSuccessParams) (*AsyncImageTask, error)
 	ReplaceAsyncImageResults(ctx context.Context, taskID string, results []AsyncImageResult) error
+	PrepareAsyncImageResultUploadIntents(ctx context.Context, taskID string, intents []AsyncImageResultUploadIntent) error
 	ListAsyncImageResults(ctx context.Context, taskID string) ([]AsyncImageResult, error)
 	ListAsyncImageStagingObjects(ctx context.Context, taskID string) ([]AsyncImageStagingObject, error)
 	DeleteAsyncImageStagingObjects(ctx context.Context, taskID string) error
@@ -265,8 +277,8 @@ type AsyncImageTaskRepository interface {
 	ListAsyncImageEvents(ctx context.Context, taskID string) ([]AsyncImageEvent, error)
 	EnqueueAsyncImageOutbox(ctx context.Context, entry AsyncImageOutboxEntry) error
 	ClaimAsyncImageOutbox(ctx context.Context, limit int, staleBefore time.Time) ([]AsyncImageOutboxEntry, error)
-	MarkAsyncImageOutboxPublished(ctx context.Context, id int64, publishedAt time.Time) error
-	MarkAsyncImageOutboxFailed(ctx context.Context, id int64, availableAt time.Time, message string) error
+	MarkAsyncImageOutboxPublished(ctx context.Context, id int64, claimToken string, publishedAt time.Time) error
+	MarkAsyncImageOutboxFailed(ctx context.Context, id int64, claimToken string, availableAt time.Time, message string) error
 }
 
 // AsyncImageLibraryArchiveOutboxRepository is implemented by persistent
@@ -274,7 +286,7 @@ type AsyncImageTaskRepository interface {
 // alternate/test task repositories continue to implement the core contract.
 type AsyncImageLibraryArchiveOutboxRepository interface {
 	EnqueueMissingAsyncImageLibraryArchives(ctx context.Context, limit int) (int64, error)
-	MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, publishedAt time.Time, message string) error
+	MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, claimToken string, publishedAt time.Time, message string) error
 }
 
 type AsyncImageTaskService struct {
@@ -444,6 +456,7 @@ func CanTransitionAsyncImageTask(from, to string) bool {
 		AsyncImageTaskStatusInvoking: {
 			AsyncImageTaskStatusUpstreamSucceeded: {},
 			AsyncImageTaskStatusExecutionUnknown:  {},
+			AsyncImageTaskStatusQueued:            {},
 		},
 		AsyncImageTaskStatusUpstreamSucceeded: {
 			AsyncImageTaskStatusUploading:      {},

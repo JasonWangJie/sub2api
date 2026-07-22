@@ -74,6 +74,54 @@ func TestAsyncImageReferenceDownloaderDataURI(t *testing.T) {
 	require.Equal(t, asyncImageOnePixelPNG, base64.StdEncoding.EncodeToString(ref.Data))
 }
 
+func TestAsyncImageReferenceBudgetEnforcesAggregateLimits(t *testing.T) {
+	dataURI := "data:image/png;base64," + asyncImageOnePixelPNG
+	pngBytes, err := base64.StdEncoding.DecodeString(asyncImageOnePixelPNG)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		budget AsyncImageReferenceBudget
+	}{
+		{name: "count", budget: AsyncImageReferenceBudget{MaxImages: 1}},
+		{name: "bytes", budget: AsyncImageReferenceBudget{MaxImages: 2, MaxTotalBytes: int64(len(pngBytes)*2 - 1)}},
+		{name: "pixels", budget: AsyncImageReferenceBudget{MaxImages: 2, MaxTotalPixels: 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			downloader := AsyncImageReferenceDownloader{MaxBytes: 1 << 20, MaxPixels: 100, Budget: &tt.budget}
+			_, err := downloader.Download(context.Background(), dataURI)
+			require.NoError(t, err)
+			_, err = downloader.Download(context.Background(), dataURI)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestAsyncImageReferenceDownloaderUsesBoundObjectWithoutNetwork(t *testing.T) {
+	validated, err := (AsyncImageReferenceDownloader{}).ValidateBytes(mustDecodeAsyncImagePNG(t), "image/png")
+	require.NoError(t, err)
+	called := false
+	downloader := AsyncImageReferenceDownloader{
+		BoundLoader: func(_ context.Context, rawURL string) (*AsyncImageReference, bool, error) {
+			called = true
+			require.Equal(t, "https://storage.invalid/input.png", rawURL)
+			return validated, true, nil
+		},
+	}
+	ref, err := downloader.Download(context.Background(), "https://storage.invalid/input.png")
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, validated.SHA256, ref.SHA256)
+}
+
+func mustDecodeAsyncImagePNG(t *testing.T) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(asyncImageOnePixelPNG)
+	require.NoError(t, err)
+	return data
+}
+
 func TestAsyncImageReferenceValidationRejectsGIFTrailingDataAndForgedMIME(t *testing.T) {
 	downloader := AsyncImageReferenceDownloader{MaxBytes: 1 << 20, MaxPixels: 100}
 

@@ -87,6 +87,51 @@ WHERE url_hash = ANY($1)
 	return objects, rows.Err()
 }
 
+func (r *asyncImageTaskRepository) ResolveAsyncImageTaskInputReferences(
+	ctx context.Context,
+	taskID string,
+	hashes []string,
+) ([]service.AsyncImageTaskInputReference, error) {
+	if len(hashes) == 0 {
+		return []service.AsyncImageTaskInputReference{}, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+WITH requested(url_hash) AS (SELECT unnest($2::text[]))
+SELECT requested.url_hash, i.provider, i.bucket, i.object_key, i.content_type,
+       i.byte_size, i.checksum, i.width, i.height
+FROM requested
+JOIN async_image_task_inputs ti ON ti.task_id=$1
+JOIN async_image_input_objects i ON i.id=ti.input_object_id
+WHERE i.cleanup_claimed_at IS NULL
+  AND (
+    i.url_hash=requested.url_hash OR EXISTS (
+      SELECT 1 FROM async_image_input_url_aliases a
+      WHERE a.input_object_id=i.id AND a.url_hash=requested.url_hash
+    )
+  )`, strings.TrimSpace(taskID), pq.Array(hashes))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	references := make([]service.AsyncImageTaskInputReference, 0, len(hashes))
+	for rows.Next() {
+		var reference service.AsyncImageTaskInputReference
+		var width, height sql.NullInt64
+		if err := rows.Scan(
+			&reference.URLHash, &reference.ObjectRef.Provider, &reference.ObjectRef.Bucket,
+			&reference.ObjectRef.ObjectKey, &reference.ObjectRef.ContentType,
+			&reference.ObjectRef.SizeBytes, &reference.ObjectRef.ChecksumSHA256,
+			&width, &height,
+		); err != nil {
+			return nil, err
+		}
+		reference.ObjectRef.Width = nullIntValue(width)
+		reference.ObjectRef.Height = nullIntValue(height)
+		references = append(references, reference)
+	}
+	return references, rows.Err()
+}
+
 func bindAsyncImageInputObjects(ctx context.Context, tx *sql.Tx, params service.CreateAsyncImageTaskParams) error {
 	seen := make(map[int64]struct{}, len(params.InputObjectIDs))
 	for _, inputID := range params.InputObjectIDs {

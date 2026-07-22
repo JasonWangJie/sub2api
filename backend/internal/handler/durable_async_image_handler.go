@@ -175,11 +175,9 @@ func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlat
 			payload.Normalized = normalized
 			model, kind, requestedSize, aspectRatio, prompt = normalized.Model, normalized.Kind, normalized.ImageSize, normalized.AspectRatio, normalized.Prompt
 			moderationBody = asyncImageGeminiModerationBody(normalized)
-			if protocol == service.AsyncImageProtocolSC {
-				for _, part := range normalized.Parts {
-					if part.Type == "image_url" && strings.TrimSpace(part.URL) != "" {
-						inputReferenceURLs = append(inputReferenceURLs, part.URL)
-					}
+			for _, part := range normalized.Parts {
+				if part.Type == "image_url" && strings.TrimSpace(part.URL) != "" {
+					inputReferenceURLs = append(inputReferenceURLs, part.URL)
 				}
 			}
 		}
@@ -207,6 +205,10 @@ func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlat
 	}
 	if err != nil {
 		h.writeProtocolError(c, protocol, http.StatusBadRequest, asyncImageRequestErrorCode(err), err.Error())
+		return
+	}
+	if expectedPlatform == service.PlatformGemini && payload.Normalized != nil && payload.Normalized.ReferenceCount() > runtimeCfg.MaxReferenceImages {
+		h.writeProtocolError(c, protocol, http.StatusBadRequest, "too_many_reference_images", "reference image count exceeds the configured limit")
 		return
 	}
 	if !h.checkSecurityAuditBeforeSubmit(c, apiKey, protocol, expectedPlatform, moderationProtocol, model, moderationBody) {
@@ -697,6 +699,10 @@ func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
 		}
 		return
 	}
+	if err := h.registerAsyncImageInputURLAliases(c.Request.Context(), apiKey, object, access.URL, object.ExpiresAt); err != nil {
+		h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusInternalServerError, "upload_failed", "failed to persist uploaded image access identity")
+		return
+	}
 	h.writeSCUploadJSON(c, object, access.URL, false)
 }
 
@@ -717,13 +723,34 @@ func (h *DurableAsyncImageHandler) writeSCUploadResponse(c *gin.Context, storage
 	if !access.ExpiresAt.IsZero() && access.ExpiresAt.Before(aliasExpiry) {
 		aliasExpiry = access.ExpiresAt
 	}
-	if err := h.tasks.RegisterInputURLAlias(c.Request.Context(), service.RegisterAsyncImageInputURLAliasParams{
-		InputObjectID: object.ID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
-		URLHash: service.AsyncImageInputURLHash(access.URL), ExpiresAt: aliasExpiry,
-	}); err != nil {
+	if err := h.registerAsyncImageInputURLAliases(c.Request.Context(), apiKey, object, access.URL, aliasExpiry); err != nil {
 		return err
 	}
 	h.writeSCUploadJSON(c, object, access.URL, replayed)
+	return nil
+}
+
+func (h *DurableAsyncImageHandler) registerAsyncImageInputURLAliases(
+	ctx context.Context,
+	apiKey *service.APIKey,
+	object *service.AsyncImageInputObject,
+	rawURL string,
+	expiresAt time.Time,
+) error {
+	if h == nil || h.tasks == nil || apiKey == nil || object == nil {
+		return service.ErrAsyncImageInvalidInput
+	}
+	for _, hash := range service.AsyncImageInputURLHashes(rawURL) {
+		if hash == object.URLHash {
+			continue
+		}
+		if err := h.tasks.RegisterInputURLAlias(ctx, service.RegisterAsyncImageInputURLAliasParams{
+			InputObjectID: object.ID, UserID: apiKey.UserID, APIKeyID: apiKey.ID,
+			URLHash: hash, ExpiresAt: expiresAt,
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -785,11 +812,25 @@ func asyncImageResultsReleasable(task *service.AsyncImageTask) bool {
 }
 
 func asyncImageFailureMessage(task *service.AsyncImageTask) string {
-	if task != nil && task.ErrorMessage != nil && strings.TrimSpace(*task.ErrorMessage) != "" {
-		return strings.TrimSpace(*task.ErrorMessage)
+	if task == nil {
+		return "image generation failed"
 	}
-	if task != nil && task.Status == service.AsyncImageTaskStatusExecutionUnknown {
+	if task.Status == service.AsyncImageTaskStatusExecutionUnknown {
 		return "generation outcome is unknown after an interrupted upstream request"
+	}
+	if task.ErrorCode != nil {
+		switch strings.TrimSpace(*task.ErrorCode) {
+		case "invalid_reference_image", "unsupported_image_dimensions":
+			return "reference image could not be processed"
+		case "storage_failed", "storage_unavailable":
+			return "image result storage failed"
+		case "billing_failed":
+			return "image billing confirmation failed"
+		case "eligibility_failed":
+			return "image generation eligibility changed before execution"
+		case "upstream_failed", "gateway_unavailable":
+			return "upstream image generation failed"
+		}
 	}
 	return "image generation failed"
 }

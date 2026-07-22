@@ -159,6 +159,10 @@ type AsyncImageRuntimeConfig struct {
 	BillingRetryAttempts    int      `json:"billing_retry_attempts"`
 	RetryBackoffSeconds     int      `json:"retry_backoff_seconds"`
 	DownloadMaxBytes        int64    `json:"download_max_bytes"`
+	DownloadMaxPixels       int64    `json:"download_max_pixels"`
+	MaxReferenceImages      int      `json:"max_reference_images"`
+	MaxReferenceTotalBytes  int64    `json:"max_reference_total_bytes"`
+	MaxReferenceTotalPixels int64    `json:"max_reference_total_pixels"`
 	DownloadTimeoutSeconds  int      `json:"download_timeout_seconds"`
 	DownloadMaxRedirects    int      `json:"download_max_redirects"`
 	UploadTimeoutSeconds    int      `json:"upload_timeout_seconds"`
@@ -733,6 +737,10 @@ func asyncRuntimeFromConfig(in config.AsyncImageConfig) AsyncImageRuntimeConfig 
 		BillingRetryAttempts:    in.BillingRetryAttempts,
 		RetryBackoffSeconds:     in.RetryBackoffSeconds,
 		DownloadMaxBytes:        in.DownloadMaxBytes,
+		DownloadMaxPixels:       in.DownloadMaxPixels,
+		MaxReferenceImages:      in.MaxReferenceImages,
+		MaxReferenceTotalBytes:  in.MaxReferenceTotalBytes,
+		MaxReferenceTotalPixels: in.MaxReferenceTotalPixels,
 		DownloadTimeoutSeconds:  in.DownloadTimeoutSeconds,
 		DownloadMaxRedirects:    in.DownloadMaxRedirects,
 		UploadTimeoutSeconds:    in.UploadTimeoutSeconds,
@@ -758,6 +766,10 @@ func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
 		BillingRetryAttempts:    10,
 		RetryBackoffSeconds:     30,
 		DownloadMaxBytes:        defaultImageMaxDownloadBytes,
+		DownloadMaxPixels:       40_000_000,
+		MaxReferenceImages:      8,
+		MaxReferenceTotalBytes:  64 << 20,
+		MaxReferenceTotalPixels: 80_000_000,
 		DownloadTimeoutSeconds:  30,
 		DownloadMaxRedirects:    3,
 		UploadTimeoutSeconds:    300,
@@ -773,11 +785,17 @@ func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
 }
 
 const (
-	maxAsyncImageDownloadBytes    = int64(64 << 20)
-	maxAsyncImageInputRetention   = 24 * 30
-	maxAsyncImageUploadTimeout    = 600
-	maxAsyncImageUploadsPerMinute = 1000
-	maxAsyncImageInputBytesPerKey = int64(100 << 30)
+	maxAsyncImageWorkerConcurrency = 64
+	maxAsyncImageDownloadBytes     = int64(64 << 20)
+	maxAsyncImageDownloadPixels    = int64(80_000_000)
+	maxAsyncImageReferenceImages   = 16
+	maxAsyncImageReferenceBytes    = int64(256 << 20)
+	maxAsyncImageReferencePixels   = int64(320_000_000)
+	minAsyncImageWorkerLease       = 45
+	maxAsyncImageInputRetention    = 24 * 30
+	maxAsyncImageUploadTimeout     = 600
+	maxAsyncImageUploadsPerMinute  = 1000
+	maxAsyncImageInputBytesPerKey  = int64(100 << 30)
 )
 
 func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
@@ -785,9 +803,13 @@ func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
 	in.PublicBaseURL = strings.TrimRight(strings.TrimSpace(in.PublicBaseURL), "/")
 	if in.WorkerConcurrency <= 0 {
 		in.WorkerConcurrency = defaults.WorkerConcurrency
+	} else if in.WorkerConcurrency > maxAsyncImageWorkerConcurrency {
+		in.WorkerConcurrency = maxAsyncImageWorkerConcurrency
 	}
 	if in.WorkerLeaseSeconds <= 0 {
 		in.WorkerLeaseSeconds = defaults.WorkerLeaseSeconds
+	} else if in.WorkerLeaseSeconds < minAsyncImageWorkerLease {
+		in.WorkerLeaseSeconds = minAsyncImageWorkerLease
 	}
 	if in.RecoveryIntervalSeconds <= 0 {
 		in.RecoveryIntervalSeconds = defaults.RecoveryIntervalSeconds
@@ -808,6 +830,26 @@ func normalizeAsyncImageRuntimeConfig(in *AsyncImageRuntimeConfig) {
 		in.DownloadMaxBytes = defaults.DownloadMaxBytes
 	} else if in.DownloadMaxBytes > maxAsyncImageDownloadBytes {
 		in.DownloadMaxBytes = maxAsyncImageDownloadBytes
+	}
+	if in.DownloadMaxPixels <= 0 {
+		in.DownloadMaxPixels = defaults.DownloadMaxPixels
+	} else if in.DownloadMaxPixels > maxAsyncImageDownloadPixels {
+		in.DownloadMaxPixels = maxAsyncImageDownloadPixels
+	}
+	if in.MaxReferenceImages <= 0 {
+		in.MaxReferenceImages = defaults.MaxReferenceImages
+	} else if in.MaxReferenceImages > maxAsyncImageReferenceImages {
+		in.MaxReferenceImages = maxAsyncImageReferenceImages
+	}
+	if in.MaxReferenceTotalBytes <= 0 {
+		in.MaxReferenceTotalBytes = defaults.MaxReferenceTotalBytes
+	} else if in.MaxReferenceTotalBytes > maxAsyncImageReferenceBytes {
+		in.MaxReferenceTotalBytes = maxAsyncImageReferenceBytes
+	}
+	if in.MaxReferenceTotalPixels <= 0 {
+		in.MaxReferenceTotalPixels = defaults.MaxReferenceTotalPixels
+	} else if in.MaxReferenceTotalPixels > maxAsyncImageReferencePixels {
+		in.MaxReferenceTotalPixels = maxAsyncImageReferencePixels
 	}
 	if in.DownloadTimeoutSeconds <= 0 {
 		in.DownloadTimeoutSeconds = defaults.DownloadTimeoutSeconds

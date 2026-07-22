@@ -268,6 +268,10 @@ type AsyncImageConfig struct {
 	BillingRetryAttempts    int      `mapstructure:"billing_retry_attempts"`
 	RetryBackoffSeconds     int      `mapstructure:"retry_backoff_seconds"`
 	DownloadMaxBytes        int64    `mapstructure:"download_max_bytes"`
+	DownloadMaxPixels       int64    `mapstructure:"download_max_pixels"`
+	MaxReferenceImages      int      `mapstructure:"max_reference_images"`
+	MaxReferenceTotalBytes  int64    `mapstructure:"max_reference_total_bytes"`
+	MaxReferenceTotalPixels int64    `mapstructure:"max_reference_total_pixels"`
 	DownloadTimeoutSeconds  int      `mapstructure:"download_timeout_seconds"`
 	DownloadMaxRedirects    int      `mapstructure:"download_max_redirects"`
 	UploadTimeoutSeconds    int      `mapstructure:"upload_timeout_seconds"`
@@ -2103,6 +2107,10 @@ func setDefaults() {
 	viper.SetDefault("async_image.billing_retry_attempts", 10)
 	viper.SetDefault("async_image.retry_backoff_seconds", 30)
 	viper.SetDefault("async_image.download_max_bytes", int64(32*1024*1024))
+	viper.SetDefault("async_image.download_max_pixels", int64(40_000_000))
+	viper.SetDefault("async_image.max_reference_images", 8)
+	viper.SetDefault("async_image.max_reference_total_bytes", int64(64*1024*1024))
+	viper.SetDefault("async_image.max_reference_total_pixels", int64(80_000_000))
 	viper.SetDefault("async_image.download_timeout_seconds", 30)
 	viper.SetDefault("async_image.download_max_redirects", 3)
 	viper.SetDefault("async_image.upload_timeout_seconds", 300)

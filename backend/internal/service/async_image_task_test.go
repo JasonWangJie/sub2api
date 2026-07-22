@@ -89,6 +89,7 @@ func TestAsyncImageTaskServiceTransitionValidatesStateGraph(t *testing.T) {
 }
 
 func TestCanTransitionAsyncImageTaskOnlyRetriesPostProcessing(t *testing.T) {
+	require.True(t, CanTransitionAsyncImageTask(AsyncImageTaskStatusInvoking, AsyncImageTaskStatusQueued))
 	require.True(t, CanTransitionAsyncImageTask(AsyncImageTaskStatusStorageFailed, AsyncImageTaskStatusUploading))
 	require.True(t, CanTransitionAsyncImageTask(AsyncImageTaskStatusBillingFailed, AsyncImageTaskStatusBillingPending))
 	require.False(t, CanTransitionAsyncImageTask(AsyncImageTaskStatusExecutionUnknown, AsyncImageTaskStatusInvoking))

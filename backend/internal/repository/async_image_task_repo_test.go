@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"testing"
 	"time"
@@ -35,6 +36,14 @@ func TestAsyncImageTaskMigrationContainsDurabilityAndOwnershipConstraints(t *tes
 	} {
 		require.Contains(t, sqlText, required)
 	}
+}
+
+func TestAsyncImageResultIntentMigrationAddsOutboxClaimOwnership(t *testing.T) {
+	content, err := migrations.FS.ReadFile("189_async_image_result_upload_intents.sql")
+	require.NoError(t, err)
+	sqlText := string(content)
+	require.Contains(t, sqlText, "CREATE TABLE IF NOT EXISTS async_image_result_upload_intents")
+	require.Contains(t, sqlText, "ADD COLUMN IF NOT EXISTS claim_token VARCHAR(64)")
 }
 
 func TestAsyncImageTaskRepositoryCreateBindsOwnedInputInTransaction(t *testing.T) {
@@ -207,6 +216,25 @@ func TestAsyncImageTaskRepositoryTouchHeartbeatDoesNotAdvanceVersion(t *testing.
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestAsyncImageTaskRepositoryRecoverableQueryEnforcesRetryCaps(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	before := time.Now().UTC()
+	mock.ExpectQuery(`(?s)FROM async_image_tasks.*storage_retry_count < \$3.*billing_retry_count < \$4.*LIMIT \$5`).
+		WithArgs(sqlmock.AnyArg(), before, 5, 10, 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	repo := NewAsyncImageTaskRepository(db)
+	tasks, err := repo.ListRecoverableAsyncImageTasks(context.Background(), []string{
+		service.AsyncImageTaskStatusStorageFailed, service.AsyncImageTaskStatusBillingFailed,
+	}, before, 5, 10, 20)
+	require.NoError(t, err)
+	require.Empty(t, tasks)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestAsyncImageTaskRepositoryClaimOutboxUsesSkipLocked(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -215,10 +243,11 @@ func TestAsyncImageTaskRepositoryClaimOutboxUsesSkipLocked(t *testing.T) {
 	now := time.Now().UTC()
 	mock.ExpectBegin()
 	mock.ExpectQuery("(?s)FOR UPDATE SKIP LOCKED.*RETURNING").
+		WithArgs(now.Add(-time.Minute), 10, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "task_id", "event_type", "dedup_key", "payload", "attempts",
-			"available_at", "claimed_at", "published_at", "last_error", "created_at", "updated_at",
-		}).AddRow(int64(1), "asyncimg_1", "task_ready", "asyncimg_1:created", []byte(`{}`), 1, now, now, nil, nil, now, now))
+			"available_at", "claimed_at", "claim_token", "published_at", "last_error", "created_at", "updated_at",
+		}).AddRow(int64(1), "asyncimg_1", "task_ready", "asyncimg_1:created", []byte(`{}`), 1, now, now, "claim-new", nil, nil, now, now))
 	mock.ExpectCommit()
 
 	repo := NewAsyncImageTaskRepository(db)
@@ -226,6 +255,23 @@ func TestAsyncImageTaskRepositoryClaimOutboxUsesSkipLocked(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.Equal(t, "asyncimg_1", entries[0].TaskID)
+	require.Equal(t, "claim-new", entries[0].ClaimToken)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAsyncImageTaskRepositoryRejectsStaleOutboxClaimCompletion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	completedAt := time.Now().UTC()
+	mock.ExpectExec(`(?s)UPDATE async_image_outbox.*claim_token = NULL.*claim_token = \$3`).
+		WithArgs(int64(7), completedAt, "claim-old").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	repo := NewAsyncImageTaskRepository(db)
+	err = repo.MarkAsyncImageOutboxPublished(context.Background(), 7, "claim-old", completedAt)
+	require.ErrorIs(t, err, service.ErrAsyncImageOutboxClaimLost)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -251,13 +297,40 @@ func TestAsyncImageTaskRepositoryTerminalOutboxRetainsFailureWithoutRequeue(t *t
 	defer func() { _ = db.Close() }()
 
 	completedAt := time.Now().UTC()
-	mock.ExpectExec(`(?s)UPDATE async_image_outbox.*published_at = \$2.*last_error = \$3.*published_at IS NULL`).
-		WithArgs(int64(7), completedAt, "image quota exceeded").
+	mock.ExpectExec(`(?s)UPDATE async_image_outbox.*published_at = \$2.*last_error = \$3.*published_at IS NULL.*claim_token = \$4`).
+		WithArgs(int64(7), completedAt, "image quota exceeded", "claim-7").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	repo := NewAsyncImageTaskRepository(db).(*asyncImageTaskRepository)
-	err = repo.MarkAsyncImageOutboxTerminal(context.Background(), 7, completedAt, "image quota exceeded")
+	err = repo.MarkAsyncImageOutboxTerminal(context.Background(), 7, "claim-7", completedAt, "image quota exceeded")
 	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPrepareAsyncImageResultUploadIntentsRejectsIdentityChange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT status FROM async_image_tasks WHERE task_id=\$1 FOR UPDATE`).
+		WithArgs("asyncimg_intent").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(service.AsyncImageTaskStatusUploading))
+	mock.ExpectQuery(`(?s)INSERT INTO async_image_result_upload_intents AS existing.*ON CONFLICT.*WHERE existing.provider=EXCLUDED.provider.*RETURNING task_id`).
+		WithArgs("asyncimg_intent", 0, "aliyun", "images", "results/a.png", "image/png", int64(123), "checksum", expiresAt).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	repo := NewAsyncImageTaskRepository(db)
+	err = repo.PrepareAsyncImageResultUploadIntents(context.Background(), "asyncimg_intent", []service.AsyncImageResultUploadIntent{{
+		TaskID: "asyncimg_intent", ImageIndex: 0, ExpiresAt: expiresAt,
+		ObjectRef: service.ObjectRef{
+			Provider: "aliyun", Bucket: "images", ObjectKey: "results/a.png",
+			ContentType: "image/png", SizeBytes: 123, ChecksumSHA256: "checksum",
+		},
+	}})
+	require.ErrorIs(t, err, service.ErrAsyncImageInvalidTransition)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -279,6 +352,9 @@ func TestReplaceAsyncImageResultsRegistersSharedStorageObject(t *testing.T) {
 	mock.ExpectExec("(?s)INSERT INTO async_image_results.*storage_object_id").
 		WithArgs("asyncimg_1", 0, "aliyun", "images", "results/1.png", "image/png", int64(123), "checksum", 10, 20, int64(77)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM async_image_result_upload_intents").
+		WithArgs("asyncimg_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	repo := NewAsyncImageTaskRepository(db)

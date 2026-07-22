@@ -103,6 +103,10 @@ export interface AsyncImageRuntimeConfig {
   billing_retry_attempts: number
   retry_backoff_seconds: number
   download_max_bytes: number
+  download_max_pixels: number
+  max_reference_images: number
+  max_reference_total_bytes: number
+  max_reference_total_pixels: number
   download_timeout_seconds: number
   download_max_redirects: number
   signed_url_expiry_seconds: number

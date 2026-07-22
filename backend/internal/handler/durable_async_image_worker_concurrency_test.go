@@ -107,6 +107,7 @@ func TestDurableAsyncImageWorkerGeminiCanceledWaitDoesNotLeakWaiterOrInvokeGatew
 	require.True(t, worker.forwardAsyncImageUpstream(c, service.PlatformGemini))
 
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.True(t, isOpsRoutingCapacityLimited(c), "local limiter rejection must be distinguishable from an upstream 429")
 	require.Zero(t, upstream.calls.Load(), "a canceled limiter wait must not invoke Gemini")
 	heldRelease()
 
@@ -125,6 +126,64 @@ func TestDurableAsyncImageWorkerGeminiCanceledWaitDoesNotLeakWaiterOrInvokeGatew
 	time.Sleep(20 * time.Millisecond)
 	heldAgain()
 	require.True(t, <-waitResult)
+}
+
+type asyncImageLocalCapacityRepoStub struct {
+	service.AsyncImageTaskRepository
+	transition service.AsyncImageTaskTransition
+	task       *service.AsyncImageTask
+}
+
+func (s *asyncImageLocalCapacityRepoStub) TransitionAsyncImageTask(_ context.Context, transition service.AsyncImageTaskTransition) (*service.AsyncImageTask, error) {
+	s.transition = transition
+	return &service.AsyncImageTask{
+		TaskID: transition.TaskID, Status: transition.ToStatus,
+		Version: transition.ExpectedVersion + 1,
+	}, nil
+}
+
+func (s *asyncImageLocalCapacityRepoStub) GetAsyncImageTaskByTaskID(context.Context, string) (*service.AsyncImageTask, error) {
+	if s.task == nil {
+		return nil, service.ErrAsyncImageTaskNotFound
+	}
+	return s.task, nil
+}
+
+func TestDurableAsyncImageWorkerDefersLocalCapacityWithoutFailingTask(t *testing.T) {
+	repo := &asyncImageLocalCapacityRepoStub{}
+	worker := &DurableAsyncImageHandler{tasks: service.NewAsyncImageTaskService(repo)}
+	task := &service.AsyncImageTask{
+		TaskID: "asyncimg_capacity", Status: service.AsyncImageTaskStatusInvoking, Version: 7,
+	}
+
+	disposition := worker.deferAsyncImageForLocalCapacity(context.Background(), task, service.AsyncImageRuntimeConfig{RetryBackoffSeconds: 12})
+	require.True(t, disposition.requeue)
+	require.Equal(t, 12*time.Second, disposition.delay)
+	require.Equal(t, service.AsyncImageTaskStatusQueued, repo.transition.ToStatus)
+	require.True(t, repo.transition.IncrementRetry)
+	require.True(t, repo.transition.ClearError)
+}
+
+func TestAsyncImageInvocationHeartbeatFreshUsesDatabaseLeaseWindow(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
+	cfg := service.AsyncImageRuntimeConfig{WorkerLeaseSeconds: 120}
+
+	require.True(t, asyncImageInvocationHeartbeatFresh(&service.AsyncImageTask{
+		UpdatedAt: now.Add(-119 * time.Second),
+	}, cfg, now))
+	require.False(t, asyncImageInvocationHeartbeatFresh(&service.AsyncImageTask{
+		UpdatedAt: now.Add(-120 * time.Second),
+	}, cfg, now))
+	require.False(t, asyncImageInvocationHeartbeatFresh(&service.AsyncImageTask{}, cfg, now))
+}
+
+func TestAsyncImageInvocationMayFinishAfterRedisLeaseLoss(t *testing.T) {
+	repo := &asyncImageLocalCapacityRepoStub{task: &service.AsyncImageTask{Status: service.AsyncImageTaskStatusInvoking}}
+	worker := &DurableAsyncImageHandler{tasks: service.NewAsyncImageTaskService(repo)}
+	require.True(t, worker.asyncImageInvocationCanOutliveQueueLease(context.Background(), "asyncimg_running"))
+
+	repo.task.Status = service.AsyncImageTaskStatusUploading
+	require.False(t, worker.asyncImageInvocationCanOutliveQueueLease(context.Background(), "asyncimg_uploading"))
 }
 
 func TestDurableAsyncImageWorkerOpenAIDelegatesSingleSharedImageLease(t *testing.T) {

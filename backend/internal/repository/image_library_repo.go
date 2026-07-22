@@ -69,6 +69,7 @@ func (r *imageLibraryRepository) HasActiveImageStorageObjects(ctx context.Contex
 	err := r.db.QueryRowContext(ctx, `SELECT
   EXISTS(SELECT 1 FROM image_storage_objects WHERE state<>'deleted')
   OR EXISTS(SELECT 1 FROM async_image_input_objects)
+  OR EXISTS(SELECT 1 FROM async_image_result_upload_intents)
   OR EXISTS(
       SELECT 1 FROM async_image_upload_reservations
       WHERE status='reserved' OR intent_object_key IS NOT NULL

@@ -137,6 +137,25 @@ type asyncImageUploadIntentRetentionRepoStub struct {
 	removed      bool
 }
 
+type asyncImageResultIntentRetentionRepoStub struct {
+	*asyncImageRetentionRepoStub
+	intents []AsyncImageResultUploadIntent
+}
+
+func (s *asyncImageResultIntentRetentionRepoStub) ClaimExpiredAsyncImageResultUploadIntents(context.Context, time.Time, time.Time, int) ([]AsyncImageResultUploadIntent, error) {
+	return s.intents, nil
+}
+
+func (s *asyncImageResultIntentRetentionRepoStub) CompleteAsyncImageResultUploadIntentDeletion(_ context.Context, _ int64, _ time.Time) error {
+	*s.events = append(*s.events, "complete-result-intent")
+	return nil
+}
+
+func (s *asyncImageResultIntentRetentionRepoStub) ReleaseAsyncImageResultUploadIntentDeletion(_ context.Context, _ int64, _ time.Time) error {
+	*s.events = append(*s.events, "release-result-intent")
+	return nil
+}
+
 func (s *asyncImageUploadIntentRetentionRepoStub) DeleteExpiredAsyncImageUploadAdmissionState(context.Context, time.Time, int) (int64, error) {
 	return s.stateDeleted, nil
 }
@@ -183,6 +202,43 @@ func TestAsyncImageRetentionKeepsIntentAfterFirstSuccessfulDelete(t *testing.T) 
 	require.Equal(t, int64(3), stats.UploadStateDeleted)
 	require.Zero(t, stats.UploadIntentsDeleted)
 	require.Equal(t, []string{"delete:orphan", "complete-upload-intent"}, events)
+}
+
+func TestAsyncImageRetentionDoesNotDeleteResultIntentWithLiveReference(t *testing.T) {
+	now := time.Now().UTC()
+	claimedAt := now.Add(-time.Minute)
+	events := make([]string, 0)
+	checks := make([]string, 0)
+	base := &asyncImageRetentionRepoStub{
+		events: &events, taskResults: map[string][]AsyncImageResult{},
+		sharedObjects: map[string]bool{"shared-intent": true}, referenceArgs: &checks,
+	}
+	repo := &asyncImageResultIntentRetentionRepoStub{
+		asyncImageRetentionRepoStub: base,
+		intents: []AsyncImageResultUploadIntent{{
+			ID: 9, TaskID: "asyncimg_partial", ImageIndex: 0,
+			ObjectRef: serviceObjectRefForRetentionTest("shared-intent"),
+			ExpiresAt: now.Add(-time.Hour), CleanupClaimedAt: &claimedAt,
+		}},
+	}
+	durable := &asyncImageRetentionDurableStub{events: &events, failKeys: map[string]error{}}
+	svc := &AsyncImageRetentionService{
+		repo: repo,
+		storage: &asyncImageRetentionStorageStub{
+			durable: durable,
+			cfg:     AsyncImageRuntimeConfig{ResultRetentionDays: 90, TaskRetentionDays: 90},
+		},
+	}
+
+	stats, err := svc.RunOnce(context.Background(), now)
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.ResultUploadIntentsDeleted)
+	require.Equal(t, []string{"complete-result-intent"}, events)
+	require.Equal(t, []string{"shared-intent:"}, checks)
+}
+
+func serviceObjectRefForRetentionTest(key string) ObjectRef {
+	return ObjectRef{Provider: "aliyun", Bucket: "images", ObjectKey: key}
 }
 
 func TestAsyncImageRetentionDeletesObjectsBeforeRowsAndTasks(t *testing.T) {
@@ -316,4 +372,21 @@ func TestResolveOwnedInputObjectIDsAllowsUnknownRemoteAndBindsOwnedUpload(t *tes
 	}, now)
 	require.NoError(t, err)
 	require.Equal(t, []int64{7}, ids)
+}
+
+func TestAsyncImageInputURLHashCanonicalizesFragmentAndHostCase(t *testing.T) {
+	base := "https://storage.example/input.png?token=abc"
+	withFragment := "HTTPS://STORAGE.EXAMPLE/input.png?token=abc#preview"
+	require.Equal(t, AsyncImageInputURLHash(base), AsyncImageInputURLHash(withFragment))
+
+	hashes := AsyncImageInputURLHashes(withFragment)
+	require.GreaterOrEqual(t, len(hashes), 3, "resource and legacy hashes remain available during migration")
+	require.Equal(t, AsyncImageInputURLHash(base), hashes[0])
+	require.NotEqual(t, hashes[0], hashes[1])
+}
+
+func TestAsyncImageInputURLHashesTreatsSignedQueryVariantsAsOneResource(t *testing.T) {
+	a := AsyncImageInputURLHashes("https://storage.example/input.png?x=1&y=2")
+	b := AsyncImageInputURLHashes("https://storage.example/input.png?y=2&x=1#preview")
+	require.Contains(t, b, a[1], "the query-independent object resource hash must be stable")
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -246,18 +247,31 @@ func asyncImageTaskOrderBy(filter service.AsyncImageTaskFilter) string {
 	return " ORDER BY " + column + " " + direction + ", id " + direction
 }
 
-func (r *asyncImageTaskRepository) ListRecoverableAsyncImageTasks(ctx context.Context, statuses []string, updatedBefore time.Time, limit int) ([]*service.AsyncImageTask, error) {
+func (r *asyncImageTaskRepository) ListRecoverableAsyncImageTasks(
+	ctx context.Context,
+	statuses []string,
+	updatedBefore time.Time,
+	storageRetryLimit, billingRetryLimit, limit int,
+) ([]*service.AsyncImageTask, error) {
 	if len(statuses) == 0 {
 		return []*service.AsyncImageTask{}, nil
 	}
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
+	if storageRetryLimit <= 0 {
+		storageRetryLimit = int(^uint(0) >> 1)
+	}
+	if billingRetryLimit <= 0 {
+		billingRetryLimit = int(^uint(0) >> 1)
+	}
 	rows, err := r.sql.QueryContext(ctx, `SELECT `+asyncImageTaskSummaryColumns+`
 FROM async_image_tasks
 WHERE status = ANY($1) AND updated_at <= $2
+	AND (status <> 'storage_failed' OR storage_retry_count < $3)
+	AND (status <> 'billing_failed' OR billing_retry_count < $4)
 ORDER BY updated_at, id
-LIMIT $3`, pq.Array(statuses), updatedBefore, limit)
+LIMIT $5`, pq.Array(statuses), updatedBefore, storageRetryLimit, billingRetryLimit, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -548,6 +562,69 @@ INSERT INTO async_image_results (
 			return err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM async_image_result_upload_intents WHERE task_id=$1`, taskID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *asyncImageTaskRepository) PrepareAsyncImageResultUploadIntents(
+	ctx context.Context,
+	taskID string,
+	intents []service.AsyncImageResultUploadIntent,
+) error {
+	if r == nil || r.db == nil || strings.TrimSpace(taskID) == "" || len(intents) == 0 {
+		return service.ErrAsyncImageInvalidInput
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM async_image_tasks WHERE task_id=$1 FOR UPDATE`, taskID).Scan(&status); err != nil {
+		return translatePersistenceError(err, service.ErrAsyncImageTaskNotFound, nil)
+	}
+	if status != service.AsyncImageTaskStatusUploading {
+		return service.ErrAsyncImageInvalidTransition
+	}
+	seen := make(map[int]struct{}, len(intents))
+	for _, intent := range intents {
+		ref := intent.ObjectRef
+		if (intent.TaskID != "" && intent.TaskID != taskID) || intent.ImageIndex < 0 ||
+			strings.TrimSpace(ref.Provider) == "" || strings.TrimSpace(ref.Bucket) == "" || strings.TrimSpace(ref.ObjectKey) == "" ||
+			strings.TrimSpace(ref.ContentType) == "" || ref.SizeBytes <= 0 || strings.TrimSpace(ref.ChecksumSHA256) == "" || intent.ExpiresAt.IsZero() {
+			return service.ErrAsyncImageInvalidInput
+		}
+		if _, exists := seen[intent.ImageIndex]; exists {
+			return service.ErrAsyncImageInvalidInput
+		}
+		seen[intent.ImageIndex] = struct{}{}
+		var persistedTaskID string
+		err := tx.QueryRowContext(ctx, `
+INSERT INTO async_image_result_upload_intents AS existing(
+    task_id,image_index,provider,bucket,object_key,content_type,byte_size,checksum_sha256,expires_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ON CONFLICT(task_id,image_index) DO UPDATE SET
+	expires_at=GREATEST(existing.expires_at,EXCLUDED.expires_at),
+	cleanup_claimed_at=NULL,updated_at=NOW()
+WHERE existing.provider=EXCLUDED.provider
+  AND existing.bucket=EXCLUDED.bucket
+  AND existing.object_key=EXCLUDED.object_key
+  AND existing.content_type=EXCLUDED.content_type
+  AND existing.byte_size=EXCLUDED.byte_size
+  AND existing.checksum_sha256=EXCLUDED.checksum_sha256
+RETURNING task_id`,
+			taskID, intent.ImageIndex, ref.Provider, ref.Bucket, ref.ObjectKey,
+			ref.ContentType, ref.SizeBytes, ref.ChecksumSHA256, intent.ExpiresAt,
+		).Scan(&persistedTaskID)
+		if err == sql.ErrNoRows {
+			return service.ErrAsyncImageInvalidTransition
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -718,6 +795,7 @@ func (r *asyncImageTaskRepository) ClaimAsyncImageOutbox(ctx context.Context, li
 	if staleBefore.IsZero() {
 		staleBefore = time.Now().UTC().Add(-time.Minute)
 	}
+	claimToken := uuid.NewString()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -735,12 +813,12 @@ WITH claimable AS (
     LIMIT $2
 )
 UPDATE async_image_outbox o
-SET claimed_at = NOW(), attempts = o.attempts + 1, updated_at = NOW()
+SET claimed_at = NOW(), claim_token = $3, attempts = o.attempts + 1, updated_at = NOW()
 FROM claimable c
 WHERE o.id = c.id
 RETURNING o.id, o.task_id, o.event_type, o.dedup_key, o.payload,
-          o.attempts, o.available_at, o.claimed_at, o.published_at,
-          o.last_error, o.created_at, o.updated_at`, staleBefore, limit)
+	          o.attempts, o.available_at, o.claimed_at, o.claim_token, o.published_at,
+	          o.last_error, o.created_at, o.updated_at`, staleBefore, limit, claimToken)
 	if err != nil {
 		return nil, err
 	}
@@ -755,14 +833,17 @@ RETURNING o.id, o.task_id, o.event_type, o.dedup_key, o.payload,
 	return entries, nil
 }
 
-func (r *asyncImageTaskRepository) MarkAsyncImageOutboxPublished(ctx context.Context, id int64, publishedAt time.Time) error {
+func (r *asyncImageTaskRepository) MarkAsyncImageOutboxPublished(ctx context.Context, id int64, claimToken string, publishedAt time.Time) error {
+	if strings.TrimSpace(claimToken) == "" {
+		return service.ErrAsyncImageOutboxClaimLost
+	}
 	if publishedAt.IsZero() {
 		publishedAt = time.Now().UTC()
 	}
 	result, err := r.sql.ExecContext(ctx, `
 UPDATE async_image_outbox
-SET published_at = $2, claimed_at = NULL, last_error = NULL, updated_at = $2
-WHERE id = $1 AND published_at IS NULL`, id, publishedAt)
+SET published_at = $2, claimed_at = NULL, claim_token = NULL, last_error = NULL, updated_at = $2
+WHERE id = $1 AND published_at IS NULL AND claim_token = $3`, id, publishedAt, claimToken)
 	if err != nil {
 		return err
 	}
@@ -771,19 +852,22 @@ WHERE id = $1 AND published_at IS NULL`, id, publishedAt)
 		return err
 	}
 	if affected == 0 {
-		return service.ErrAsyncImageTaskNotFound
+		return service.ErrAsyncImageOutboxClaimLost
 	}
 	return nil
 }
 
-func (r *asyncImageTaskRepository) MarkAsyncImageOutboxFailed(ctx context.Context, id int64, availableAt time.Time, message string) error {
+func (r *asyncImageTaskRepository) MarkAsyncImageOutboxFailed(ctx context.Context, id int64, claimToken string, availableAt time.Time, message string) error {
+	if strings.TrimSpace(claimToken) == "" {
+		return service.ErrAsyncImageOutboxClaimLost
+	}
 	if availableAt.IsZero() {
 		availableAt = time.Now().UTC()
 	}
 	result, err := r.sql.ExecContext(ctx, `
 UPDATE async_image_outbox
-SET available_at = $2, claimed_at = NULL, last_error = $3, updated_at = NOW()
-WHERE id = $1 AND published_at IS NULL`, id, availableAt, message)
+SET available_at = $2, claimed_at = NULL, claim_token = NULL, last_error = $3, updated_at = NOW()
+WHERE id = $1 AND published_at IS NULL AND claim_token = $4`, id, availableAt, message, claimToken)
 	if err != nil {
 		return err
 	}
@@ -792,19 +876,22 @@ WHERE id = $1 AND published_at IS NULL`, id, availableAt, message)
 		return err
 	}
 	if affected == 0 {
-		return service.ErrAsyncImageTaskNotFound
+		return service.ErrAsyncImageOutboxClaimLost
 	}
 	return nil
 }
 
-func (r *asyncImageTaskRepository) MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, publishedAt time.Time, message string) error {
+func (r *asyncImageTaskRepository) MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, claimToken string, publishedAt time.Time, message string) error {
+	if strings.TrimSpace(claimToken) == "" {
+		return service.ErrAsyncImageOutboxClaimLost
+	}
 	if publishedAt.IsZero() {
 		publishedAt = time.Now().UTC()
 	}
 	result, err := r.sql.ExecContext(ctx, `
 UPDATE async_image_outbox
-SET published_at = $2, claimed_at = NULL, last_error = $3, updated_at = $2
-WHERE id = $1 AND published_at IS NULL`, id, publishedAt, truncateString(message, 2000))
+SET published_at = $2, claimed_at = NULL, claim_token = NULL, last_error = $3, updated_at = $2
+WHERE id = $1 AND published_at IS NULL AND claim_token = $4`, id, publishedAt, truncateString(message, 2000), claimToken)
 	if err != nil {
 		return err
 	}
@@ -813,7 +900,7 @@ WHERE id = $1 AND published_at IS NULL`, id, publishedAt, truncateString(message
 		return err
 	}
 	if affected == 0 {
-		return service.ErrAsyncImageTaskNotFound
+		return service.ErrAsyncImageOutboxClaimLost
 	}
 	return nil
 }
@@ -832,7 +919,7 @@ func (r *asyncImageTaskRepository) EnqueueMissingAsyncImageLibraryArchives(ctx c
 	result, err := r.sql.ExecContext(ctx, `
 WITH reactivated AS (
   UPDATE async_image_outbox o
-  SET published_at=NULL,claimed_at=NULL,available_at=NOW(),last_error=NULL,updated_at=NOW()
+  SET published_at=NULL,claimed_at=NULL,claim_token=NULL,available_at=NOW(),last_error=NULL,updated_at=NOW()
   WHERE o.id IN (
     SELECT existing.id
     FROM async_image_outbox existing
@@ -889,16 +976,20 @@ func scanAsyncImageOutboxEntries(rows *sql.Rows) ([]service.AsyncImageOutboxEntr
 		var entry service.AsyncImageOutboxEntry
 		var payload []byte
 		var claimedAt, publishedAt sql.NullTime
+		var claimToken sql.NullString
 		var lastError sql.NullString
 		if err := rows.Scan(
 			&entry.ID, &entry.TaskID, &entry.EventType, &entry.DedupKey,
-			&payload, &entry.Attempts, &entry.AvailableAt, &claimedAt,
+			&payload, &entry.Attempts, &entry.AvailableAt, &claimedAt, &claimToken,
 			&publishedAt, &lastError, &entry.CreatedAt, &entry.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
 		entry.Payload = append(json.RawMessage(nil), payload...)
 		entry.ClaimedAt = nullableTime(claimedAt)
+		if claimToken.Valid {
+			entry.ClaimToken = claimToken.String
+		}
 		entry.PublishedAt = nullableTime(publishedAt)
 		entry.LastError = nullableString(lastError)
 		entries = append(entries, entry)

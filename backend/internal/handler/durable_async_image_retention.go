@@ -23,11 +23,12 @@ func (h *DurableAsyncImageHandler) asyncImageRetentionLoop(ctx context.Context) 
 			logger.L().Warn("async_image.retention_failed", zap.Error(err))
 			return
 		}
-		if stats.StagingDeleted+stats.UploadStateDeleted+int64(stats.UploadIntentsDeleted+stats.InputsDeleted+stats.ResultsDeleted+stats.TasksDeleted) > 0 {
+		if stats.StagingDeleted+stats.UploadStateDeleted+int64(stats.UploadIntentsDeleted+stats.ResultUploadIntentsDeleted+stats.InputsDeleted+stats.ResultsDeleted+stats.TasksDeleted) > 0 {
 			logger.L().Info("async_image.retention_completed",
 				zap.Int64("staging_deleted", stats.StagingDeleted),
 				zap.Int64("upload_state_deleted", stats.UploadStateDeleted),
 				zap.Int("upload_intents_deleted", stats.UploadIntentsDeleted),
+				zap.Int("result_upload_intents_deleted", stats.ResultUploadIntentsDeleted),
 				zap.Int("inputs_deleted", stats.InputsDeleted),
 				zap.Int("results_deleted", stats.ResultsDeleted),
 				zap.Int("tasks_deleted", stats.TasksDeleted),

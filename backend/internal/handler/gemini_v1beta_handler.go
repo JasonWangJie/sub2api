@@ -628,6 +628,7 @@ func (h *GatewayHandler) acquireGeminiImageGenerationSlot(c *gin.Context) (func(
 		imageConcurrency.MaxWaitingRequests,
 	)
 	if !acquired {
+		markOpsRoutingCapacityLimited(c)
 		googleError(c, http.StatusTooManyRequests, "Image generation concurrency limit exceeded, please retry later")
 		return nil, false
 	}

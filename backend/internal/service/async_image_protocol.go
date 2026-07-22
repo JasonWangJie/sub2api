@@ -315,6 +315,39 @@ type AsyncImageReferenceDownloader struct {
 	Timeout      time.Duration
 	MaxRedirects int
 	Resolver     *net.Resolver
+	Budget       *AsyncImageReferenceBudget
+	BoundLoader  AsyncImageBoundReferenceLoader
+}
+
+type AsyncImageBoundReferenceLoader func(ctx context.Context, rawURL string) (reference *AsyncImageReference, handled bool, err error)
+
+type AsyncImageReferenceBudget struct {
+	MaxImages      int
+	MaxTotalBytes  int64
+	MaxTotalPixels int64
+	images         int
+	totalBytes     int64
+	totalPixels    int64
+}
+
+func (b *AsyncImageReferenceBudget) consume(reference *AsyncImageReference) error {
+	if b == nil || reference == nil {
+		return nil
+	}
+	nextImages := b.images + 1
+	nextBytes := b.totalBytes + int64(len(reference.Data))
+	nextPixels := b.totalPixels + int64(reference.Width)*int64(reference.Height)
+	if b.MaxImages > 0 && nextImages > b.MaxImages {
+		return errors.New("reference image count exceeds the configured limit")
+	}
+	if b.MaxTotalBytes > 0 && nextBytes > b.MaxTotalBytes {
+		return errors.New("reference image bytes exceed the configured aggregate limit")
+	}
+	if b.MaxTotalPixels > 0 && nextPixels > b.MaxTotalPixels {
+		return errors.New("reference image pixels exceed the configured aggregate limit")
+	}
+	b.images, b.totalBytes, b.totalPixels = nextImages, nextBytes, nextPixels
+	return nil
 }
 
 // ValidateBytes applies the same MIME, decoder, pixel, and byte limits used
@@ -328,8 +361,21 @@ func (d AsyncImageReferenceDownloader) ValidateBytes(data []byte, declaredType s
 
 func (d AsyncImageReferenceDownloader) Download(ctx context.Context, rawURL string) (*AsyncImageReference, error) {
 	rawURL = strings.TrimSpace(rawURL)
+	if d.BoundLoader != nil {
+		reference, handled, err := d.BoundLoader(ctx, rawURL)
+		if err != nil {
+			return nil, err
+		}
+		if handled {
+			return d.accept(reference)
+		}
+	}
 	if strings.HasPrefix(strings.ToLower(rawURL), "data:") {
-		return d.decodeDataURI(rawURL)
+		reference, err := d.decodeDataURI(rawURL)
+		if err != nil {
+			return nil, err
+		}
+		return d.accept(reference)
 	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Hostname() == "" {
@@ -378,7 +424,21 @@ func (d AsyncImageReferenceDownloader) Download(ctx context.Context, rawURL stri
 	if int64(len(data)) > d.maxBytes() {
 		return nil, errors.New("reference image exceeds the configured size limit")
 	}
-	return d.validateImage(data, resp.Header.Get("Content-Type"))
+	reference, err := d.validateImage(data, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+	return d.accept(reference)
+}
+
+func (d AsyncImageReferenceDownloader) accept(reference *AsyncImageReference) (*AsyncImageReference, error) {
+	if reference == nil {
+		return nil, errors.New("reference image is unavailable")
+	}
+	if err := d.Budget.consume(reference); err != nil {
+		return nil, err
+	}
+	return reference, nil
 }
 
 func (d AsyncImageReferenceDownloader) decodeDataURI(raw string) (*AsyncImageReference, error) {

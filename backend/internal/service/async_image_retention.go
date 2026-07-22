@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -54,6 +55,45 @@ type AsyncImageInputObjectRepository interface {
 	FindAsyncImageInputObjectsByURLHashes(ctx context.Context, hashes []string) ([]AsyncImageInputObject, error)
 }
 
+type AsyncImageTaskInputReference struct {
+	URLHash   string
+	ObjectRef ObjectRef
+}
+
+type AsyncImageTaskInputReferenceRepository interface {
+	ResolveAsyncImageTaskInputReferences(ctx context.Context, taskID string, urlHashes []string) ([]AsyncImageTaskInputReference, error)
+}
+
+func (s *AsyncImageTaskService) ResolveTaskInputReferences(
+	ctx context.Context,
+	taskID string,
+	urlHashes []string,
+) (map[string]ObjectRef, error) {
+	if s == nil || s.repo == nil || strings.TrimSpace(taskID) == "" || len(urlHashes) == 0 {
+		return map[string]ObjectRef{}, nil
+	}
+	repo, ok := s.repo.(AsyncImageTaskInputReferenceRepository)
+	if !ok {
+		return nil, errors.New("async image task input reference repository is unavailable")
+	}
+	references, err := repo.ResolveAsyncImageTaskInputReferences(ctx, strings.TrimSpace(taskID), urlHashes)
+	if err != nil {
+		return nil, err
+	}
+	resolved := make(map[string]ObjectRef, len(references))
+	for _, reference := range references {
+		hash := strings.TrimSpace(reference.URLHash)
+		if hash == "" {
+			continue
+		}
+		if existing, exists := resolved[hash]; exists && (existing.Provider != reference.ObjectRef.Provider || existing.Bucket != reference.ObjectRef.Bucket || existing.ObjectKey != reference.ObjectRef.ObjectKey) {
+			return nil, errors.New("ambiguous asynchronous image input reference")
+		}
+		resolved[hash] = reference.ObjectRef
+	}
+	return resolved, nil
+}
+
 // AsyncImageRetentionRepository owns the claim/delete protocol used by the
 // background cleanup loop. A claimed row cannot be newly attached to a task.
 type AsyncImageRetentionRepository interface {
@@ -71,18 +111,25 @@ type AsyncImageRetentionRepository interface {
 	ListAsyncImageResults(ctx context.Context, taskID string) ([]AsyncImageResult, error)
 }
 
+type AsyncImageResultUploadIntentRetentionRepository interface {
+	ClaimExpiredAsyncImageResultUploadIntents(ctx context.Context, before, staleBefore time.Time, limit int) ([]AsyncImageResultUploadIntent, error)
+	CompleteAsyncImageResultUploadIntentDeletion(ctx context.Context, id int64, claimedAt time.Time) error
+	ReleaseAsyncImageResultUploadIntentDeletion(ctx context.Context, id int64, claimedAt time.Time) error
+}
+
 type AsyncImageRetentionStorage interface {
 	DurableStorage(ctx context.Context) (DurableImageStorage, bool, error)
 	RuntimeConfig(ctx context.Context) (AsyncImageRuntimeConfig, error)
 }
 
 type AsyncImageRetentionStats struct {
-	StagingDeleted       int64
-	UploadStateDeleted   int64
-	UploadIntentsDeleted int
-	InputsDeleted        int
-	ResultsDeleted       int
-	TasksDeleted         int
+	StagingDeleted             int64
+	UploadStateDeleted         int64
+	UploadIntentsDeleted       int
+	ResultUploadIntentsDeleted int
+	InputsDeleted              int
+	ResultsDeleted             int
+	TasksDeleted               int
 }
 
 type AsyncImageRetentionService struct {
@@ -103,7 +150,49 @@ func NewAsyncImageRetentionService(tasks *AsyncImageTaskService, storage AsyncIm
 }
 
 func AsyncImageInputURLHash(rawURL string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(rawURL)))
+	value := strings.TrimSpace(rawURL)
+	if parsed, err := url.Parse(value); err == nil && parsed.IsAbs() && parsed.Host != "" {
+		parsed.Fragment = ""
+		parsed.Scheme = strings.ToLower(parsed.Scheme)
+		parsed.Host = strings.ToLower(parsed.Host)
+		value = parsed.String()
+	}
+	return asyncImageURLValueHash(value)
+}
+
+func AsyncImageInputURLHashes(rawURL string) []string {
+	raw := strings.TrimSpace(rawURL)
+	values := make([]string, 0, 4)
+	if parsed, err := url.Parse(raw); err == nil && parsed.IsAbs() && parsed.Host != "" {
+		legacyWithoutFragment := *parsed
+		legacyWithoutFragment.Fragment = ""
+
+		normalized := legacyWithoutFragment
+		normalized.Scheme = strings.ToLower(normalized.Scheme)
+		normalized.Host = strings.ToLower(normalized.Host)
+		values = append(values, normalized.String())
+
+		resourceIdentity := normalized
+		resourceIdentity.RawQuery = ""
+		resourceIdentity.ForceQuery = false
+		values = append(values, resourceIdentity.String(), legacyWithoutFragment.String())
+	}
+	values = append(values, raw)
+	hashes := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		hash := asyncImageURLValueHash(value)
+		if _, exists := seen[hash]; exists {
+			continue
+		}
+		seen[hash] = struct{}{}
+		hashes = append(hashes, hash)
+	}
+	return hashes
+}
+
+func asyncImageURLValueHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -132,12 +221,13 @@ func (s *AsyncImageTaskService) ResolveOwnedInputObjectIDs(ctx context.Context, 
 		if strings.TrimSpace(rawURL) == "" {
 			continue
 		}
-		hash := AsyncImageInputURLHash(rawURL)
-		if _, exists := seenHashes[hash]; exists {
-			continue
+		for _, hash := range AsyncImageInputURLHashes(rawURL) {
+			if _, exists := seenHashes[hash]; exists {
+				continue
+			}
+			seenHashes[hash] = struct{}{}
+			hashes = append(hashes, hash)
 		}
-		seenHashes[hash] = struct{}{}
-		hashes = append(hashes, hash)
 	}
 	objects, err := repo.FindAsyncImageInputObjectsByURLHashes(ctx, hashes)
 	if err != nil {
@@ -228,6 +318,12 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 			firstErr = joinAsyncImageRetentionError(firstErr, err)
 		}
 	}
+	resultIntentRepo, hasResultIntentRepo := s.repo.(AsyncImageResultUploadIntentRetentionRepository)
+	if hasResultIntentRepo {
+		if err := s.cleanupResultUploadIntents(ctx, durable, resultIntentRepo, now, staleBefore, batch, &stats); err != nil {
+			firstErr = joinAsyncImageRetentionError(firstErr, err)
+		}
+	}
 	if err := s.cleanupInputs(ctx, durable, now, staleBefore, batch, &stats); err != nil {
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
@@ -240,6 +336,47 @@ func (s *AsyncImageRetentionService) RunOnce(ctx context.Context, now time.Time)
 		firstErr = joinAsyncImageRetentionError(firstErr, err)
 	}
 	return stats, firstErr
+}
+
+func (s *AsyncImageRetentionService) cleanupResultUploadIntents(
+	ctx context.Context,
+	storage DurableImageStorage,
+	repo AsyncImageResultUploadIntentRetentionRepository,
+	before, staleBefore time.Time,
+	batch int,
+	stats *AsyncImageRetentionStats,
+) error {
+	intents, err := repo.ClaimExpiredAsyncImageResultUploadIntents(ctx, before, staleBefore, batch)
+	if err != nil {
+		return fmt.Errorf("claim expired async image result upload intents: %w", err)
+	}
+	var firstErr error
+	for _, intent := range intents {
+		if intent.CleanupClaimedAt == nil {
+			continue
+		}
+		claimedAt := *intent.CleanupClaimedAt
+		shared, checkErr := asyncImageObjectHasLiveReference(ctx, s.repo, intent.ObjectRef, 0, "")
+		if checkErr != nil {
+			_ = repo.ReleaseAsyncImageResultUploadIntentDeletion(ctx, intent.ID, claimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, checkErr)
+			continue
+		}
+		if !shared {
+			if deleteErr := storage.Delete(ctx, intent.ObjectRef); deleteErr != nil {
+				_ = repo.ReleaseAsyncImageResultUploadIntentDeletion(ctx, intent.ID, claimedAt)
+				firstErr = joinAsyncImageRetentionError(firstErr, fmt.Errorf("delete async image result upload intent %d: %w", intent.ID, deleteErr))
+				continue
+			}
+		}
+		if completeErr := repo.CompleteAsyncImageResultUploadIntentDeletion(ctx, intent.ID, claimedAt); completeErr != nil {
+			_ = repo.ReleaseAsyncImageResultUploadIntentDeletion(ctx, intent.ID, claimedAt)
+			firstErr = joinAsyncImageRetentionError(firstErr, completeErr)
+			continue
+		}
+		stats.ResultUploadIntentsDeleted++
+	}
+	return firstErr
 }
 
 func (s *AsyncImageRetentionService) cleanupUploadIntents(ctx context.Context, storage DurableImageStorage, repo AsyncImageUploadIntentRetentionRepository, before, staleBefore time.Time, batch int, stats *AsyncImageRetentionStats) error {

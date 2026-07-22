@@ -465,7 +465,7 @@ func TestImageStorageIdentityGuardIncludesInputsAndUploadIntents(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
-	mock.ExpectQuery("(?s)image_storage_objects.*async_image_input_objects.*async_image_upload_reservations.*intent_object_key").
+	mock.ExpectQuery("(?s)image_storage_objects.*async_image_input_objects.*async_image_result_upload_intents.*async_image_upload_reservations.*intent_object_key").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	repo := NewImageLibraryRepository(db)
 	inUse, err := repo.HasActiveImageStorageObjects(context.Background())
