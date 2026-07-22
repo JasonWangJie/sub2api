@@ -264,8 +264,19 @@
               {{ asyncTask.error }}
             </p>
             <div class="async-runtime__footer">
-              <span>{{ t('imageWorkflow.workbench.safeLeave') }}</span>
-              <RouterLink to="/async-image-tasks" class="text-link">{{ t('imageWorkflow.workbench.openTaskCenter') }}</RouterLink>
+              <span>{{ asyncTask.active ? t('imageWorkflow.workbench.continueAddingHint') : t('imageWorkflow.workbench.safeLeave') }}</span>
+              <div class="async-runtime__actions">
+                <button
+                  v-if="asyncTask.active"
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="generating"
+                  @click="continueAdding"
+                >
+                  {{ t('imageWorkflow.workbench.continueAdding') }}
+                </button>
+                <RouterLink to="/async-image-tasks" class="text-link">{{ t('imageWorkflow.workbench.openTaskCenter') }}</RouterLink>
+              </div>
             </div>
           </section>
 
@@ -293,11 +304,32 @@
                 </a>
                 <div class="result-item__footer">
                   <span class="archive-state" :class="`is-${result.archiveStatus}`">
-                    <span v-if="result.archiveStatus === 'archiving'" class="workbench-spinner" aria-hidden="true"></span>
-                    <Icon v-else :name="result.archiveStatus === 'archived' ? 'checkCircle' : 'exclamationCircle'" size="xs" />
+                    <span v-if="result.archiveStatus === 'archiving' || result.archiveStatus === 'publishing' || result.archiveStatus === 'syncing'" class="workbench-spinner" aria-hidden="true"></span>
+                    <Icon v-else :name="resultStatusIcon(result.archiveStatus)" size="xs" />
                     {{ archiveStatusLabel(result.archiveStatus) }}
                   </span>
-                  <button v-if="result.archiveStatus === 'failed'" type="button" class="text-link" @click="retryArchive(result)">
+                  <button
+                    v-if="result.localOnly && (result.archiveStatus === 'local' || result.archiveStatus === 'failed')"
+                    type="button"
+                    class="text-link"
+                    @click="publishLocalResult(result)"
+                  >
+                    {{ result.archiveStatus === 'failed' ? t('imageWorkflow.workbench.retryPublish') : t('imageWorkflow.workbench.submitReview') }}
+                  </button>
+                  <button
+                    v-else-if="result.localOnly && result.archiveStatus === 'approved_pending_sync'"
+                    type="button"
+                    class="text-link"
+                    @click="syncApprovedResult(result)"
+                  >
+                    {{ t('imageWorkflow.workbench.syncToPlaza') }}
+                  </button>
+                  <button
+                    v-else-if="!result.localOnly && result.archiveStatus === 'failed'"
+                    type="button"
+                    class="text-link"
+                    @click="retryArchive(result)"
+                  >
                     {{ t('imageWorkflow.workbench.retryArchive') }}
                   </button>
                   <a :href="result.url" target="_blank" rel="noopener" class="result-icon-button" :title="t('imageWorkbench.view')" :aria-label="t('imageWorkbench.view')">
@@ -329,7 +361,12 @@ import Icon from '@/components/icons/Icon.vue'
 import ImageLibraryPanel from '@/features/image-workflow/ImageLibraryPanel.vue'
 import { keysAPI } from '@/api'
 import * as imageAPI from '@/api/imageWorkbench'
-import { archiveAsyncTask, imageLibraryViewURL, importImageFile, importImageURL } from '@/api/imageLibrary'
+import { archiveAsyncTask, createPlazaSubmissionRequest, imageLibraryViewURL, importImageFile, importImageURL, listMyPlazaSubmissionRequests, syncPlazaSubmissionRequest } from '@/api/imageLibrary'
+import {
+  getPlazaSubmissionBlob,
+  removePlazaSubmissionBlob,
+  savePlazaSubmissionBlob,
+} from '@/features/image-workflow/submissionBlobStore'
 import {
   removePendingImageArchive,
   savePendingImageArchive,
@@ -347,13 +384,16 @@ interface ReferenceImage {
   previewUrl: string
 }
 
-type ArchiveStatus = 'archiving' | 'archived' | 'failed'
+type ArchiveStatus = 'local' | 'publishing' | 'pending_review' | 'approved_pending_sync' | 'syncing' | 'archiving' | 'archived' | 'failed'
 interface WorkbenchResult {
   id: string
   url: string
   archiveStatus: ArchiveStatus
   archiveError?: string
   archiveKey: string
+  /** Realtime results stay in the browser until the user explicitly publishes. */
+  localOnly?: boolean
+  submissionRequestId?: string
   taskId?: string
   resultIndex?: number
   libraryItem?: ImageLibraryItem
@@ -645,13 +685,41 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
 
   if (!response.data?.length) throw new Error(t('imageWorkbench.emptyResult'))
   const operationKey = imageAPI.createImageIdempotencyKey()
-  results.value = response.data
-    .map((item, index): WorkbenchResult | null => {
-      const url = imageAPI.resultToDataUrl(item, item.output_format || form.format || 'png')
-      return url ? { id: randomID('result'), url, archiveStatus: 'archiving', archiveKey: `${operationKey}-${index}` } : null
-    })
-    .filter((item): item is WorkbenchResult => item !== null)
-  await Promise.allSettled(results.value.map((result) => archiveResult(result, current)))
+  // Realtime images stay browser-local (data URL / memory). OSS upload happens only after审核通过后同步.
+  const nextResults: WorkbenchResult[] = []
+  for (const [index, item] of response.data.entries()) {
+    const url = imageAPI.resultToDataUrl(item, item.output_format || form.format || 'png')
+    if (!url) continue
+    const archiveKey = `${operationKey}-${index}`
+    const result: WorkbenchResult = {
+      id: randomID('result'),
+      url,
+      archiveStatus: 'local',
+      archiveKey,
+      localOnly: true,
+    }
+    if (url.startsWith('data:')) {
+      const file = dataURLToFile(url, `result.${form.format || 'png'}`)
+      await savePlazaSubmissionBlob({
+        id: archiveKey,
+        userId: Number(authStore.user?.id || 0),
+        title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
+        file,
+        fileName: file.name,
+        contentType: file.type || 'image/png',
+        previewUrl: url,
+        metadata: {
+          api_key_id: selectedKey.value?.id,
+          group_id: selectedKey.value?.group_id,
+          platform: capabilities.value?.platform,
+          model: form.model,
+          prompt: form.prompt.trim(),
+        },
+      }).catch(() => undefined)
+    }
+    nextResults.push(result)
+  }
+  results.value = nextResults
   appStore.showSuccess(t('imageWorkbench.generateSuccess'))
 }
 
@@ -705,7 +773,6 @@ async function submitAsync(key: ApiKey, current: ImageWorkbenchCapabilities) {
 }
 
 function beginAsyncTask(submission: imageAPI.AsyncImageSubmission, key: ApiKey, current: ImageWorkbenchCapabilities) {
-
   Object.assign(asyncTask, {
     active: true,
     taskId: submission.task_id,
@@ -716,6 +783,15 @@ function beginAsyncTask(submission: imageAPI.AsyncImageSubmission, key: ApiKey, 
   })
   appStore.showSuccess(t('imageWorkflow.workbench.taskSubmitted'))
   schedulePoll(key, current)
+}
+
+/** Unlock compose controls after an async submit so another task can be prepared. */
+function continueAdding() {
+  if (!asyncTask.active) return
+  form.prompt = ''
+  promptError.value = ''
+  clearReferences()
+  asyncTask.active = false
 }
 
 async function retryUnknownSubmission() {
@@ -749,9 +825,12 @@ function schedulePoll(key: ApiKey, current: ImageWorkbenchCapabilities, delay = 
 }
 
 async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
-  if (!asyncTask.active || !asyncTask.taskId) return
+  // Keep polling after "继续添加" unlocks the form (active=false) while the task is in flight.
+  if (!asyncTask.taskId || asyncTask.status === 'succeeded' || asyncTask.status === 'failed') return
+  const trackedTaskId = asyncTask.taskId
   try {
-    const state = await imageAPI.pollAsyncImage(key.key, asyncTask.taskId, asyncTask.protocol)
+    const state = await imageAPI.pollAsyncImage(key.key, trackedTaskId, asyncTask.protocol)
+    if (asyncTask.taskId !== trackedTaskId) return
     asyncTask.status = state.status
     asyncTask.progress = Math.max(0, Math.min(100, state.progress))
     if (state.status === 'succeeded') {
@@ -766,24 +845,20 @@ async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
         taskId: asyncTask.taskId,
         resultIndex: index,
       }))
-      await Promise.allSettled(results.value.map(async (result) => {
-        result.recovery = buildTaskRecovery(result)
-        if (result.recovery) await savePendingImageArchive(result.recovery)
-      }))
       try {
-        const archived = await archiveAsyncTask(asyncTask.taskId, state.images.map((_, index) => index))
+        const archived = await archiveAsyncTask(trackedTaskId, state.images.map((_, index) => index))
+        if (asyncTask.taskId !== trackedTaskId) return
         results.value.forEach((result, index) => {
           result.archiveStatus = 'archived'
           result.libraryItem = archived[index]
         })
         await libraryPanel.value?.refresh()
       } catch (cause: any) {
-        await Promise.allSettled(results.value.map(async (result) => {
+        if (asyncTask.taskId !== trackedTaskId) return
+        results.value.forEach((result) => {
           result.archiveStatus = 'failed'
-          result.archiveError = cause?.message
-          result.recovery = buildTaskRecovery(result, result.archiveError)
-          if (result.recovery) await savePendingImageArchive(result.recovery)
-        }))
+          result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
+        })
       }
       appStore.showSuccess(t('imageWorkflow.workbench.taskCompleted'))
       return
@@ -795,9 +870,100 @@ async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
     }
     schedulePoll(key, current, 2500)
   } catch (cause: any) {
+    if (asyncTask.taskId !== trackedTaskId) return
     asyncTask.error = cause?.message || t('imageWorkflow.workbench.pollFailed')
     // A query failure never changes execution mode or resubmits the model request.
     schedulePoll(key, current, 5000)
+  }
+}
+
+async function publishLocalResult(result: WorkbenchResult) {
+  if (!result.localOnly || !capabilities.value || !selectedKey.value) return
+  if (!result.url.startsWith('data:') && !(await getPlazaSubmissionBlob(result.archiveKey))) {
+    appStore.showError(t('imageWorkflow.workbench.localResultUnavailable'))
+    return
+  }
+  if (!window.confirm(t('imageWorkflow.workbench.publishConfirm'))) return
+  const sharePrompt = Boolean(form.prompt.trim()) && window.confirm(t('imageWorkflow.library.sharePromptConfirm'))
+  result.archiveStatus = 'publishing'
+  result.archiveError = ''
+  try {
+    let blob = await getPlazaSubmissionBlob(result.archiveKey)
+    if (!blob && result.url.startsWith('data:')) {
+      const file = dataURLToFile(result.url, `result.${form.format || 'png'}`)
+      blob = await savePlazaSubmissionBlob({
+        id: result.archiveKey,
+        userId: Number(authStore.user?.id || 0),
+        title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
+        file,
+        fileName: file.name,
+        contentType: file.type || 'image/png',
+        previewUrl: result.url,
+      })
+    }
+    if (!blob) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
+    const item = await createPlazaSubmissionRequest({
+      title: truncateTitle(form.prompt),
+      private_prompt: form.prompt.trim(),
+      public_title: truncateTitle(form.prompt),
+      share_prompt: sharePrompt,
+      public_prompt: sharePrompt ? form.prompt.trim() || undefined : undefined,
+      api_key_id: selectedKey.value.id,
+      group_id: selectedKey.value.group_id,
+      platform: capabilities.value.platform,
+      generation_mode: 'realtime',
+      source_type: 'realtime_import',
+      model: form.model,
+      requested_size: selectedCapabilityOption(sizeOptions.value, form.size),
+      aspect_ratio: isGemini.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+      quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
+      content_type: blob.contentType,
+      byte_size: blob.byteSize,
+      checksum_sha256: blob.checksumSha256,
+      client_blob_key: result.archiveKey,
+    }, result.archiveKey)
+    await savePlazaSubmissionBlob({
+      ...blob,
+      requestId: item.id,
+    }).catch(() => undefined)
+    result.submissionRequestId = item.id
+    result.archiveStatus = item.status === 'approved_pending_sync' ? 'approved_pending_sync' : 'pending_review'
+    appStore.showSuccess(t('imageWorkflow.library.submitted'))
+    await libraryPanel.value?.refresh()
+  } catch (cause: any) {
+    result.archiveStatus = 'failed'
+    const message = cause?.message || t('imageWorkflow.workbench.publishFailed')
+    result.archiveError = message
+    appStore.showError(message)
+  }
+}
+
+async function syncApprovedResult(result: WorkbenchResult) {
+  if (!result.submissionRequestId) {
+    appStore.showError(t('imageWorkflow.workbench.syncUnavailable'))
+    return
+  }
+  if (!window.confirm(t('imageWorkflow.workbench.syncConfirm'))) return
+  result.archiveStatus = 'syncing'
+  result.archiveError = ''
+  try {
+    const blob = await getPlazaSubmissionBlob(result.archiveKey)
+    if (!blob?.file) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
+    const file = blob.file instanceof File
+      ? blob.file
+      : new File([blob.file], blob.fileName || 'sync-image.png', { type: blob.contentType || blob.file.type })
+    const synced = await syncPlazaSubmissionRequest(result.submissionRequestId, file, file.name)
+    result.libraryItem = synced.library_item
+    result.archiveStatus = 'archived'
+    result.localOnly = false
+    await removePlazaSubmissionBlob(result.archiveKey).catch(() => undefined)
+    appStore.showSuccess(t('imageWorkflow.workbench.syncSuccess'))
+    await libraryPanel.value?.refresh()
+  } catch (cause: any) {
+    result.archiveStatus = 'approved_pending_sync'
+    const message = cause?.message || t('imageWorkflow.workbench.syncFailed')
+    result.archiveError = message
+    appStore.showError(message)
   }
 }
 
@@ -900,25 +1066,15 @@ function buildRealtimeRecovery(result: WorkbenchResult, metadata: Record<string,
   }
 }
 
-function buildTaskRecovery(result: WorkbenchResult, errorMessage?: string): PendingImageArchive | undefined {
-  const userId = Number(authStore.user?.id || 0)
-  if (userId <= 0 || !result.taskId) return undefined
-  return {
-    id: result.archiveKey,
-    userId,
-    kind: 'task',
-    title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
-    taskId: result.taskId,
-    resultIndex: result.resultIndex,
-    previewUrl: result.url,
-    errorMessage,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-  }
-}
-
 function archiveStatusLabel(status: ArchiveStatus) {
   return t(`imageWorkflow.archive.${status}`)
+}
+
+function resultStatusIcon(status: ArchiveStatus) {
+  if (status === 'local') return 'inbox'
+  if (status === 'approved_pending_sync') return 'checkCircle'
+  if (status === 'archived' || status === 'pending_review') return 'checkCircle'
+  return 'exclamationCircle'
 }
 
 function reuseLibraryItem(item: ImageLibraryItem) {
@@ -999,7 +1155,48 @@ onMounted(async () => {
   if (typeof route.query.model === 'string' && modelOptions.value.some((model) => model.id === route.query.model)) form.model = route.query.model
   if (typeof route.query.size === 'string' && sizeOptions.value.includes(route.query.size)) form.size = route.query.size
   if (Object.keys(route.query).length) await nextTick(() => router.replace({ path: route.path }))
+  await restoreDeferredSubmissions()
 })
+
+async function restoreDeferredSubmissions() {
+  const userId = Number(authStore.user?.id || 0)
+  if (userId <= 0) return
+  try {
+    const [pending, approved] = await Promise.all([
+      listMyPlazaSubmissionRequests({ status: 'pending_review', limit: 50 }),
+      listMyPlazaSubmissionRequests({ status: 'approved_pending_sync', limit: 50 }),
+    ])
+    const requests = [...approved.items, ...pending.items]
+    if (!requests.length) return
+    const known = new Map(results.value.map((item) => [item.archiveKey, item]))
+    const restored: WorkbenchResult[] = []
+    for (const req of requests) {
+      const status: ArchiveStatus = req.status === 'approved_pending_sync' ? 'approved_pending_sync' : 'pending_review'
+      const existing = known.get(req.client_blob_key)
+      if (existing) {
+        existing.submissionRequestId = req.id
+        existing.archiveStatus = status
+        existing.localOnly = true
+        continue
+      }
+      const blob = await getPlazaSubmissionBlob(req.client_blob_key)
+      let url = blob?.previewUrl || ''
+      if (!url && blob?.file) url = URL.createObjectURL(blob.file)
+      if (!url) continue
+      restored.push({
+        id: randomID('result'),
+        url,
+        archiveStatus: status,
+        archiveKey: req.client_blob_key,
+        localOnly: true,
+        submissionRequestId: req.id,
+      })
+    }
+    if (restored.length) results.value = [...restored, ...results.value]
+  } catch {
+    // Local restore is best-effort; network/API failures should not block the workbench.
+  }
+}
 
 onUnmounted(() => {
   requestController?.abort()
@@ -1101,7 +1298,7 @@ onUnmounted(() => {
 .async-runtime h2 { margin-top: 0.15rem; font-size: 0.95rem; font-weight: 750; }
 .async-runtime__id { display: flex; min-width: 0; align-items: center; gap: 0.4rem; padding: 0.35rem 0.45rem; border: 1px solid #e5e7eb; border-radius: 6px; }
 .dark .async-runtime__id { border-color: #374151; }
-.async-runtime__id code { max-width: 230px; overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.async-runtime__id code { max-width: 300px; overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
 .task-track { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; margin-top: 0.9rem; }
 .task-stage { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 0.3rem; color: #9ca3af; text-align: center; }
 .task-stage span { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 1px solid #d1d5db; border-radius: 50%; }
@@ -1113,6 +1310,7 @@ onUnmounted(() => {
 .dark .task-progress { background: #374151; }
 .task-progress span { display: block; height: 100%; border-radius: 3px; background: #d97706; transition: width 0.2s ease; }
 .async-runtime__footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.75rem; color: #6b7280; font-size: 0.7rem; }
+.async-runtime__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.65rem; }
 .text-link { color: #0f766e; font-size: 0.72rem; font-weight: 700; }
 .text-link:hover { text-decoration: underline; }
 
@@ -1129,7 +1327,9 @@ onUnmounted(() => {
 .result-item__media img { width: 100%; height: 100%; object-fit: contain; }
 .result-item__footer { display: flex; min-height: 2.6rem; align-items: center; gap: 0.45rem; padding: 0.4rem; }
 .archive-state { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 0.35rem; color: #6b7280; font-size: 0.67rem; }
-.archive-state.is-archived { color: #047857; }
+.archive-state.is-archived,
+.archive-state.is-pending_review { color: #047857; }
+.archive-state.is-local { color: #0f766e; }
 .archive-state.is-failed { color: #b91c1c; }
 
 @keyframes workbench-spin { to { transform: rotate(360deg); } }
@@ -1153,6 +1353,7 @@ onUnmounted(() => {
   .async-runtime__id { width: 100%; justify-content: space-between; }
   .task-track { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; padding-bottom: 0.25rem; }
   .async-runtime__footer { align-items: flex-start; flex-direction: column; }
+  .async-runtime__actions { width: 100%; justify-content: flex-start; }
   .unknown-submission { align-items: stretch; flex-direction: column; }
 }
 </style>

@@ -6,12 +6,14 @@ const mocks = vi.hoisted(() => ({
   getAdminImageLibraryStats: vi.fn(),
   getImageLibraryMigrationState: vi.fn(),
   listAdminImageLibrary: vi.fn(),
+  listAdminPlazaSubmissionRequests: vi.fn(),
   listAdminPublications: vi.fn(),
   listAdminReports: vi.fn(),
   listCleanupJobs: vi.fn(),
   previewCleanup: vi.fn(),
   resolveAdminReport: vi.fn(),
   resolveImageLibraryViewURL: vi.fn(),
+  reviewPlazaSubmissionRequest: vi.fn(),
   reviewPublication: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -22,12 +24,14 @@ vi.mock('@/api/imageLibrary', () => ({
   getAdminImageLibraryStats: mocks.getAdminImageLibraryStats,
   getImageLibraryMigrationState: mocks.getImageLibraryMigrationState,
   listAdminImageLibrary: mocks.listAdminImageLibrary,
+  listAdminPlazaSubmissionRequests: mocks.listAdminPlazaSubmissionRequests,
   listAdminPublications: mocks.listAdminPublications,
   listAdminReports: mocks.listAdminReports,
   listCleanupJobs: mocks.listCleanupJobs,
   previewCleanup: mocks.previewCleanup,
   resolveAdminReport: mocks.resolveAdminReport,
   resolveImageLibraryViewURL: mocks.resolveImageLibraryViewURL,
+  reviewPlazaSubmissionRequest: mocks.reviewPlazaSubmissionRequest,
   reviewPublication: mocks.reviewPublication,
 }))
 
@@ -66,6 +70,7 @@ function mountView() {
 describe('ImageModerationView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.listAdminPlazaSubmissionRequests.mockResolvedValue({ items: [], next_cursor: null })
     mocks.listAdminPublications.mockResolvedValue({ items: pendingPublications, next_cursor: null })
     mocks.listAdminReports.mockResolvedValue({ items: [], next_cursor: null })
     mocks.listAdminImageLibrary.mockResolvedValue({ items: [], next_cursor: null })
@@ -74,11 +79,15 @@ describe('ImageModerationView', () => {
     mocks.getImageLibraryMigrationState.mockResolvedValue({ status: 'succeeded', migrated_count: 0, quarantined_count: 0 })
     mocks.previewCleanup.mockResolvedValue({ matched_items: 3, matched_bytes: 2048 })
     mocks.reviewPublication.mockResolvedValue({})
+    mocks.reviewPlazaSubmissionRequest.mockResolvedValue({})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('bulk approves only explicitly selected pending submissions', async () => {
     const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.moderation-tabs button')[1].trigger('click')
     await flushPromises()
 
     const rowCheckboxes = wrapper.findAll('tbody .selection-cell input')
@@ -97,7 +106,7 @@ describe('ImageModerationView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.findAll('.moderation-tabs button')[2].trigger('click')
+    await wrapper.findAll('.moderation-tabs button')[3].trigger('click')
     await flushPromises()
     await wrapper.get('input[placeholder="imageWorkflow.admin.searchLibrary"]').setValue('model-x')
     await wrapper.get('.moderation-id-filter input').setValue('42')
@@ -118,7 +127,7 @@ describe('ImageModerationView', () => {
       publication_status: 'pending_review',
     }))
 
-    await wrapper.findAll('.moderation-tabs button')[3].trigger('click')
+    await wrapper.findAll('.moderation-tabs button')[4].trigger('click')
     await flushPromises()
     await wrapper.get('.cleanup-form select').setValue('user')
     await wrapper.get('.cleanup-form input[type="number"]').setValue('42')

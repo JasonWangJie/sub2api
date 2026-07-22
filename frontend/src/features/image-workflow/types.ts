@@ -45,6 +45,43 @@ export type ImagePublicationStatus =
   | 'admin_hidden'
   | 'expired'
 
+export type ImagePlazaSubmissionStatus =
+  | 'pending_review'
+  | 'approved_pending_sync'
+  | 'rejected'
+  | 'withdrawn'
+  | 'synced'
+
+export interface ImagePlazaSubmissionRequest {
+  id: string
+  user_id?: number
+  status: ImagePlazaSubmissionStatus | string
+  title: string
+  private_prompt?: string
+  public_title: string
+  public_prompt?: string | null
+  share_prompt: boolean
+  platform: string
+  generation_mode: string
+  source_type: string
+  model: string
+  requested_size?: string
+  aspect_ratio?: string
+  quality?: string
+  content_type: string
+  byte_size: number
+  checksum_sha256: string
+  client_blob_key: string
+  library_item_id?: string | null
+  publication_id?: string | null
+  review_reason?: string | null
+  reviewed_at?: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+  image_held_client_side?: boolean
+}
+
 export interface ImageLibraryItem {
   id: string | number
   asset_id?: string | number

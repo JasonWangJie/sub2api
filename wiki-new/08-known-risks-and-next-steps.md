@@ -14,10 +14,12 @@
 
 迁移 `187` 的两阶段 PostgreSQL admission、Key 级 reservation、重签 alias/结果墓碑、deterministic object intent、受控 Put 超时、延迟二次删除、128 alias 上限、failed intent 配额、输入/intent identity guard 和文件名净化已经实现。合并后的 Go/前端完整回归已通过；浏览器和外部环境仍未完成。
 
+`2026-07-22` 续更：迁移 `188` 延期投稿、OSS 年月日分区、实时本机持图、任务中心 UX、以及 `upstream_failed` 写入 HTTP 状态/上游摘要，多在 dirty 工作树；交付前需提交并重启后端使 Worker 改动生效。
+
 ## P0：生产验收与远端交付仍需完成
 
 1. 在浏览器连接器可用的环境补跑桌面/移动端、中英文、深浅主题、键盘和坏图场景；当前不得把历史截图写成合并后结果。
-2. 使用真实 PostgreSQL/testcontainers 验证 `185/186/187`、两阶段 admission、多 Worker、租约心跳、Outbox、stale recovery、引用删除和旧迁移。
+2. 使用真实 PostgreSQL/testcontainers 验证 `185/186/187/188`、两阶段 admission、延期投稿状态机、多 Worker、租约心跳、Outbox、stale recovery、引用删除和旧迁移。
 3. 使用七牛、阿里、腾讯真实凭证逐厂商验证 upload、HEAD/read、公开/签名 URL、delete 和 intent crash recovery。
 4. 跑通 OpenAI/Gemini 实时与异步四象限、Grok 实时，并核对实际尺寸、数量、余额/订阅/倍率/额度。
 5. 在生产备份副本演练旧广场立即隐藏、可恢复迁移、quarantine 和回滚。
@@ -53,6 +55,14 @@ OSS delete 成功而数据库更新失败时，对象可能长期停在 `deletin
 ### 能力缓存导致模式错误
 
 工作台模式只能由 Key 当前分组决定。前端若长期使用旧能力，可能向错误入口提交。每次提交前必须重新获取 `capability_version`；变化时更新表单并停止本次操作，不能尝试另一模式。
+
+### 本机延期投稿与用户同步窗口
+
+实时投稿在审核通过后依赖用户再次上线并 `sync`。若本机 IndexedDB blob 已过期/被清理，同步会失败；管理员批准不等于广场已出现作品。运营需理解「图片仍在用户本机」的审核队列语义。
+
+### 上游间歇失败与可观测性
+
+Gemini/网关偶发非 2xx 时任务会 `upstream_failed`。Worker 已将 HTTP 状态与脱敏正文写入 `error_message`；需重启后端后对新失败生效。笼统失败信息不足以区分本地缺陷与上游抖动。
 
 ### PostgreSQL staging 和图库容量
 

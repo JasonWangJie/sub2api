@@ -119,9 +119,16 @@ DELETE /api/v1/user/image-library/:asset_id
 GET    /api/v1/user/image-library/:asset_id/view
 POST   /api/v1/user/image-library/:asset_id/publications
 DELETE /api/v1/user/image-library/:asset_id/publication
+
+GET    /api/v1/user/image-library/submission-requests
+POST   /api/v1/user/image-library/submission-requests
+POST   /api/v1/user/image-library/submission-requests/:request_id/sync
+DELETE /api/v1/user/image-library/submission-requests/:request_id
 ```
 
 资产标识使用 `img_*`。用户只能访问自己的资产，越权统一返回 `404`。`view` 默认返回 `307`；客户端发送 `Accept: application/json` 时返回当前 URL 和 `expires_at`。
+
+`submission-requests` 用于**本机持图延期投稿**：创建时只提交元数据（checksum、宽高、公开标题、是否共享提示词等），**不上传图片字节**；状态含 `pending_review` / `approved_pending_sync` / `rejected` / `withdrawn` / `synced`。只有 `approved_pending_sync` 时 `sync` 才会上传 OSS、创建 `published` 投稿并标记 `synced`。
 
 ### 审核广场与举报
 
@@ -150,9 +157,14 @@ POST /api/v1/admin/image-plaza/publications/batch
 POST /api/v1/admin/image-plaza/publications/:publication_id/:action
 GET  /api/v1/admin/image-plaza/reports
 POST /api/v1/admin/image-plaza/reports/:report_id/resolve
+
+GET  /api/v1/admin/image-plaza/submission-requests
+POST /api/v1/admin/image-plaza/submission-requests/:request_id/:action
 ```
 
-`:action` 当前用于 `approve/reject/hide/restore`。批量接口接受多个投稿 ID 和 `approve/reject`，逐项复用相同状态机并返回每项结果。所有状态转换必须经过服务端状态机和审计事件，不能由前端直接修改状态字段。
+`:action` 对图库投稿用于 `approve/reject/hide/restore`；对本机延期投稿用于 `approve/reject`（批准后进入 `approved_pending_sync`，**不**立即占 OSS）。批量接口接受多个投稿 ID 和 `approve/reject`，逐项复用相同状态机并返回每项结果。所有状态转换必须经过服务端状态机和审计事件，不能由前端直接修改状态字段。
+
+管理端「本机投稿审核」页签无图片预览（图片仍在用户本机），只展示元数据与审核操作。
 
 ## 旧广场兼容边界
 

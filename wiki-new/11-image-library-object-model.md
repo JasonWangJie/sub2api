@@ -11,6 +11,9 @@ image_storage_objects
   <- async_image_results.storage_object_id
   <- image_library_items.storage_object_id
        <- image_plaza_publications.library_item_id
+
+image_plaza_submission_requests  （迁移 188；审核前可无 storage_object_id）
+  -> sync 成功后写入 image_storage_objects + image_library_items + published publication
 ```
 
 `async_image_results` 原有 provider/bucket/object_key 等列保留一个兼容周期，并在迁移时回填 `storage_object_id`。不要在尚未完成兼容迁移和回归前删除旧列。
@@ -22,14 +25,22 @@ image_storage_objects
 | `image_storage_objects` | provider、bucket、object key、实际 MIME、字节、SHA-256、宽高和删除状态 |
 | `async_image_results.storage_object_id` | 将持久异步结果连接到统一对象身份 |
 | `image_library_items` | 用户私有图库、来源、Key/分组、平台、模式、任务、模型、规格、提示词和保留期 |
-| `image_plaza_publications` | 显式投稿及审核/下架/撤回状态 |
+| `image_plaza_publications` | 显式投稿及审核/下架/撤回状态（图库资产路径） |
 | `image_plaza_reports` | 登录用户对已公开投稿的举报 |
 | `image_library_events` | 图库和投稿状态事件、操作者和审计载荷 |
 | `image_library_outbox` | 删除等外部副作用的可靠执行记录 |
 | `image_library_cleanup_jobs` | 管理员和自动过期清理任务、租约、进度和错误 |
 | `image_library_migration_state` | 旧广场迁移进度、租约、成功/隔离计数和错误 |
 
-对外标识使用不透明的 `img_*` 和 `imgpub_*`，不能暴露数据库顺序 ID。
+## `188` 延期投稿
+
+| 表/字段 | 用途 |
+|---|---|
+| `image_plaza_submission_requests` | 本机持图延期投稿：checksum、尺寸、公开元数据、状态机；审核前不占 OSS |
+
+状态：`pending_review` → `approved_pending_sync` →（用户 sync）`synced`；也可 `rejected` / `withdrawn`。
+
+对外标识使用不透明的 `img_*` 和 `imgpub_*`，不能暴露数据库顺序 ID。对象 key 由服务端按 UTC `YYYY/MM/DD` 分区生成。
 
 ## 图库来源与生成模式
 
@@ -64,8 +75,14 @@ image_storage_objects
 | `GET /api/v1/user/image-library/:asset_id/view` | 默认 `307` 跳转；JSON Accept 返回 URL 和到期时间 |
 | `POST /api/v1/user/image-library/:asset_id/publications` | 显式投稿，选择公开标题和是否共享提示词 |
 | `DELETE /api/v1/user/image-library/:asset_id/publication` | 撤回待审或已公开投稿 |
+| `GET /api/v1/user/image-library/submission-requests` | 列出本人延期投稿队列 |
+| `POST /api/v1/user/image-library/submission-requests` | 本机持图投稿（仅元数据，不上传 OSS） |
+| `POST /api/v1/user/image-library/submission-requests/:request_id/sync` | 审核通过后上传并发布到广场 |
+| `DELETE /api/v1/user/image-library/submission-requests/:request_id` | 撤回待审或待同步请求 |
 
 列表使用 `(created_at, id)` 稳定游标，不用页码加 offset。`from-task` 只允许任务所有者，并要求任务 `succeeded`、账务 `succeeded/not_billable` 和对应结果存在。
+
+工作台实时结果优先走 `submission-requests`；已归档到图库的资产继续走 `publications`。
 
 ## 导入与幂等
 

@@ -20,7 +20,62 @@
         </button>
       </nav>
 
-      <section v-if="activeTab === 'publications'" class="moderation-surface">
+      <section v-if="activeTab === 'deferred'" class="moderation-surface">
+        <div class="moderation-toolbar">
+          <label>
+            <span>{{ t('common.status') }}</span>
+            <select v-model="deferredFilter" class="input" @change="loadDeferredSubmissions()">
+              <option value="pending_review">{{ t('imageWorkflow.publication.pending_review') }}</option>
+              <option value="approved_pending_sync">{{ t('imageWorkflow.archive.approved_pending_sync') }}</option>
+              <option value="rejected">{{ t('imageWorkflow.publication.rejected') }}</option>
+              <option value="synced">{{ t('imageWorkflow.archive.synced') }}</option>
+              <option value="">{{ t('common.all') }}</option>
+            </select>
+          </label>
+        </div>
+        <p class="moderation-deferred-hint">{{ t('imageWorkflow.admin.deferredHint') }}</p>
+        <div class="table-scroll">
+          <table class="moderation-table">
+            <thead>
+              <tr>
+                <th>{{ t('imageWorkflow.admin.work') }}</th>
+                <th>{{ t('imageWorkflow.workbench.platform') }}</th>
+                <th>{{ t('imageWorkflow.admin.submitter') }}</th>
+                <th>{{ t('common.status') }}</th>
+                <th>{{ t('imageWorkflow.admin.submittedAt') }}</th>
+                <th>{{ t('common.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in deferredSubmissions" :key="item.id">
+                <td>
+                  <div class="work-cell">
+                    <span class="work-cell__placeholder"><Icon name="inbox" size="sm" /></span>
+                    <div>
+                      <strong>{{ item.title || t('imageWorkflow.library.untitled') }}</strong>
+                      <small>{{ item.model || '—' }} · {{ t('imageWorkflow.admin.imageHeldClientSide') }}</small>
+                    </div>
+                  </div>
+                </td>
+                <td>{{ platformName(item.platform) }}</td>
+                <td>{{ item.user_id || '—' }}</td>
+                <td><span class="admin-status" :class="statusClass(item.status)">{{ deferredStatusLabel(item.status) }}</span></td>
+                <td>{{ formatDate(item.created_at) }}</td>
+                <td>
+                  <div class="table-actions">
+                    <button v-if="item.status === 'pending_review'" type="button" class="action-button is-approve" :disabled="busyId === String(item.id)" @click="actDeferred(item, 'approve')">{{ t('imageWorkflow.admin.approve') }}</button>
+                    <button v-if="item.status === 'pending_review'" type="button" class="action-button is-reject" :disabled="busyId === String(item.id)" @click="actDeferred(item, 'reject')">{{ t('imageWorkflow.admin.reject') }}</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!deferredSubmissions.length && !loading"><td colspan="6" class="empty-cell">{{ t('common.noData') }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <button v-if="deferredCursor" type="button" class="load-more" @click="loadMoreDeferred">{{ t('imageWorkflow.plaza.loadMore') }}</button>
+      </section>
+
+      <section v-else-if="activeTab === 'publications'" class="moderation-surface">
         <div class="moderation-toolbar">
           <label>
             <span>{{ t('common.status') }}</span>
@@ -262,12 +317,14 @@ import {
   getAdminImageLibraryStats,
   getImageLibraryMigrationState,
   listAdminImageLibrary,
+  listAdminPlazaSubmissionRequests,
   listAdminPublications,
   listAdminReports,
   listCleanupJobs,
   previewCleanup,
   resolveAdminReport,
   resolveImageLibraryViewURL,
+  reviewPlazaSubmissionRequest,
   reviewPublication,
 } from '@/api/imageLibrary'
 import type {
@@ -275,18 +332,22 @@ import type {
   ImageLibraryItem,
   ImageLibraryMigrationState,
   ImageLibraryStats,
+  ImagePlazaSubmissionRequest,
   ImagePublicationRecord,
   ImageReportRecord,
 } from '@/features/image-workflow/types'
 import type IconComponent from '@/components/icons/Icon.vue'
 
-type Tab = 'publications' | 'reports' | 'library' | 'cleanup'
+type Tab = 'deferred' | 'publications' | 'reports' | 'library' | 'cleanup'
 type IconName = InstanceType<typeof IconComponent>['$props']['name']
 const { t } = useI18n()
 const appStore = useAppStore()
-const activeTab = ref<Tab>('publications')
+const activeTab = ref<Tab>('deferred')
 const loading = ref(false)
 const busyId = ref('')
+const deferredSubmissions = ref<ImagePlazaSubmissionRequest[]>([])
+const deferredCursor = ref<string | null>(null)
+const deferredFilter = ref('pending_review')
 const publications = ref<ImagePublicationRecord[]>([])
 const publicationCursor = ref<string | null>(null)
 const publicationFilter = ref('pending_review')
@@ -321,6 +382,7 @@ const cleanupForm = reactive<{ scope: string; before: string; userId: number | '
 })
 
 const tabs = computed<Array<{ value: Tab; label: string; icon: IconName; count?: number }>>(() => [
+  { value: 'deferred', label: t('imageWorkflow.admin.deferredSubmissions'), icon: 'inbox', count: deferredFilter.value === 'pending_review' ? deferredSubmissions.value.length : undefined },
   { value: 'publications', label: t('imageWorkflow.admin.publications'), icon: 'grid', count: publicationFilter.value === 'pending_review' ? publications.value.length : undefined },
   { value: 'reports', label: t('imageWorkflow.admin.reports'), icon: 'shield', count: reportFilter.value === 'pending' ? reports.value.length : undefined },
   { value: 'library', label: t('imageWorkflow.admin.library'), icon: 'inbox' },
@@ -487,11 +549,70 @@ function cleanupPayload(): Record<string, unknown> {
   }
 }
 
-function refreshActive() { if (activeTab.value === 'publications') return loadPublications(); if (activeTab.value === 'reports') return loadReports(); if (activeTab.value === 'library') return loadLibrary(); return loadCleanup() }
+async function loadDeferredSubmissions(append = false) {
+  loading.value = true
+  try {
+    const page = await listAdminPlazaSubmissionRequests({
+      status: deferredFilter.value || undefined,
+      cursor: append ? deferredCursor.value || undefined : undefined,
+      limit: 30,
+    })
+    deferredSubmissions.value = append ? [...deferredSubmissions.value, ...page.items] : page.items
+    deferredCursor.value = page.next_cursor
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkflow.admin.loadFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+const loadMoreDeferred = () => loadDeferredSubmissions(true)
+
+async function actDeferred(item: ImagePlazaSubmissionRequest, action: 'approve' | 'reject') {
+  let reason = ''
+  if (action === 'reject') {
+    reason = window.prompt(t('imageWorkflow.admin.reasonRequired'))?.trim() || ''
+    if (!reason) return
+  }
+  busyId.value = String(item.id)
+  try {
+    await reviewPlazaSubmissionRequest(item.id, action, reason)
+    await loadDeferredSubmissions()
+    appStore.showSuccess(t('common.success'))
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkflow.admin.actionFailed'))
+  } finally {
+    busyId.value = ''
+  }
+}
+
+function deferredStatusLabel(status: string) {
+  if (status === 'approved_pending_sync') return t('imageWorkflow.archive.approved_pending_sync')
+  if (status === 'synced') return t('imageWorkflow.archive.synced')
+  if (status === 'pending_review' || status === 'rejected' || status === 'withdrawn') {
+    return t(`imageWorkflow.publication.${status === 'withdrawn' ? 'withdrawn' : status}`)
+  }
+  return status
+}
+
+function refreshActive() {
+  if (activeTab.value === 'deferred') return loadDeferredSubmissions()
+  if (activeTab.value === 'publications') return loadPublications()
+  if (activeTab.value === 'reports') return loadReports()
+  if (activeTab.value === 'library') return loadLibrary()
+  return loadCleanup()
+}
 function platformName(value: string) { return value === 'openai' ? 'OpenAI' : value === 'gemini' ? 'Gemini' : value === 'grok' ? 'Grok' : value }
 function formatDate(value?: string | null) { if (!value) return '—'; const time = Date.parse(value); return Number.isFinite(time) ? new Date(time).toLocaleString() : value }
 function formatBytes(value: number) { if (!value) return '0 B'; const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; const index = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024))); return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}` }
-function statusClass(value: string) { return value === 'published' || value === 'succeeded' ? 'is-success' : value === 'pending_review' || value === 'pending' || value === 'running' ? 'is-warning' : value === 'rejected' || value === 'admin_hidden' || value === 'failed' ? 'is-danger' : '' }
+function statusClass(value: string) {
+  return value === 'published' || value === 'succeeded' || value === 'synced' || value === 'approved_pending_sync'
+    ? 'is-success'
+    : value === 'pending_review' || value === 'pending' || value === 'running'
+      ? 'is-warning'
+      : value === 'rejected' || value === 'admin_hidden' || value === 'failed'
+        ? 'is-danger'
+        : ''
+}
 async function resolveAdminImages(items: ImageLibraryItem[]) { await Promise.allSettled(items.map(async (item) => { const access = await resolveImageLibraryViewURL(item.id, true); adminImageURLs.value = { ...adminImageURLs.value, [String(item.id)]: access.url } })) }
 
 function cleanupScopeLabel(scope: string) {
@@ -514,7 +635,7 @@ function formatCleanupFilters(job: ImageCleanupJob) {
 
 watch(activeTab, refreshActive)
 watch(() => [cleanupForm.scope, cleanupForm.before, cleanupForm.userId], () => { cleanupPreview.value = null })
-onMounted(() => { void Promise.all([loadPublications(), loadReports()]) })
+onMounted(() => { void Promise.all([loadDeferredSubmissions(), loadPublications(), loadReports()]) })
 </script>
 
 <style scoped>
@@ -553,6 +674,7 @@ onMounted(() => { void Promise.all([loadPublications(), loadReports()]) })
 .work-cell { display: flex; min-width: 220px; align-items: center; gap: 0.55rem; }
 .work-cell img { width: 2.75rem; height: 2.75rem; flex: 0 0 auto; border-radius: 4px; background: #f3f4f6; object-fit: cover; }
 .work-cell__placeholder { display: grid; width: 2.75rem; height: 2.75rem; flex: 0 0 auto; place-items: center; border-radius: 4px; background: #f3f4f6; color: #9ca3af; }
+.moderation-deferred-hint { margin: 0 0 0.85rem; color: #6b7280; font-size: 0.875rem; }
 .work-cell div { min-width: 0; }
 .work-cell strong,
 .work-cell small { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

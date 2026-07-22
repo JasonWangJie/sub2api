@@ -810,6 +810,17 @@ func (r *imageLibraryRepository) CreatePublication(ctx context.Context, in servi
 	}
 	var id int64
 	var activeStatus string
+	initialStatus := strings.TrimSpace(in.InitialStatus)
+	if initialStatus == "" {
+		initialStatus = service.ImagePublicationPending
+	}
+	if initialStatus != service.ImagePublicationPending && initialStatus != service.ImagePublicationPublished {
+		return nil, apperrors.BadRequest("INVALID_PUBLICATION_STATUS", "unsupported initial publication status")
+	}
+	moderation := "pending"
+	if initialStatus == service.ImagePublicationPublished {
+		moderation = "approved"
+	}
 	err = tx.QueryRowContext(ctx, `SELECT id,status FROM image_plaza_publications WHERE library_item_id=$1 AND status IN ('pending_review','published','admin_hidden') FOR UPDATE`, assetPK).Scan(&id, &activeStatus)
 	if err == nil {
 		if activeStatus != service.ImagePublicationPending {
@@ -820,18 +831,23 @@ func (r *imageLibraryRepository) CreatePublication(ctx context.Context, in servi
 		err = tx.QueryRowContext(ctx, `
 INSERT INTO image_plaza_publications (
  public_id,library_item_id,user_id,status,public_title,public_prompt,share_prompt,
- moderation_status,expires_at
-) VALUES ($1,$2,$3,'pending_review',$4,$5,$6,'pending',$7)
-RETURNING id`, "imgpub_"+uuid.NewString(), assetPK, in.UserID, in.PublicTitle, publicPrompt, in.SharePrompt, in.ExpiresAt).Scan(&id)
+ moderation_status,published_at,expires_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $4='published' THEN NOW() ELSE NULL END,$9)
+RETURNING id`, "imgpub_"+uuid.NewString(), assetPK, in.UserID, initialStatus, in.PublicTitle, publicPrompt, in.SharePrompt, moderation, in.ExpiresAt).Scan(&id)
 	}
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE image_library_items SET visibility='private',expires_at=GREATEST(expires_at,$2),updated_at=NOW() WHERE id=$1`, assetPK, in.ExpiresAt)
+	visibility := service.ImageLibraryVisibilityPrivate
+	if initialStatus == service.ImagePublicationPublished {
+		visibility = service.ImageLibraryVisibilityPublic
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE image_library_items SET visibility=$2,expires_at=GREATEST(expires_at,$3),updated_at=NOW() WHERE id=$1`, assetPK, visibility, in.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
-	if err := appendLibraryEvent(ctx, tx, assetPK, &id, &in.UserID, "publication.submitted", "", service.ImagePublicationPending, json.RawMessage(`{}`)); err != nil {
+	eventTo := initialStatus
+	if err := appendLibraryEvent(ctx, tx, assetPK, &id, &in.UserID, "publication.submitted", "", eventTo, json.RawMessage(`{}`)); err != nil {
 		return nil, err
 	}
 	publication, err := getPublication(ctx, tx, id)
@@ -876,6 +892,23 @@ func (r *imageLibraryRepository) WithdrawPublication(ctx context.Context, userID
 	}
 	if err := appendLibraryEvent(ctx, tx, assetPK, &publicationID, &userID, "publication.withdrawn", oldStatus, service.ImagePublicationWithdrawn, json.RawMessage(`{}`)); err != nil {
 		return err
+	}
+	// Realtime 投稿撤回待审：对象仅为投稿而上传，撤回后删除图库条目并清理 OSS。
+	if oldStatus == service.ImagePublicationPending {
+		var sourceType string
+		if err := tx.QueryRowContext(ctx, `SELECT source_type FROM image_library_items WHERE id=$1`, assetPK).Scan(&sourceType); err != nil {
+			return err
+		}
+		if sourceType == "realtime_import" {
+			if _, err := tx.ExecContext(ctx, `
+UPDATE image_library_items SET deleted_at=NOW(),visibility='private',updated_at=NOW()
+WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, assetPK, userID); err != nil {
+				return err
+			}
+			if err := finalizeImageLibraryDeletion(ctx, tx, assetPK, userID); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit()
 }
@@ -1105,6 +1138,30 @@ UPDATE image_plaza_publications SET status=$2,moderation_status=$3,
 	if err := appendLibraryEvent(ctx, tx, assetID, &publicationPK, &adminUserID, "publication."+action, oldStatus, toStatus, payload); err != nil {
 		return nil, err
 	}
+
+	// Realtime 投稿：对象存储仅在投稿时写入。审核拒绝后软删图库条目并触发 OSS 清理。
+	// 异步归档（async_task）仍保留私有图库副本，拒绝投稿不删 OSS。
+	if action == "reject" {
+		var sourceType string
+		if err := tx.QueryRowContext(ctx, `SELECT source_type FROM image_library_items WHERE id=$1`, assetID).Scan(&sourceType); err != nil {
+			return nil, err
+		}
+		if sourceType == "realtime_import" {
+			var ownerID int64
+			if err := tx.QueryRowContext(ctx, `SELECT user_id FROM image_library_items WHERE id=$1`, assetID).Scan(&ownerID); err != nil {
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+UPDATE image_library_items SET deleted_at=NOW(),visibility='private',updated_at=NOW()
+WHERE id=$1 AND deleted_at IS NULL`, assetID); err != nil {
+				return nil, err
+			}
+			if err := finalizeImageLibraryDeletion(ctx, tx, assetID, ownerID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	publication, err := getPublication(ctx, tx, publicationPK)
 	if err != nil {
 		return nil, err

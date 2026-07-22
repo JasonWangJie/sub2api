@@ -213,7 +213,16 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 }
 
 func (u *ImageResultUploader) buildKey(taskID string, index int, contentType string) string {
-	return u.prefix + taskID + "-" + strconv.Itoa(index) + extensionForContentType(contentType)
+	return u.prefix + ImageObjectDatePartition(time.Now()) + "/" + taskID + "-" + strconv.Itoa(index) + extensionForContentType(contentType)
+}
+
+// ImageObjectDatePartition returns UTC year/month/day segments for OSS object keys,
+// e.g. "2026/07/22".
+func ImageObjectDatePartition(now time.Time) string {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return now.UTC().Format("2006/01/02")
 }
 
 func detectImageContentType(data []byte) string {

@@ -32,11 +32,12 @@ upstream: Wei-Shaw/sub2api
 2. `backend/migrations/185_async_image_tasks.sql`。
 3. `backend/migrations/186_image_library_and_plaza_moderation.sql`。
 4. `backend/migrations/187_async_image_upload_reservations.sql`。
-5. 与当前任务直接相关的 Handler/Service/Repository/前端代码。
-6. `docs/DURABLE_ASYNC_IMAGE_API.md`（只针对公共持久异步协议）。
-7. 本目录 `README.md`、`01-current-status.md` 和对应专题。
-8. 根目录 `readmenew.md` 摘要。
-9. 原始需求文档只用于理解意图，不作为最终契约。
+5. `backend/migrations/188_plaza_submission_deferred_upload.sql`。
+6. 与当前任务直接相关的 Handler/Service/Repository/前端代码。
+7. `docs/DURABLE_ASYNC_IMAGE_API.md`（只针对公共持久异步协议）。
+8. 本目录 `README.md`、`01-current-status.md` 和对应专题。
+9. 根目录 `readmenew.md` 摘要。
+10. 原始需求文档只用于理解意图，不作为最终契约。
 
 旧 `docs/ASYNC_IMAGE_TASKS.md` 仍有效，但只描述旧 Redis 24 小时任务。
 
@@ -44,8 +45,8 @@ upstream: Wei-Shaw/sub2api
 
 ```powershell
 rg -n "allow_async_image_generation|completions_gm|generations_oa|generations_sc" backend frontend
-rg -n "image-workbench|image-library|image-plaza" backend\internal\server\routes frontend\src\router
-rg -n "image_storage_objects|library_archive|legacy_image_plaza_v1|async_image_upload_reservations" backend
+rg -n "image-workbench|image-library|image-plaza|submission-requests" backend\internal\server\routes frontend\src\router
+rg -n "image_storage_objects|library_archive|legacy_image_plaza_v1|async_image_upload_reservations|image_plaza_submission_requests|ImageObjectDatePartition" backend
 ```
 
 核心文件：
@@ -59,19 +60,29 @@ backend/internal/handler/image_library_handler.go
 backend/internal/handler/image_plaza_handler.go
 backend/internal/service/image_workbench.go
 backend/internal/service/image_library.go
+backend/internal/service/image_plaza_submission.go
 backend/internal/service/image_library_maintenance.go
 backend/internal/service/image_plaza_helpers.go
 backend/internal/repository/image_library_repo.go
+backend/internal/repository/image_plaza_submission_repo.go
 frontend/src/features/image-workflow/
+frontend/src/features/image-workflow/submissionBlobStore.ts
 frontend/src/views/user/ImageWorkbenchView.vue
 frontend/src/views/user/ImageLibraryView.vue
 frontend/src/views/user/ImagePlazaView.vue
+frontend/src/views/user/AsyncImageTasksView.vue
 frontend/src/views/admin/ImageModerationView.vue
 ```
 
 ## 4. 牢记工作台不变量
 
 - 模式只能由所选 Key 当前分组决定，用户不能手工切换。
+- 实时结果默认本机 IndexedDB；「投稿审核」只交元数据，审核前不上传 OSS。
+- `approved_pending_sync` 后由用户「同步至图片广场」才写入 OSS 并 `published`。
+- 异步任务结果仍走服务端 OSS/归档；工作台紧凑侧栏不因归档失败反复提示恢复。
+- 异步任务中心：任务号可复制；禁止行点击/任务号点击打开详情，仅「查看」。
+- OSS key 使用 UTC `YYYY/MM/DD` 分区。
+- `upstream_failed` 应含 HTTP 状态与上游摘要（需新版 Worker）。
 - OpenAI/Gemini 的异步开关关闭时走实时，开启时走持久异步。
 - Grok 仅实时；Antigravity/其他平台不进入工作台。
 - 提交前重新获取 `capability_version`；变化时停止并要求重新确认。
@@ -99,10 +110,13 @@ frontend/src/views/admin/ImageModerationView.vue
 
 - 新结果默认私有。
 - 公开必须显式投稿并由管理员批准。
+- **实时本机投稿审核前不占 OSS**；批准后为 `approved_pending_sync`，用户 `sync` 才上传并 `published`。
+- 图库已有资产仍可走 `publications` 既有投稿路径。
 - 提示词默认私有，只有明确共享才进入广场。
 - 对外使用 `img_*`、`imgpub_*`，不泄露顺序 ID。
 - 查看时动态签名，数据库不保存预签名 URL。
 - 异步结果、图库和投稿共享 `image_storage_objects`；删除前检查全部活动引用。
+- OSS 对象 key 按 UTC `YYYY/MM/DD` 分区。
 - 用户越权统一 `404`。
 - 旧广场升级后先隐藏，再严格校验迁为私有和待审；危险记录隔离。
 - 旧 GET 只返回已批准作品，旧 POST/DELETE 是弃用适配器，不恢复默认公开。
@@ -251,5 +265,5 @@ Get-Content backend\cmd\server\VERSION
 ## 12. 一句话恢复上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓与前端 189/1277/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查脏工作树。185 是持久异步任务，186 是统一对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复，188 是本机延期投稿（审核通过后再同步 OSS）。工作台实时结果默认本机；投稿只交元数据；模式只由 Key 当前分组决定，默认私有、公开需审核，所有计费复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓与前端 189/1277/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```

@@ -239,13 +239,14 @@ type UpdateImageLibraryItemParams struct {
 }
 
 type CreateImagePublicationParams struct {
-	UserID       int64
-	AssetID      string
-	PublicTitle  string
-	SharePrompt  bool
-	PublicPrompt *string
-	ExpiresAt    time.Time
-	RateLimit    int
+	UserID        int64
+	AssetID       string
+	PublicTitle   string
+	SharePrompt   bool
+	PublicPrompt  *string
+	ExpiresAt     time.Time
+	RateLimit     int
+	InitialStatus string // empty defaults to pending_review; sync uses published
 }
 
 type AdminImageLibraryStats struct {
@@ -385,11 +386,16 @@ type ImageLibraryImportInput struct {
 
 type ImageLibraryService struct {
 	repo            ImageLibraryRepository
+	submissions     ImagePlazaSubmissionRepository
 	storageSettings *ImageStorageSettingService
 }
 
 func NewImageLibraryService(repo ImageLibraryRepository, storageSettings *ImageStorageSettingService) *ImageLibraryService {
-	return &ImageLibraryService{repo: repo, storageSettings: storageSettings}
+	svc := &ImageLibraryService{repo: repo, storageSettings: storageSettings}
+	if submissions, ok := repo.(ImagePlazaSubmissionRepository); ok {
+		svc.submissions = submissions
+	}
+	return svc
 }
 
 func (s *ImageLibraryService) ImportBytes(ctx context.Context, userID int64, in ImageLibraryImportInput) (*ImageLibraryItem, bool, error) {
@@ -504,7 +510,7 @@ func (s *ImageLibraryService) importValidated(
 		title = "Generated image"
 	}
 
-	key := fmt.Sprintf("library/%d/%s/%s.%s", userID, time.Now().UTC().Format("2006/01"), uuid.NewString(), extFromFormat(validated.Format))
+	key := fmt.Sprintf("library/%d/%s/%s.%s", userID, ImageObjectDatePartition(time.Now()), uuid.NewString(), extFromFormat(validated.Format))
 	object, err := storage.SaveObject(ctx, key, validated.MIMEType, validated.Data)
 	if err != nil {
 		s.releaseImportAttempt(userID, idempotencyKey, requestHash)

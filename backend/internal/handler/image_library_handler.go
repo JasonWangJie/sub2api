@@ -64,6 +64,31 @@ type imageReportRequest struct {
 	Details string `json:"details"`
 }
 
+type imageSubmissionCreateRequest struct {
+	Title          string  `json:"title"`
+	PrivatePrompt  string  `json:"private_prompt"`
+	PublicTitle    string  `json:"public_title"`
+	SharePrompt    bool    `json:"share_prompt"`
+	PublicPrompt   *string `json:"public_prompt"`
+	Platform       string  `json:"platform"`
+	GenerationMode string  `json:"generation_mode"`
+	SourceType     string  `json:"source_type"`
+	Model          string  `json:"model"`
+	RequestedSize  string  `json:"requested_size"`
+	AspectRatio    string  `json:"aspect_ratio"`
+	Quality        string  `json:"quality"`
+	ContentType    string  `json:"content_type"`
+	ByteSize       int64   `json:"byte_size"`
+	ChecksumSHA256 string  `json:"checksum_sha256"`
+	ClientBlobKey  string  `json:"client_blob_key"`
+	APIKeyID       *int64  `json:"api_key_id"`
+	GroupID        *int64  `json:"group_id"`
+}
+
+type imageSubmissionReviewRequest struct {
+	Reason string `json:"reason"`
+}
+
 type imageCursorPayload struct {
 	Time time.Time `json:"t"`
 	ID   int64     `json:"i"`
@@ -264,6 +289,149 @@ func (h *ImageLibraryHandler) Publish(c *gin.Context) {
 		return
 	}
 	response.Created(c, publication)
+}
+
+func (h *ImageLibraryHandler) CreateSubmissionRequest(c *gin.Context) {
+	subject, ok := imageLibrarySubject(c)
+	if !ok {
+		return
+	}
+	var req imageSubmissionCreateRequest
+	if err := bindLimitedJSON(c, &req, 64<<10); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	item, reused, err := h.svc.CreateSubmissionRequest(c.Request.Context(), service.CreateImagePlazaSubmissionParams{
+		UserID: subject.UserID, Title: req.Title, PrivatePrompt: req.PrivatePrompt,
+		PublicTitle: req.PublicTitle, PublicPrompt: req.PublicPrompt, SharePrompt: req.SharePrompt,
+		Platform: req.Platform, GenerationMode: req.GenerationMode, SourceType: req.SourceType,
+		Model: req.Model, RequestedSize: req.RequestedSize, AspectRatio: req.AspectRatio, Quality: req.Quality,
+		ContentType: req.ContentType, ByteSize: req.ByteSize, ChecksumSHA256: req.ChecksumSHA256,
+		ClientBlobKey: req.ClientBlobKey, APIKeyID: req.APIKeyID, GroupID: req.GroupID,
+		IdempotencyKey: strings.TrimSpace(c.GetHeader("Idempotency-Key")),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if reused {
+		response.Success(c, gin.H{"item": item, "reused": true})
+		return
+	}
+	response.Created(c, gin.H{"item": item, "reused": false})
+}
+
+func (h *ImageLibraryHandler) ListMySubmissionRequests(c *gin.Context) {
+	subject, ok := imageLibrarySubject(c)
+	if !ok {
+		return
+	}
+	cursor, ok := parseImageCursor(c)
+	if !ok {
+		return
+	}
+	limit := parseImageLimit(c)
+	items, err := h.svc.ListMySubmissionRequests(c.Request.Context(), subject.UserID, c.Query("status"), cursor, limit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items, "next_cursor": nextSubmissionCursor(items, limit)})
+}
+
+func (h *ImageLibraryHandler) WithdrawSubmissionRequest(c *gin.Context) {
+	subject, ok := imageLibrarySubject(c)
+	if !ok {
+		return
+	}
+	id, ok := imagePathIdentifier(c, "request_id", "imgsub_")
+	if !ok {
+		return
+	}
+	if err := h.svc.WithdrawSubmissionRequest(c.Request.Context(), subject.UserID, id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"withdrawn": true})
+}
+
+func (h *ImageLibraryHandler) SyncSubmissionRequest(c *gin.Context) {
+	subject, ok := imageLibrarySubject(c)
+	if !ok {
+		return
+	}
+	id, ok := imagePathIdentifier(c, "request_id", "imgsub_")
+	if !ok {
+		return
+	}
+	policy, err := h.svc.Policy(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, policy.MaxImageBytes+(1<<20))
+	if err := c.Request.ParseMultipartForm(policy.MaxImageBytes + (1 << 20)); err != nil {
+		response.ErrorFrom(c, apperrors.BadRequest("INVALID_MULTIPART_IMAGE", "invalid or oversized multipart image"))
+		return
+	}
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		response.ErrorFrom(c, apperrors.BadRequest("IMAGE_REQUIRED", "image file is required"))
+		return
+	}
+	defer func() { _ = file.Close() }()
+	data, err := readMultipartImage(file, policy.MaxImageBytes)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	item, libraryItem, err := h.svc.SyncSubmissionRequest(c.Request.Context(), service.SyncImagePlazaSubmissionParams{
+		UserID: subject.UserID, RequestID: id, ImageData: data, MIMEType: safeDeclaredImageType(header.Header.Get("Content-Type")),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"item": item, "library_item": libraryItem})
+}
+
+func (h *ImageLibraryHandler) AdminListSubmissionRequests(c *gin.Context) {
+	cursor, ok := parseImageCursor(c)
+	if !ok {
+		return
+	}
+	limit := parseImageLimit(c)
+	items, err := h.svc.ListSubmissionRequestsAdmin(c.Request.Context(), c.Query("status"), cursor, limit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items, "next_cursor": nextSubmissionCursor(items, limit)})
+}
+
+func (h *ImageLibraryHandler) AdminTransitionSubmissionRequest(c *gin.Context) {
+	subject, ok := imageLibrarySubject(c)
+	if !ok {
+		return
+	}
+	id, ok := imagePathIdentifier(c, "request_id", "imgsub_")
+	if !ok {
+		return
+	}
+	action := strings.ToLower(strings.TrimSpace(c.Param("action")))
+	var req imageSubmissionReviewRequest
+	if c.Request.ContentLength != 0 {
+		if err := bindLimitedJSON(c, &req, 16<<10); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+	item, err := h.svc.TransitionSubmissionRequest(c.Request.Context(), subject.UserID, id, action, req.Reason)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, item)
 }
 
 func (h *ImageLibraryHandler) Withdraw(c *gin.Context) {
@@ -647,6 +815,14 @@ func encodeImageCursor(createdAt time.Time, id int64) string {
 }
 
 func nextLibraryCursor(items []service.ImageLibraryItem, limit int) string {
+	if len(items) < limit || len(items) == 0 {
+		return ""
+	}
+	last := items[len(items)-1]
+	return encodeImageCursor(last.CreatedAt, last.ID)
+}
+
+func nextSubmissionCursor(items []service.ImagePlazaSubmissionRequest, limit int) string {
 	if len(items) < limit || len(items) == 0 {
 		return ""
 	}

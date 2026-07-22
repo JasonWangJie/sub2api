@@ -625,7 +625,7 @@ func (h *DurableAsyncImageHandler) UploadSC(c *gin.Context) {
 	if filename == "" {
 		filename = "image" + asyncImageExtension(validated.MIMEType)
 	}
-	key := strings.TrimSuffix(settings.Prefix, "/") + "/inputs/" + fmt.Sprintf("%d/%s%s", apiKey.ID, uploadID, asyncImageExtension(validated.MIMEType))
+	key := strings.TrimSuffix(settings.Prefix, "/") + "/inputs/" + fmt.Sprintf("%s/%d/%s%s", service.ImageObjectDatePartition(time.Now()), apiKey.ID, uploadID, asyncImageExtension(validated.MIMEType))
 	intentResolver, ok := storage.(service.DurableImageStorageIntentResolver)
 	if !ok {
 		h.failSCUploadReservation(uploadID, requestHash, "intent_unsupported")

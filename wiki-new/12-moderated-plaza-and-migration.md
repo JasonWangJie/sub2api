@@ -2,11 +2,13 @@
 
 ## 新公开模型
 
-新图片永远先进入用户私有图库。公开不是生成或归档的副作用，而是独立的用户动作和管理员审核流程：
+新图片公开不是生成的副作用，而是独立的用户动作和管理员审核流程。存在两条投稿路径：
+
+### A. 图库资产投稿（已有 OSS）
 
 ```text
 private library item
-  -> user submit
+  -> user submit publications
   -> pending_review
   -> admin approve -> published
   -> user withdraw -> withdrawn
@@ -16,6 +18,20 @@ private library item
 pending_review -> admin reject -> rejected
 任何有效投稿到期 -> expired
 ```
+
+### B. 本机延期投稿（迁移 188；审核前无 OSS）
+
+```text
+realtime local blob (IndexedDB)
+  -> POST submission-requests（仅元数据）
+  -> pending_review
+  -> admin approve -> approved_pending_sync（仍无 OSS）
+  -> user sync -> 上传 OSS + published + synced
+  -> admin reject -> rejected
+  -> user withdraw -> withdrawn
+```
+
+管理端「本机投稿审核」无图预览，文案说明图片仍在用户本机。批准不等于广场已可见；必须等用户同步。
 
 每次批准、拒绝、撤回、下架、恢复和举报处理都要保存操作者、原因、时间和事件。不能通过再次切换图库 `visibility` 绕过投稿状态机。
 
@@ -27,7 +43,7 @@ pending_review -> admin reject -> rejected
 | `GET /api/v1/image-plaza/:publication_id/content` | 公开状态复核后重定向到当前 OSS URL |
 | `POST /api/v1/image-plaza/:publication_id/reports` | 登录用户举报公开作品 |
 
-图库投稿和撤回接口见 [11-image-library-object-model.md](11-image-library-object-model.md)。广场列表使用稳定游标，并允许平台和搜索筛选。普通响应只返回不可逆/不透明的公开创建者标识、`is_owner` 和公开元数据；不返回邮箱、内部 user ID、Key、分组或对象 key。
+图库投稿、撤回与延期投稿接口见 [11-image-library-object-model.md](11-image-library-object-model.md)。广场列表使用稳定游标，并允许平台和搜索筛选。普通响应只返回不可逆/不透明的公开创建者标识、`is_owner` 和公开元数据；不返回邮箱、内部 user ID、Key、分组或对象 key。
 
 提示词默认私有。只有投稿时明确 `share_prompt=true` 才能在公开响应和“一键同款”中返回提示词。
 
@@ -48,10 +64,12 @@ pending_review -> admin reject -> rejected
 | `GET /api/v1/admin/image-plaza/publications/:publication_id/view` | 审核预览 |
 | `POST /api/v1/admin/image-plaza/publications/:publication_id/:action` | `approve/reject/hide/restore` 状态转换 |
 | `POST /api/v1/admin/image-plaza/publications/batch` | 批量批准或拒绝，逐项返回结果并复用单项审计状态机 |
+| `GET /api/v1/admin/image-plaza/submission-requests` | 本机延期投稿审核队列（无图预览） |
+| `POST /api/v1/admin/image-plaza/submission-requests/:request_id/:action` | `approve` → `approved_pending_sync`；`reject` → `rejected` |
 | `GET /api/v1/admin/image-plaza/reports` | 举报队列 |
 | `POST /api/v1/admin/image-plaza/reports/:report_id/resolve` | 处理或驳回举报 |
 
-管理 UI 位于 `frontend/src/views/admin/ImageModerationView.vue`。单条/批量状态转换、举报处理、全站图库、统计、清理和迁移状态均已实现；批量审核 API 使用静态优先路由，管理页面提供选择、批量批准/拒绝和逐项结果反馈。
+管理 UI 位于 `frontend/src/views/admin/ImageModerationView.vue`。单条/批量状态转换、本机投稿审核页签、举报处理、全站图库、统计、清理和迁移状态均已实现；批量审核 API 使用静态优先路由，管理页面提供选择、批量批准/拒绝和逐项结果反馈。
 
 ## 旧接口兼容
 

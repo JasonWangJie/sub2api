@@ -227,6 +227,19 @@ git diff --check
 - 活动异步结果/图库/投稿任一引用存在时不删除 OSS。
 - OSS 删除成功但数据库更新失败后的 stale recovery。
 - 异步保留清理同步更新 `image_storage_objects` 状态。
+- OSS 对象 key 含 UTC `YYYY/MM/DD` 分区（library/results/inputs）。
+
+### 本机延期投稿迁移 188
+
+- 创建 `submission-requests` 只写元数据，不创建 OSS 对象。
+- 管理员 `approve` → `approved_pending_sync`，仍无 `storage_object_id`。
+- 用户 `sync`：checksum/size 校验 → 上传 → `published` publication → `synced`。
+- `reject` / `withdraw` 不残留 OSS；重复 sync / 跨用户 sync 被拒绝。
+- 前端 IndexedDB blob 缺失或过期时 sync 失败可解释。
+- 管理端本机投稿队列无图预览。
+- 工作台实时结果不自动 import；紧凑侧栏不提示异步归档恢复。
+- 异步任务中心：任务号可复制；行点击/任务号点击不打开详情。
+- `upstream_failed` 的 `error_message` 含 HTTP 状态与上游摘要（需重启 Worker）。
 
 ### 维护与迁移
 
@@ -260,6 +273,8 @@ Vitest 至少覆盖：
 - OpenAI edits 的 `output_format`。
 - 默认私有、归档失败重试、跨设备服务端图库。
 - 投稿、真实撤回、单条/批量审核和举报处理。
+- 本机延期投稿：元数据提交、待同步、sync 成功/失败、管理端无预览队列。
+- 异步任务中心复制任务号与禁止误开详情。
 - 私有/管理员动态 URL 的 JSON 和 `307` 双行为。
 - 中英文 locale key 完整。
 
@@ -302,7 +317,7 @@ Vitest 至少覆盖：
 | Gemini | 实时、BB、SC、文生图、图生图、真实尺寸和费用 |
 | OpenAI | 实时/异步 generations、JSON/multipart edits、格式和费用 |
 | Grok | 实时工作台与原链路回归 |
-| 数据库 | `185/186/187` 迁移、两阶段 admission、旧数据隐藏/迁移、恢复和回滚演练 |
+| 数据库 | `185/186/187/188` 迁移、两阶段 admission、延期投稿状态机、旧数据隐藏/迁移、恢复和回滚演练 |
 
 真实凭证测试必须通过环境变量按需启用，凭证和签名 URL 不得进入日志、测试快照或 Git。
 

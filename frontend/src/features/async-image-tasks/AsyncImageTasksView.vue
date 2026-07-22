@@ -98,28 +98,32 @@
           :data="tasks"
           :loading="loading"
           :row-key="taskKey"
-          clickable-rows
           server-side-sort
           default-sort-key="created_at"
           default-sort-order="desc"
           :sort-storage-key="admin ? 'admin-async-image-tasks-sort' : 'user-async-image-tasks-sort'"
-          @row-click="openDetail"
           @sort="sort"
         >
           <template #cell-id="{ row }">
-            <button
-              type="button"
-              class="group max-w-[220px] text-left"
-              :title="String(taskKey(row))"
-              @click.stop="openDetail(row)"
-            >
-              <span class="block truncate font-mono text-xs font-semibold text-gray-900 group-hover:text-primary-600 dark:text-gray-100 dark:group-hover:text-primary-400">
-                {{ taskKey(row) }}
-              </span>
-              <span class="mt-1 block text-[11px] uppercase text-gray-400">
-                {{ protocolLabel(row.protocol) }}
-              </span>
-            </button>
+            <div class="flex max-w-[300px] items-start gap-1.5">
+              <div class="min-w-0 flex-1" :title="String(taskKey(row))">
+                <span class="block truncate font-mono text-xs font-semibold text-gray-900 dark:text-gray-100">
+                  {{ taskKey(row) }}
+                </span>
+                <span class="mt-1 block text-[11px] uppercase text-gray-400">
+                  {{ protocolLabel(row.protocol) }}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="mt-0.5 shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                :title="t('common.copy')"
+                :aria-label="t('common.copy')"
+                @click.stop="copyTaskId(row)"
+              >
+                <Icon name="copy" size="sm" />
+              </button>
+            </div>
           </template>
 
           <template #cell-created_at="{ row }">

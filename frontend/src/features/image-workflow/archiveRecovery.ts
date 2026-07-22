@@ -18,8 +18,9 @@ export interface PendingImageArchive {
 }
 
 const DB_NAME = 'sub2api-image-workflow'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = 'archive-recovery'
+const SUBMISSION_STORE = 'plaza-submission-blobs'
 const MAX_RECORDS = 20
 const MAX_FILE_BYTES = 200 * 1024 * 1024
 const RECOVERY_TTL_MS = 24 * 60 * 60 * 1000
@@ -42,6 +43,12 @@ function openDatabase(): Promise<IDBDatabase> {
         const store = database.createObjectStore(STORE_NAME, { keyPath: 'id' })
         store.createIndex('createdAt', 'createdAt', { unique: false })
         store.createIndex('userId', 'userId', { unique: false })
+      }
+      if (!database.objectStoreNames.contains(SUBMISSION_STORE)) {
+        const store = database.createObjectStore(SUBMISSION_STORE, { keyPath: 'id' })
+        store.createIndex('createdAt', 'createdAt', { unique: false })
+        store.createIndex('userId', 'userId', { unique: false })
+        store.createIndex('requestId', 'requestId', { unique: false })
       }
     }
     request.onsuccess = () => resolve(request.result)

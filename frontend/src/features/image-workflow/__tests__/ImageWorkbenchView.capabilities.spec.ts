@@ -23,4 +23,19 @@ describe('ImageWorkbenchView capability-driven controls', () => {
     expect(source).not.toContain("{ key: 'uploading'")
     expect(source).not.toContain("{ key: 'billing'")
   })
+
+  it('supports continue-adding after async submit without waiting for completion', () => {
+    expect(source).toContain('function continueAdding')
+    expect(source).toContain("imageWorkflow.workbench.continueAdding")
+    expect(source).toContain('asyncTask.active = false')
+    expect(source).toContain('Keep polling after "继续添加"')
+  })
+
+  it('keeps realtime results local until explicit publish', () => {
+    expect(source).toContain("archiveStatus: 'local'")
+    expect(source).toContain('localOnly: true')
+    expect(source).toContain('function publishLocalResult')
+    expect(source).toContain('publishImageLibraryItem')
+    expect(source).not.toContain('await Promise.allSettled(results.value.map((result) => archiveResult(result, current)))')
+  })
 })

@@ -284,7 +284,14 @@ ON CONFLICT (migration_key) DO NOTHING;
 -- Existing plaza data was never subject to strict media validation or review.
 -- Hide it immediately; the recoverable migration promotes validated records to
 -- private library assets and pending-review submissions.
-UPDATE image_plaza_items SET visibility = 'private' WHERE visibility = 'public';
+-- Environments that never ran 182_add_image_plaza.sql have no legacy table; skip.
+DO $$
+BEGIN
+    IF to_regclass('public.image_plaza_items') IS NULL THEN
+        RETURN;
+    END IF;
+    UPDATE image_plaza_items SET visibility = 'private' WHERE visibility = 'public';
+END $$;
 
 COMMENT ON TABLE image_storage_objects IS 'Durable object identities shared by async results, private library, and plaza';
 COMMENT ON TABLE image_library_items IS 'Per-user server-side image library; private by default';

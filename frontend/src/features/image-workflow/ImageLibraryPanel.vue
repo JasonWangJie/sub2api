@@ -28,7 +28,7 @@
       </button>
     </div>
 
-    <section v-if="recoveries.length" class="library-recovery" aria-labelledby="image-library-recovery-heading">
+    <section v-if="!compact && recoveries.length" class="library-recovery" aria-labelledby="image-library-recovery-heading">
       <div class="library-recovery__heading">
         <span class="library-recovery__icon"><Icon name="exclamationTriangle" size="sm" /></span>
         <div class="min-w-0">
@@ -69,9 +69,50 @@
           </button>
         </article>
       </div>
-      <RouterLink v-if="compact && recoveries.length > visibleRecoveries.length" to="/image-library" class="library-recovery__more">
-        {{ t('imageWorkflow.library.viewAllRecoveries', { count: recoveries.length }) }}
-      </RouterLink>
+    </section>
+
+    <section v-if="submissions.length" class="library-recovery" aria-labelledby="image-library-submission-heading">
+      <div class="library-recovery__heading">
+        <span class="library-recovery__icon"><Icon name="checkCircle" size="sm" /></span>
+        <div class="min-w-0">
+          <h3 id="image-library-submission-heading">
+            {{ t('imageWorkflow.library.submissionQueueTitle', { count: submissions.length }) }}
+          </h3>
+          <p>{{ t('imageWorkflow.library.submissionQueueHint') }}</p>
+        </div>
+      </div>
+      <div class="library-recovery__list">
+        <article v-for="submission in visibleSubmissions" :key="submission.id" class="library-recovery__item">
+          <span class="library-recovery__preview">
+            <img v-if="submissionPreviewURLs[submission.id]" :src="submissionPreviewURLs[submission.id]" :alt="submission.title" />
+            <Icon v-else name="inbox" size="sm" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <strong :title="submission.title">{{ submission.title || t('imageWorkflow.library.untitled') }}</strong>
+            <small>{{ t(`imageWorkflow.archive.${submission.status === 'approved_pending_sync' ? 'approved_pending_sync' : 'pending_review'}`) }}</small>
+          </div>
+          <button
+            v-if="submission.status === 'approved_pending_sync'"
+            type="button"
+            class="library-recovery__retry"
+            :disabled="submissionBusyId === submission.id"
+            @click="syncSubmission(submission)"
+          >
+            <Icon name="upload" size="xs" :class="submissionBusyId === submission.id && 'animate-spin'" />
+            {{ t('imageWorkflow.workbench.syncToPlaza') }}
+          </button>
+          <button
+            type="button"
+            class="library-action"
+            :disabled="submissionBusyId === submission.id"
+            :title="t('imageWorkflow.library.withdrawSubmission')"
+            :aria-label="t('imageWorkflow.library.withdrawSubmission')"
+            @click="withdrawSubmission(submission)"
+          >
+            <Icon name="x" size="sm" />
+          </button>
+        </article>
+      </div>
     </section>
 
     <div v-if="loading && !items.length" class="library-empty" role="status">
@@ -195,10 +236,13 @@ import {
   importImageFile,
   importImageURL,
   listImageLibrary,
+  listMyPlazaSubmissionRequests,
   publishImageLibraryItem,
   resolveImageLibraryViewURL,
+  syncPlazaSubmissionRequest,
   updateImageLibraryItem,
   withdrawImageLibraryItem,
+  withdrawPlazaSubmissionRequest,
 } from '@/api/imageLibrary'
 import {
   listPendingImageArchives,
@@ -207,7 +251,11 @@ import {
   savePendingImageArchive,
   type PendingImageArchive,
 } from './archiveRecovery'
-import type { ImageLibraryItem, ImagePublicationStatus } from './types'
+import {
+  getPlazaSubmissionBlob,
+  removePlazaSubmissionBlob,
+} from './submissionBlobStore'
+import type { ImageLibraryItem, ImagePlazaSubmissionRequest, ImagePublicationStatus } from './types'
 
 const props = withDefaults(defineProps<{ compact?: boolean; limit?: number }>(), {
   compact: false,
@@ -233,6 +281,9 @@ const resolvedImages = ref<Record<string, string>>({})
 const recoveries = ref<PendingImageArchive[]>([])
 const recoveryPreviewURLs = ref<Record<string, string>>({})
 const recoveryBusyId = ref('')
+const submissions = ref<ImagePlazaSubmissionRequest[]>([])
+const submissionPreviewURLs = ref<Record<string, string>>({})
+const submissionBusyId = ref('')
 const editingId = ref('')
 const editingTitle = ref('')
 let stopRecoveryListener: (() => void) | null = null
@@ -244,6 +295,7 @@ const filterOptions = computed(() => [
   { value: 'published', label: t('imageWorkflow.library.published') },
 ])
 const visibleRecoveries = computed(() => props.compact ? recoveries.value.slice(0, 3) : recoveries.value)
+const visibleSubmissions = computed(() => props.compact ? submissions.value.slice(0, 3) : submissions.value)
 
 function queryForFilter(cursor?: string) {
   const params: Record<string, string | number> = { limit: props.limit }
@@ -262,11 +314,67 @@ async function refresh() {
     const page = await listImageLibrary(queryForFilter())
     items.value = page.items
     nextCursor.value = page.next_cursor
-    await resolveItems(page.items)
+    await Promise.all([resolveItems(page.items), refreshSubmissions()])
   } catch (cause: any) {
     error.value = cause?.message || t('imageWorkflow.library.loadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshSubmissions() {
+  try {
+    const [pending, approved] = await Promise.all([
+      listMyPlazaSubmissionRequests({ status: 'pending_review', limit: 50 }),
+      listMyPlazaSubmissionRequests({ status: 'approved_pending_sync', limit: 50 }),
+    ])
+    submissions.value = [...approved.items, ...pending.items]
+    const nextPreviews: Record<string, string> = {}
+    for (const item of submissions.value) {
+      const blob = await getPlazaSubmissionBlob(item.client_blob_key)
+      if (blob?.previewUrl) nextPreviews[item.id] = blob.previewUrl
+      else if (blob?.file) nextPreviews[item.id] = URL.createObjectURL(blob.file)
+    }
+    Object.values(submissionPreviewURLs.value).forEach((url) => {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+    })
+    submissionPreviewURLs.value = nextPreviews
+  } catch {
+    submissions.value = []
+  }
+}
+
+async function syncSubmission(submission: ImagePlazaSubmissionRequest) {
+  if (!window.confirm(t('imageWorkflow.workbench.syncConfirm'))) return
+  submissionBusyId.value = submission.id
+  try {
+    const blob = await getPlazaSubmissionBlob(submission.client_blob_key)
+    if (!blob?.file) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
+    const file = blob.file instanceof File
+      ? blob.file
+      : new File([blob.file], blob.fileName || 'sync-image.png', { type: blob.contentType || blob.file.type })
+    await syncPlazaSubmissionRequest(submission.id, file, file.name)
+    await removePlazaSubmissionBlob(submission.client_blob_key).catch(() => undefined)
+    appStore.showSuccess(t('imageWorkflow.workbench.syncSuccess'))
+    await refresh()
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkflow.workbench.syncFailed'))
+  } finally {
+    submissionBusyId.value = ''
+  }
+}
+
+async function withdrawSubmission(submission: ImagePlazaSubmissionRequest) {
+  if (!window.confirm(t('imageWorkflow.library.withdrawSubmissionConfirm'))) return
+  submissionBusyId.value = submission.id
+  try {
+    await withdrawPlazaSubmissionRequest(submission.id)
+    appStore.showSuccess(t('imageWorkflow.library.withdrawn'))
+    await refreshSubmissions()
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
+  } finally {
+    submissionBusyId.value = ''
   }
 }
 
@@ -379,7 +487,11 @@ async function loadRecoveries() {
   const previousURLs = recoveryPreviewURLs.value
   const nextURLs: Record<string, string> = {}
   try {
-    recoveries.value = await listPendingImageArchives(userId)
+    const records = await listPendingImageArchives(userId)
+    // Async task archives are durable server-side; never surface them as local archive recovery.
+    const taskRecords = records.filter((item) => item.kind === 'task')
+    await Promise.allSettled(taskRecords.map((item) => removePendingImageArchive(item.id)))
+    recoveries.value = records.filter((item) => item.kind !== 'task')
     for (const item of recoveries.value) {
       if (item.file) nextURLs[item.id] = URL.createObjectURL(item.file)
       else if (item.previewUrl || item.remoteUrl) nextURLs[item.id] = item.previewUrl || item.remoteUrl || ''

@@ -100,14 +100,18 @@ image_sizes / aspect_ratios / qualities / formats / backgrounds
 
 ## 结果归档
 
-### 实时结果
+### 实时结果（本机优先）
 
-实时结果先在工作台展示，再调用：
+实时结果先在工作台展示，并写入浏览器 IndexedDB（`localOnly` / `submissionBlobStore`）。**默认不自动调用图库 import，也不上传 OSS。**
+
+用户点击「投稿审核」时只创建延期投稿请求（元数据：checksum、宽高、标题、是否共享提示词等）。管理员批准后状态为 `approved_pending_sync`；用户再次上线点击「同步至图片广场」时才上传字节并创建 `published` 广场投稿。
+
+若仍需把实时图写入个人图库（非延期投稿路径），可手动：
 
 - base64/data URL：`POST /api/v1/user/image-library/import`
 - 上游 HTTPS URL：`POST /api/v1/user/image-library/import-url`
 
-归档使用独立幂等键。归档失败只显示“归档失败”和重试入口，不重新生成、不切换模式、不重复计费。前端临时状态不是个人图库真值。
+归档使用独立幂等键。归档失败只显示“归档失败”和重试入口，不重新生成、不切换模式、不重复计费。前端临时状态不是个人图库真值；本机 blob 也不是广场真值。
 
 ### 异步结果
 
@@ -119,13 +123,16 @@ POST /api/v1/user/image-library/from-task
 
 前后端重复调用由 `(user_id, source_task_id, source_result_index)` 唯一约束合并；它们共享异步结果的 `image_storage_objects`，不复制 OSS 字节，也不再次计费。
 
+工作台紧凑图库侧栏**不再展示**异步归档失败的「等待恢复归档」提示，避免成功/失败任务反复打扰；任务级 `kind: 'task'` 也不再写入 pending archive recovery。
+
 ## 计费边界
 
 - OpenAI/Gemini/Grok 实时请求继续调用各自现有 `RecordUsage`。
 - Gemini 实时图片请求加入图片意图、分组权限和图片并发门禁。
 - 所有输出图片解析真实尺寸并写入 `ImageOutputSizes`。
 - 混合规格图片按每张所属 1K/2K/4K 档位分别求和。
-- 图库归档不是模型调用，不创建新的图片生成费用。
+- 图库归档与延期投稿同步不是模型调用，不创建新的图片生成费用。
+- 异步上游失败时 `error_message` 应包含 HTTP 状态与脱敏上游摘要（Worker 需重启后生效）。
 
 修改工作台时必须同时回归 [04-billing-and-idempotency.md](04-billing-and-idempotency.md) 中的计费测试矩阵。
 
@@ -135,15 +142,17 @@ POST /api/v1/user/image-library/from-task
 
 ```text
 frontend/src/views/user/ImageWorkbenchView.vue
+frontend/src/views/user/AsyncImageTasksView.vue
 frontend/src/features/image-workflow/
+frontend/src/features/image-workflow/submissionBlobStore.ts
 frontend/src/api/imageWorkbench.ts
 frontend/src/api/imageLibrary.ts
 ```
 
 桌面采用三栏：Key/平台/模式和参考图、提示词/平台参数与结果、任务摘要和个人图库。平板降为两栏，移动端单列并取消嵌套滚动。
 
-实时和异步必须用不同图标、标题、按钮文案和状态结构，不能只靠颜色。异步显示任务号和阶段入口；实时显示连接、生成和当前结果。关键状态使用 `aria-live`，图标按钮提供 `aria-label`/tooltip，对话框有焦点循环和关闭后焦点恢复。
+实时和异步必须用不同图标、标题、按钮文案和状态结构，不能只靠颜色。异步显示任务号和阶段入口；实时显示连接、生成和当前结果。任务号列加宽并可一键复制；任务列表**禁止**行点击或点击任务号打开详情，只能点「查看」。关键状态使用 `aria-live`，图标按钮提供 `aria-label`/tooltip，对话框有焦点循环和关闭后焦点恢复。
 
 ## 当前验证状态
 
-工作台主体代码和专项测试文件已存在。`2026-07-22` 合并上游后已通过 frozen install、ESLint、189 个 Vitest 文件/1277 项测试、类型检查和 974 模块生产构建。首页 `79,374` 字节 WebP 资源仍存在；合并后的浏览器控制器被环境元数据阻断，历史五视口证据仅作基线。详细状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。
+工作台主体代码和专项测试文件已存在。`2026-07-22` 合并上游后已通过 frozen install、ESLint、189 个 Vitest 文件/1277 项测试、类型检查和 974 模块生产构建。首页 `79,374` 字节 WebP 资源仍存在；合并后的浏览器控制器被环境元数据阻断，历史五视口证据仅作基线。延期投稿与任务中心 UX 改动在 dirty 工作树中，定向回归已做，完整门禁以提交后重跑为准。详细状态见 [07-testing-and-validation.md](07-testing-and-validation.md)。

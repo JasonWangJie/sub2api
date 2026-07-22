@@ -18,6 +18,8 @@
 | 持久异步迁移 | `backend/migrations/185_async_image_tasks.sql` |
 | 图库/审核迁移 | `backend/migrations/186_image_library_and_plaza_moderation.sql` |
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
+| 延期广场投稿迁移 | `backend/migrations/188_plaza_submission_deferred_upload.sql` |
+| 文档记录时 HEAD | `63db66427aa6997c778171b140c786b6dfbfec5e`（工作树可能 dirty） |
 | 功能代码主线合并提交 | `a9d23973d352c9923eccdaf789ffd2598d9d0ffe` |
 | 合并提交描述 | `v0.1.162-52-ga9d23973d` |
 | 功能分支远端 | 已推送 `origin/feat/image-workflow-library-moderation` |
@@ -51,6 +53,11 @@
 | 进程关闭 | 已存在 | server cleanup 同时等待持久异步 Handler 与图库维护 Worker 的 `Stop()` |
 | SC 上传 admission | 已存在 | body 前滚动限频，解码/OSS 前幂等与 Key 字节 reservation，PostgreSQL 故障 fail closed |
 | SC 上传恢复 | 已存在 | deterministic intent、300/600 秒 Put 超时、至少间隔十分钟二次 Delete、128 alias 上限/墓碑、failed intent 配额和文件名净化 |
+| 本机延期投稿（188） | 已存在（可能 dirty） | `image_plaza_submission_requests`；投稿只交元数据；审核通过为 `approved_pending_sync`；用户 sync 才上传 OSS 并 `published` |
+| OSS 年月日分区 | 已存在（可能 dirty） | `ImageObjectDatePartition`：`library/.../YYYY/MM/DD/`、`results/YYYY/MM/DD/`、`inputs/YYYY/MM/DD/` |
+| 实时本机持图 | 已存在（可能 dirty） | 工作台实时结果默认 IndexedDB；紧凑侧栏不提示异步归档恢复 |
+| 异步任务中心 UX | 已存在（可能 dirty） | 任务号加宽+复制；行点击/任务号点击不打开详情，仅「查看」 |
+| 上游失败可观测性 | 已存在（可能 dirty） | `upstream_failed` 的 `error_message` 含 HTTP 状态与脱敏上游正文摘要 |
 
 “已存在”只表示代码已经在当前工作树中，不等于已经通过完整测试、CI 或生产验收。
 
@@ -60,7 +67,7 @@
 |---|---|---|
 | 最新 Go 格式化和生成代码 | `PASSED POST-MERGE 2026-07-22` | `gofmt`、`go generate ./cmd/server` 通过且生成代码无差异 |
 | 后端全量测试 | `PASSED POST-MERGE 2026-07-22` | Go 1.26.5：交汇定向测试；强制 unit `277.9s`、默认全包 `204.4s`、server build 通过 |
-| PostgreSQL 集成与恢复测试 | `PENDING` | `185/186/187`、两阶段 admission、多 Worker、stale lease、Outbox、intent/OSS 部分失败、对象引用、迁移幂等 |
+| PostgreSQL 集成与恢复测试 | `PENDING` | `185/186/187/188`、两阶段 admission、多 Worker、stale lease、Outbox、intent/OSS 部分失败、对象引用、迁移幂等 |
 | 前端全量门禁 | `PASSED POST-MERGE 2026-07-22` | frozen install、ESLint、typecheck、189 files/1277 tests、974 modules build 通过 |
 | 浏览器验收 | `BLOCKED BY TOOLING` | Vite :3000 正常；内置浏览器缺失 sandboxPolicy 元数据，历史 Chrome 10 场景不冒充当前结果 |
 | 首页工作台图片资源 | `PASSED 2026-07-22` | WebP `79,374` 字节，首页加载成功 |
@@ -83,7 +90,7 @@
 
 只有同时满足以下条件，才可以把状态改为“生产验收完成”：
 
-1. `185`、`186`、`187` 在真实 PostgreSQL 备份副本上迁移成功，SC admission/intent 可恢复，旧公开内容立即隐藏且迁移可恢复。
+1. `185`、`186`、`187`、`188` 在真实 PostgreSQL 备份副本上迁移成功，SC admission/intent 可恢复，延期投稿状态机可恢复，旧公开内容立即隐藏且迁移可恢复。
 2. 最新完整后端和前端门禁通过，Fork CI 全绿。
 3. 实时/异步四象限、Grok 实时、图库归档失败和异步幂等计费均完成端到端核对。
 4. 三家 OSS 的上传、查看、签名过期、对象共享引用和删除完成真实凭证验证。

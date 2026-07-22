@@ -5,6 +5,7 @@ import type {
   ImageLibraryItem,
   ImageLibraryMigrationState,
   ImageLibraryStats,
+  ImagePlazaSubmissionRequest,
   ImagePublicationRecord,
   ImageReportRecord,
 } from '@/features/image-workflow/types'
@@ -164,6 +165,70 @@ export async function publishImageLibraryItem(
     { public_title: payload.title, share_prompt: payload.share_prompt, public_prompt: payload.public_prompt },
   )
   return normalizeLibraryItem({ ...data, id, publication: data })
+}
+
+export async function createPlazaSubmissionRequest(
+  payload: Record<string, unknown>,
+  idempotencyKey: string,
+): Promise<ImagePlazaSubmissionRequest> {
+  const { data } = await apiClient.post<{ item: ImagePlazaSubmissionRequest; reused?: boolean }>(
+    '/user/image-library/submission-requests',
+    payload,
+    { headers: { 'Idempotency-Key': idempotencyKey } },
+  )
+  return (data as any)?.item || data
+}
+
+export async function listMyPlazaSubmissionRequests(params: {
+  cursor?: string
+  limit?: number
+  status?: string
+} = {}): Promise<CursorPage<ImagePlazaSubmissionRequest>> {
+  const { data } = await apiClient.get('/user/image-library/submission-requests', { params })
+  return normalizePage<ImagePlazaSubmissionRequest>(data)
+}
+
+export async function withdrawPlazaSubmissionRequest(requestId: string): Promise<void> {
+  await apiClient.delete(`/user/image-library/submission-requests/${encodeURIComponent(requestId)}`)
+}
+
+export async function syncPlazaSubmissionRequest(
+  requestId: string,
+  file: File | Blob,
+  fileName = 'sync-image.png',
+): Promise<{ item: ImagePlazaSubmissionRequest; library_item: ImageLibraryItem }> {
+  const form = new FormData()
+  form.append('file', file, fileName)
+  const { data } = await apiClient.post<{ item: ImagePlazaSubmissionRequest; library_item: ImageLibraryItem }>(
+    `/user/image-library/submission-requests/${encodeURIComponent(requestId)}/sync`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  return {
+    item: data.item,
+    library_item: normalizeLibraryItem(data.library_item),
+  }
+}
+
+export async function listAdminPlazaSubmissionRequests(params: {
+  cursor?: string
+  limit?: number
+  status?: string
+} = {}): Promise<CursorPage<ImagePlazaSubmissionRequest>> {
+  const { data } = await apiClient.get('/admin/image-plaza/submission-requests', { params })
+  return normalizePage<ImagePlazaSubmissionRequest>(data)
+}
+
+export async function reviewPlazaSubmissionRequest(
+  requestId: string,
+  action: 'approve' | 'reject',
+  reason?: string,
+): Promise<ImagePlazaSubmissionRequest> {
+  const { data } = await apiClient.post<ImagePlazaSubmissionRequest>(
+    `/admin/image-plaza/submission-requests/${encodeURIComponent(requestId)}/${action}`,
+    reason ? { reason } : {},
+  )
+  return data
 }
 
 export async function withdrawImageLibraryItem(id: string | number): Promise<void> {

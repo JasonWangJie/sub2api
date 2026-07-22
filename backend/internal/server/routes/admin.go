@@ -142,6 +142,8 @@ func registerImageLibraryRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		plaza.POST("/publications/batch", h.Admin.ImageLibrary.AdminBatchTransitionPublications)
 		plaza.GET("/publications/:publication_id/view", h.Admin.ImageLibrary.AdminViewPublication)
 		plaza.POST("/publications/:publication_id/:action", h.Admin.ImageLibrary.AdminTransitionPublication)
+		plaza.GET("/submission-requests", h.Admin.ImageLibrary.AdminListSubmissionRequests)
+		plaza.POST("/submission-requests/:request_id/:action", h.Admin.ImageLibrary.AdminTransitionSubmissionRequest)
 		plaza.GET("/reports", h.Admin.ImageLibrary.AdminListReports)
 		plaza.POST("/reports/:report_id/resolve", h.Admin.ImageLibrary.AdminResolveReport)
 	}

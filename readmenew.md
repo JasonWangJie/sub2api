@@ -14,18 +14,21 @@
 
 ## 当前版本快照
 
-记录日期：`2026-07-22`。
+记录日期：`2026-07-22`（当日续更：延期投稿、OSS 年月日目录、工作台本机生图与异步任务中心 UX）。
 
 | 项目 | 当前记录 |
 |---|---|
 | 发布版本文件 | `backend/cmd/server/VERSION = 0.1.162` |
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
+| 文档记录时 HEAD | `63db66427aa6997c778171b140c786b6dfbfec5e`（工作树可能 dirty；以 `git rev-parse`/`git status` 为准） |
+| HEAD 描述 | `63db6642` / dirty 时见 `git describe --dirty` |
 | 当前及后续默认分支 | `main` |
 | 已合并原作者主线 | `upstream/main = 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
 | 上游合并提交 | `433cf0096` |
 | 合并后代码验证提交 | `6412b5eb7` |
 | SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
+| 延期广场投稿迁移 | `backend/migrations/188_plaza_submission_deferred_upload.sql` |
 | 功能代码主线合并提交 | `a9d23973d352c9923eccdaf789ffd2598d9d0ffe` |
 | 合并提交描述 | `v0.1.162-52-ga9d23973d` |
 | 功能分支推送 | `origin/feat/image-workflow-library-moderation` 已推送 |
@@ -39,7 +42,7 @@
 本 Fork 在原有网关能力上增加了两层图片工作流：
 
 - 持久化异步生图兼容层：为下游提供 Gemini BB、OpenAI BB 和 Gemini SC 方言，任务、结果、账务与 OSS 状态持久化。
-- 站内图片产品层：图片工作台根据所选 API Key 的当前分组自动选择实时或异步执行；生成结果归档到服务端个人图库；公开作品必须显式投稿并经管理员审核。
+- 站内图片产品层：图片工作台根据所选 API Key 的当前分组自动选择实时或异步执行；**实时结果默认只保存在本机浏览器**；公开作品必须显式投稿并经管理员审核；**审核通过后由用户再同步上传 OSS 才进入广场**，避免恶意投稿占满 OSS。
 
 两层能力共享原有账号调度、模型映射、内容审核、故障切换、并发控制、资格检查和计费链路。BB、SC 只是下游协议方言，不是新的上游供应商。
 
@@ -58,14 +61,17 @@
 
 失败、超时、`execution_unknown`、`403` 或 `409` 都不能让工作台在实时和异步链路之间自动回退。异步重试必须复用同一请求字节和 `Idempotency-Key`。
 
+实时生图：结果留在本机 IndexedDB；「投稿审核」只提交元数据（checksum/尺寸等），**此时不上传 OSS**。管理员批准后状态为 `approved_pending_sync`；用户再次上线在工作台/个人图库点击「同步至图片广场」时才上传并直接 `published`。异步任务结果仍走服务端 OSS 归档；工作台侧栏不再因归档失败提示「等待恢复归档」。
+
 ## 数据与公开模型
 
-数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图。
+数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图；迁移 `188_plaza_submission_deferred_upload.sql` 建立本机持图延期投稿队列表 `image_plaza_submission_requests`。
 
 关键约束：
 
 - 新图片默认私有；公开必须由用户显式投稿并由管理员批准。
-- OSS 只保存实际对象；数据库保存稳定的 provider、bucket、object key 和校验元数据，不保存过期预签名 URL。
+- **实时本机投稿在审核前不占用 OSS**；只有 `approved_pending_sync` 后用户同步才写入对象存储并进入广场。
+- OSS 只保存实际对象；对象 key 按 UTC **年/月/日**分区（如 `library/{userId}/2026/07/22/...`、`{prefix}/results/2026/07/22/{taskId}/...`）。数据库保存稳定的 provider、bucket、object key 和校验元数据，不保存过期预签名 URL。
 - 异步任务结果与图库引用同一 `image_storage_objects` 身份，不能因为一处解除引用就删除仍被其他记录使用的对象。
 - 旧 `image_plaza_items` 的历史公开数据先强制转私有，再由可恢复 Worker 严格校验并迁入私有图库和 `pending_review` 投稿。
 - 危险、损坏、路径越界或不支持的旧图片只计入隔离数量，不继续公开。
@@ -85,6 +91,7 @@
 - 异步任务上游成功后只 Prepare 一次固定账单；存储或账务重试不能重新调用上游、重新定价或重复扣费。
 - 图库归档失败不能把已经成功的模型调用改成失败，也不能触发重新生成或再次计费。
 - `execution_unknown` 禁止自动重调；若确需再生成，必须创建新任务号并接受第二次上游成本风险。
+- 异步上游失败时任务 `error_message` 应包含 HTTP 状态码与脱敏后的上游正文摘要，不能只写笼统的 `upstream image generation failed`。
 
 详情见 [wiki-new/04-billing-and-idempotency.md](wiki-new/04-billing-and-idempotency.md)。
 
@@ -108,6 +115,7 @@
 | SC 参考图 OSS 上传超时 | 300 秒（最大 600） |
 | 每输入对象 URL alias | 最多 128 个 |
 | 异步任务与结果保留 | 90 天 |
+| 本机延期投稿 blob | 浏览器 IndexedDB，约 90 天 |
 
 图片只接受完整解码成功且容器、魔数、实际 MIME 一致的 PNG/JPEG/WebP。SVG、HTML、JavaScript、伪 MIME、尾随载荷、超字节、超像素、解压炸弹和路径穿越必须拒绝。远程图片导入和参考图下载继续执行 HTTPS、DNS、重定向、内网地址、MIME、字节、像素和超时限制。
 
@@ -118,14 +126,16 @@
 - 用户图片工作台：`/image-workbench`
 - 用户个人图库：`/image-library`
 - 审核后图片广场：`/image-plaza`
-- 用户/管理员异步任务中心：保留上一轮实现
-- 管理员图片审核、举报、全站图库和清理：后台图片审核入口
+- 用户/管理员异步任务中心：任务号加宽并可一键复制；列表行点击不打开详情，仅「查看」打开
+- 管理员图片审核、举报、全站图库和清理：含「本机投稿审核」页签（无图预览占位）
 - 分组创建/编辑：“图片生成计费”区域内的“异步生图”开关
 - 备份/存储设置：OSS、异步运行参数和图库保留/配额配置
 
 ## 当前完成度
 
 工作树中已经存在工作台能力接口、实时/异步分流、Gemini 实时图片计费采集、服务端图库、统一对象引用、投稿审核、举报、维护 Worker、旧广场迁移、管理页面和安全校验实现。管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容、Worker 优雅 `Stop()`、历史成功异步任务归档回填、永久归档错误终止重排、OSS 身份切换保护，以及迁移 `187` 的 SC 上传安全层均已补齐。
+
+`2026-07-22` 续更（多在 dirty 工作树，交付前需提交）：迁移 `188` 延期广场投稿；实时本机投稿+审核后同步上传；OSS 对象 key 年/月/日分区；异步任务中心复制任务号/禁止误开详情；工作台侧栏不再提示异步归档恢复；`upstream_failed` 写入真实 HTTP 状态与上游摘要。
 
 `2026-07-22` 已把原作者 `upstream/main` 的 `5a8d6c4e4` 非快进合并为 `433cf0096`，并在代码验证提交 `6412b5eb7` 对应的合并后树上取得以下本地证据：
 
@@ -136,11 +146,11 @@
 - 历史本机 Chrome Playwright 10 个场景曾覆盖 `360/768/1280/1440/1920`、中英文和深浅主题；横向溢出、控件裁剪及 console error 均为 0，键盘焦点、工作台 `aria-live`、广场 dialog 焦点进入/关闭恢复均通过。该证据早于最后一批 SC/后台配置和上游合并，只作为历史基线。
 - 首页 WebP 为 `79,374` 字节，已成功随页面加载。
 
-这些本地结果覆盖迁移 `187`、最后一批 SC 上传代码和本轮上游合并；后续只修改交接 Markdown 不需要重复代码门禁。`main` 已交付，但 GitHub Actions 仍必须在 Fork 启用后实际运行，浏览器复验仍需在连接器可用的环境补做。
+这些本地结果覆盖迁移 `187`、最后一批 SC 上传代码和本轮上游合并；`188` 与延期投稿相关改动已有定向 Go/Vitest 通过，但尚未作为独立提交合入 `origin/main`。`main` 已交付，但 GitHub Actions 仍必须在 Fork 启用后实际运行，浏览器复验仍需在连接器可用的环境补做。
 
 以下交付项仍是 `PENDING`，不能写成已完成：
 
-- 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187` 迁移验证。
+- 真实 PostgreSQL/testcontainers 下的两阶段 admission、多 Worker、租约恢复、Outbox 重放、intent/OSS 部分失败、对象引用和 `185/186/187/188` 迁移验证。
 - 合并后的桌面/移动端浏览器视觉复验；当前内置浏览器连接器被环境元数据阻断。
 - 七牛、阿里、腾讯真实凭证，以及真实 Gemini/OpenAI/Grok 生成和逐笔计费联调。
 - Fork Actions 尚未启用：公开 Actions 页面显示 `Enable Actions`，API 对功能分支和全仓均返回 0 个历史运行。本次根据用户明确指示已先合并并推送 `main`；启用 Actions 后历史 push 不会自动回放，需要在 `main` 创建一个明确的空 CI 触发提交并推送，再核对 CI/Security Scan。
@@ -172,5 +182,5 @@
 ## 下一位 AI 的一句话上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复。工作台模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
+这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/README.md、01-current-status.md、07-testing-and-validation.md 和 09-ai-handoff-checklist.md，再检查当前分支与脏工作树。185 是持久异步任务，186 是统一图片对象/个人图库/审核广场，187 是 SC 上传 PostgreSQL admission/幂等/恢复，188 是本机延期投稿（审核通过后再同步 OSS）。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```

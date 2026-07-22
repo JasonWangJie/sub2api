@@ -1,6 +1,6 @@
 # 架构、状态机与恢复
 
-本页主要描述 `185_async_image_tasks.sql` 建立的持久异步任务，以及 `187_async_image_upload_reservations.sql` 增加的 SC 上传 admission/恢复层。站内图片工作台、统一对象图库和审核广场是 `186_image_library_and_plaza_moderation.sql` 建立的产品层，详见 [10-image-workbench.md](10-image-workbench.md)、[11-image-library-object-model.md](11-image-library-object-model.md) 和 [12-moderated-plaza-and-migration.md](12-moderated-plaza-and-migration.md)。
+本页主要描述 `185_async_image_tasks.sql` 建立的持久异步任务，以及 `187_async_image_upload_reservations.sql` 增加的 SC 上传 admission/恢复层。站内图片工作台、统一对象图库、审核广场与本机延期投稿（`186`/`188`）是产品层，详见 [10-image-workbench.md](10-image-workbench.md)、[11-image-library-object-model.md](11-image-library-object-model.md) 和 [12-moderated-plaza-and-migration.md](12-moderated-plaza-and-migration.md)。
 
 ## 主链路
 
@@ -131,4 +131,4 @@ async_image_results
 | OSS 对象身份/删除状态 | PostgreSQL `image_storage_objects` |
 | 私有图库/投稿/举报 | PostgreSQL `image_library_*`、`image_plaza_*` |
 | 图库维护任务 | PostgreSQL Outbox、cleanup jobs、migration state |
-| 前端工作台临时结果 | 仅 UI 状态，不是持久真值 |
+| 前端工作台临时结果 / 本机投稿 blob | 浏览器 IndexedDB（约 90 天）；不是 OSS/图库/广场真值；`approved_pending_sync` 须用户 sync |

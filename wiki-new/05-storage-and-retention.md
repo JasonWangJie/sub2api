@@ -65,9 +65,19 @@ BB 远程参考图与 SC 上传都经过限制：
 
 活动任务通过 `async_image_task_inputs` 引用输入对象，清理器不会提前删除仍被活动任务使用的参考图。
 
-## 对象前缀
+## 对象前缀与日期分区
 
 `image_storage.prefix` 是根前缀，参考图、生成结果和连接探测对象在不同子前缀下保存。对象 key 由服务端生成，不能拼接下游提供的原始文件路径；文件名只作为脱敏元数据。
+
+服务端用 `ImageObjectDatePartition(now)`（UTC `YYYY/MM/DD`）分区，例如：
+
+```text
+library/{userId}/2026/07/22/{uuid}.png
+{prefix}/results/2026/07/22/{taskId}/001.png
+{prefix}/inputs/2026/07/22/{apiKeyId}/{uploadId}.png
+```
+
+分区只影响对象路径组织，不改变保留天数、引用计数或删除规则。
 
 ## 默认保留期
 
@@ -80,6 +90,7 @@ BB 远程参考图与 SC 上传都经过限制：
 | 动态签名 | 3600 秒 | `async_image.signed_url_expiry_seconds` |
 | 私有图库资产 | 90 天 | `image_library.retention_days` |
 | 图库动态签名 | 3600 秒 | `image_library.signed_url_expiry_seconds` |
+| 本机延期投稿 blob | 约 90 天 | 浏览器 IndexedDB（`submissionBlobStore`） |
 
 异步任务保留清理循环与图库维护 Worker 是两套执行器：异步清理当前约每 15 分钟运行、单批 100 条、claim 租约 30 分钟；图库维护当前约每 10 秒扫描一次，使用两分钟 stale 阈值和 30 秒心跳。两者删除同一对象前都必须检查统一引用。
 

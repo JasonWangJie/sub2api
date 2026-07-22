@@ -46,19 +46,29 @@
 
 迁移不搬动现有 `async_image_input_objects` 字节，也不改变 SC 上传成功响应体；新服务启动后，SC 上传依赖 PostgreSQL admission，数据库不可用时返回 `503`。
 
+### `188_plaza_submission_deferred_upload.sql`
+
+建立：
+
+- `image_plaza_submission_requests`：本机持图延期投稿队列。
+- 状态：`pending_review` / `approved_pending_sync` / `rejected` / `withdrawn` / `synced`。
+- 创建阶段不写入 `storage_object_id`；同步成功后才关联对象与广场投稿。
+
+目的：审核前不占用 OSS，避免恶意投稿灌满对象存储。启动后若缺表，相关投稿/同步接口会失败，需确认迁移已应用。
+
 正常启动流程会按版本执行迁移。上线后仍需在 PostgreSQL 核对表、索引、check constraint、回填数量和迁移状态。
 
 ## 升级步骤
 
 1. 记录部署前 SHA、`VERSION`、镜像 digest、数据库规模、旧广场 public 数量和活动异步任务数量。
 2. 备份 PostgreSQL、当前 OSS 配置和所有加密密钥；验证备份可读。
-3. 在生产备份副本或 staging 数据库演练 `185`、`186`、`187`。
+3. 在生产备份副本或 staging 数据库演练 `185`、`186`、`187`、`188`。
 4. 先部署功能分支构建产物到单实例，观察迁移日志和 `image_library_migration_state`。
 5. 确认旧广场已停止公开，旧内容接口不能绕过审核状态。
 6. 在后台配置图片存储，执行真实 upload、HEAD/read 和 delete 连接测试。
 7. 配置异步运行参数与图库保留/配额。
 8. 确认图库维护 Worker 和持久异步 Worker 已运行，没有租约冲突或错误循环。
-9. 先用测试用户、测试 Key 启用一个分组，完成工作台实时/异步、图库、投稿、审核、举报和清理闭环。
+9. 先用测试用户、测试 Key 启用一个分组，完成工作台实时本机投稿→审核→同步、异步归档投稿审核、举报和清理闭环。
 10. 核对真实 UsageLog、余额/订阅扣减、任务费用和 OSS 对象引用后再扩大范围。
 
 不要在存储不可用时启用持久异步；不要在旧广场迁移尚未可解释时批量批准投稿。
@@ -175,7 +185,7 @@ go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/serv
 
 ### 回滚原则
 
-- 不要直接删除 `185/186/187` 新表或回滚列；旧二进制忽略新表比丢任务、账单、输入所有权、幂等墓碑和对象引用安全。
+- 不要直接删除 `185/186/187/188` 新表或回滚列；旧二进制忽略新表比丢任务、账单、输入所有权、幂等墓碑、延期投稿队列和对象引用安全。
 - 不要恢复旧 `image_plaza_items` 的 public 标记，否则会重新暴露未经校验/审核内容。
 - 不要删除 staging、固定账单、`image_storage_objects`、SC input objects、upload reservations 或 URL aliases，否则后续版本无法安全续跑、清理 intent 或判断所有权。
 - 旧同步和旧 Redis 异步接口独立，可继续服务。
@@ -193,4 +203,4 @@ go build -tags embed -ldflags="-X main.Version=${VERSION}" -o sub2api ./cmd/serv
 
 ## 当前部署状态
 
-上述步骤是上线手册，不代表已经执行。截至本文更新时间，真实 `185/186/187` 生产数据迁移、SC admission/intent crash recovery、三家 OSS 契约、真实上游/计费、GitHub Actions 和生产部署均为 `PENDING`。
+上述步骤是上线手册，不代表已经执行。截至本文更新时间，真实 `185/186/187/188` 生产数据迁移、SC admission/intent crash recovery、延期投稿闭环、三家 OSS 契约、真实上游/计费、GitHub Actions 和生产部署均为 `PENDING`。

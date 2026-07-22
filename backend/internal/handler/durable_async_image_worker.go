@@ -372,11 +372,23 @@ func (h *DurableAsyncImageHandler) invokeAsyncImageTask(parent context.Context, 
 		return asyncImageWorkerDisposition{}
 	}
 	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
-		h.failAsyncImageTask(parent, task, "upstream_failed", "upstream image generation failed", false)
+		message := formatAsyncImageUpstreamFailure(recorder.Code, recorder.Body.Bytes())
+		logger.L().Warn("async_image.upstream_failed",
+			zap.String("task_id", task.TaskID),
+			zap.String("platform", task.Platform),
+			zap.String("model", task.Model),
+			zap.Int("status_code", recorder.Code),
+			zap.String("message", message),
+		)
+		h.failAsyncImageTask(parent, task, "upstream_failed", message, false)
 		return asyncImageWorkerDisposition{}
 	}
 
-	outputs, prepared, accountID, upstreamRequestID, actualSize, err := h.captureAsyncImageInvocation(executionCtx, task, recorder.Body.Bytes(), usageCapture, geminiCapture, cfg)
+	// Must use the gin request context: it carries ClientRequestID=async-image:<task_id>
+	// so PrepareRecordUsage builds client:async-image:<task_id>. executionCtx alone
+	// only has the timeout and would fall back to the upstream UUID, failing
+	// ValidatePreparedUsageBilling with "prepared usage request id mismatch".
+	outputs, prepared, accountID, upstreamRequestID, actualSize, err := h.captureAsyncImageInvocation(ginContext.Request.Context(), task, recorder.Body.Bytes(), usageCapture, geminiCapture, cfg)
 	if err != nil {
 		h.markAsyncImageExecutionUnknown(parent, task, asyncImageSafeError(err))
 		return asyncImageWorkerDisposition{}
@@ -808,7 +820,7 @@ func (h *DurableAsyncImageHandler) uploadAsyncImageStaging(ctx context.Context, 
 	results := make([]service.AsyncImageResult, 0, len(objects))
 	prefix := strings.TrimSuffix(settings.Prefix, "/")
 	for _, object := range objects {
-		key := fmt.Sprintf("%s/results/%s/%03d%s", prefix, task.TaskID, object.ImageIndex, asyncImageExtension(object.ContentType))
+		key := fmt.Sprintf("%s/results/%s/%s/%03d%s", prefix, service.ImageObjectDatePartition(time.Now()), task.TaskID, object.ImageIndex, asyncImageExtension(object.ContentType))
 		ref, saveErr := storage.SaveObject(ctx, key, object.ContentType, object.Content)
 		if saveErr != nil {
 			return saveErr
@@ -965,4 +977,23 @@ func asyncImageSafeError(err error) string {
 		runes = runes[:500]
 	}
 	return string(runes)
+}
+
+func formatAsyncImageUpstreamFailure(statusCode int, body []byte) string {
+	detail := strings.TrimSpace(service.ExtractUpstreamErrorMessage(body))
+	if detail == "" {
+		detail = strings.TrimSpace(string(body))
+	}
+	detail = logredact.RedactText(strings.Join(strings.Fields(detail), " "), "api_key", "secret", "token", "authorization")
+	if detail == "" {
+		detail = "no upstream error body"
+	}
+	runes := []rune(detail)
+	if len(runes) > 320 {
+		detail = string(runes[:320]) + "..."
+	}
+	if statusCode <= 0 {
+		return "upstream image generation failed: empty gateway response (" + detail + ")"
+	}
+	return fmt.Sprintf("upstream image generation failed (HTTP %d): %s", statusCode, detail)
 }
