@@ -15,7 +15,7 @@ import (
 )
 
 func TestAsyncImageTaskMigrationContainsDurabilityAndOwnershipConstraints(t *testing.T) {
-	content, err := migrations.FS.ReadFile("185_async_image_tasks.sql")
+	content, err := migrations.FS.ReadFile("185_ZJ_async_image_tasks.sql")
 	require.NoError(t, err)
 	sqlText := string(content)
 	for _, required := range []string{
@@ -39,7 +39,7 @@ func TestAsyncImageTaskMigrationContainsDurabilityAndOwnershipConstraints(t *tes
 }
 
 func TestAsyncImageResultIntentMigrationAddsOutboxClaimOwnership(t *testing.T) {
-	content, err := migrations.FS.ReadFile("189_async_image_result_upload_intents.sql")
+	content, err := migrations.FS.ReadFile("189_ZJ_async_image_result_upload_intents.sql")
 	require.NoError(t, err)
 	sqlText := string(content)
 	require.Contains(t, sqlText, "CREATE TABLE IF NOT EXISTS async_image_result_upload_intents")

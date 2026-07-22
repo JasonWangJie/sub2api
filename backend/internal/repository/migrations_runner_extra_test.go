@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io/fs"
@@ -303,6 +304,59 @@ func TestApplyMigrationsFS_SkipEmptyAndAlreadyApplied(t *testing.T) {
 	}
 	err = applyMigrationsFS(context.Background(), db, fsys)
 	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_RecordsZJAliasWithoutReapplyingLegacyMigration(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	name := "185_ZJ_async_image_tasks.sql"
+	legacyName := "185_async_image_tasks.sql"
+	content := "CREATE TABLE async_image_tasks(id bigint);"
+	checksum := migrationChecksum(content)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(name).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(legacyName).
+		WillReturnRows(sqlmock.NewRows([]string{"checksum"}).AddRow(checksum))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(name, checksum).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{name: &fstest.MapFile{Data: []byte(content)}}
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_RejectsZJAliasWhenLegacyChecksumDiffers(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	name := "185_ZJ_async_image_tasks.sql"
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(name).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs("185_async_image_tasks.sql").
+		WillReturnRows(sqlmock.NewRows([]string{"checksum"}).AddRow("unexpected"))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{name: &fstest.MapFile{Data: []byte("SELECT 1;")}}
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "checksum mismatch")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

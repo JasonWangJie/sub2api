@@ -29,8 +29,8 @@
 | 已合并原作者主线 | `upstream/main = 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
 | 上游合并提交 | `433cf0096` |
 | 合并后代码验证提交 | `6412b5eb7` |
-| SC 上传安全迁移 | `backend/migrations/187_async_image_upload_reservations.sql` |
-| 延期广场投稿迁移 | `backend/migrations/188_plaza_submission_deferred_upload.sql` |
+| SC 上传安全迁移 | `backend/migrations/187_ZJ_async_image_upload_reservations.sql` |
+| 延期广场投稿迁移 | `backend/migrations/188_ZJ_plaza_submission_deferred_upload.sql` |
 | 功能代码主线合并提交 | `a9d23973d352c9923eccdaf789ffd2598d9d0ffe` |
 | 合并提交描述 | `v0.1.162-52-ga9d23973d` |
 | 功能分支推送 | `origin/feat/image-workflow-library-moderation` 已推送 |
@@ -67,7 +67,9 @@
 
 ## 数据与公开模型
 
-数据库迁移 `185_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图；迁移 `188_plaza_submission_deferred_upload.sql` 建立本机持图延期投稿队列表 `image_plaza_submission_requests`；迁移 `189_async_image_result_upload_intents.sql` 为异步结果增加 PUT 前持久化意图，并为 Outbox 增加 claim token 所有权。
+数据库迁移 `185_ZJ_async_image_tasks.sql` 建立持久异步任务中心；迁移 `186_ZJ_image_library_and_plaza_moderation.sql` 建立统一图片对象、个人图库、审核投稿、举报、事件、Outbox、清理任务和旧广场迁移状态；迁移 `187_ZJ_async_image_upload_reservations.sql` 增加 SC 上传的两阶段 admission、幂等 reservation、URL alias 和崩溃恢复意图；迁移 `188_ZJ_plaza_submission_deferred_upload.sql` 建立本机持图延期投稿队列表 `image_plaza_submission_requests`；迁移 `189_ZJ_async_image_result_upload_intents.sql` 为异步结果增加 PUT 前持久化意图，并为 Outbox 增加 claim token 所有权。
+
+本 Fork 自研 SQL 迁移统一使用 `NNN_ZJ_description.sql`，原作者迁移文件不加该标记。`185` 至 `189` 的无标记旧名仅作为已部署数据库兼容别名保留在迁移器映射中，不再作为仓库文件存在。
 
 关键约束：
 

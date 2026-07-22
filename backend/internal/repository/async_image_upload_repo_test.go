@@ -21,7 +21,7 @@ var asyncImageUploadReservationTestColumns = []string{
 }
 
 func TestAsyncImageUploadReservationMigrationDefinesDurableAdmissionState(t *testing.T) {
-	content, err := migrations.FS.ReadFile("187_async_image_upload_reservations.sql")
+	content, err := migrations.FS.ReadFile("187_ZJ_async_image_upload_reservations.sql")
 	require.NoError(t, err)
 	sqlText := string(content)
 	for _, expected := range []string{

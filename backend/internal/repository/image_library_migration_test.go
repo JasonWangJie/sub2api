@@ -13,7 +13,7 @@ import (
 func TestImageLibraryMigrationContract(t *testing.T) {
 	_, current, _, ok := runtime.Caller(0)
 	require.True(t, ok)
-	path := filepath.Join(filepath.Dir(current), "..", "..", "migrations", "186_image_library_and_plaza_moderation.sql")
+	path := filepath.Join(filepath.Dir(current), "..", "..", "migrations", "186_ZJ_image_library_and_plaza_moderation.sql")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	sqlText := string(data)

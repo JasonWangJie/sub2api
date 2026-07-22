@@ -568,7 +568,7 @@ API Key 在调用上游前仍会执行活动状态、分组与额度复查。上
 
 存在任何非 `deleted` 结果/图库对象、任意 SC 输入对象，或尚有已持久化 object intent 的上传 reservation 时，服务端拒绝改变 provider、bucket、endpoint、region 或 path-style 存储身份，避免历史输入或孤立对象无法恢复。完整历史多凭证 resolver 仍未实现，切换身份前必须先迁移或清理全部关联对象。
 
-迁移 `187_async_image_upload_reservations.sql` 为 SC 上传增加三张 PostgreSQL 事实表：
+迁移 `187_ZJ_async_image_upload_reservations.sql` 为 SC 上传增加三张 PostgreSQL 事实表：
 
 | 表 | 作用 |
 |---|---|

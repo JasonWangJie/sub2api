@@ -58,6 +58,18 @@ const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 
+// forkMigrationLegacyFilenames keeps databases that applied the image-workflow
+// migrations before the ZJ ownership marker from executing the same SQL again.
+// The legacy row is retained for audit history; the marked filename is added as
+// an alias only when both files have the exact same checksum.
+var forkMigrationLegacyFilenames = map[string]string{
+	"185_ZJ_async_image_tasks.sql":                  "185_async_image_tasks.sql",
+	"186_ZJ_image_library_and_plaza_moderation.sql": "186_image_library_and_plaza_moderation.sql",
+	"187_ZJ_async_image_upload_reservations.sql":    "187_async_image_upload_reservations.sql",
+	"188_ZJ_plaza_submission_deferred_upload.sql":   "188_plaza_submission_deferred_upload.sql",
+	"189_ZJ_async_image_result_upload_intents.sql":  "189_async_image_result_upload_intents.sql",
+}
+
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
 	acceptedDBChecksum map[string]struct{}
@@ -208,6 +220,13 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		if !errors.Is(rowErr, sql.ErrNoRows) {
 			return fmt.Errorf("check migration %s: %w", name, rowErr)
 		}
+		aliased, err := recordForkMigrationAliasIfApplied(ctx, lockConn, name, checksum)
+		if err != nil {
+			return err
+		}
+		if aliased {
+			continue
+		}
 
 		nonTx, err := validateMigrationExecutionMode(name, content)
 		if err != nil {
@@ -266,6 +285,28 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	}
 
 	return nil
+}
+
+func recordForkMigrationAliasIfApplied(ctx context.Context, conn migrationConnection, name, checksum string) (bool, error) {
+	legacyName, ok := forkMigrationLegacyFilenames[name]
+	if !ok {
+		return false, nil
+	}
+	var legacyChecksum string
+	err := conn.QueryRowContext(ctx, "SELECT checksum FROM schema_migrations WHERE filename = $1", legacyName).Scan(&legacyChecksum)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check legacy migration alias %s for %s: %w", legacyName, name, err)
+	}
+	if legacyChecksum != checksum {
+		return false, fmt.Errorf("legacy migration %s checksum mismatch for renamed migration %s (db=%s file=%s)", legacyName, name, legacyChecksum, checksum)
+	}
+	if _, err := conn.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
+		return false, fmt.Errorf("record renamed migration alias %s for %s: %w", name, legacyName, err)
+	}
+	return true, nil
 }
 
 type migrationConnection interface {

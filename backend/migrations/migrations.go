@@ -13,7 +13,8 @@ import "embed"
 //
 // 迁移命名规范：
 //   - 使用零填充的数字前缀确保正确的执行顺序
-//   - 格式：NNN_description.sql（如 001_init.sql, 002_add_users.sql）
+//   - 原作者迁移格式：NNN_description.sql（如 001_init.sql, 002_add_users.sql）
+//   - JasonWangJie Fork 自研迁移格式：NNN_ZJ_description.sql
 //   - 描述部分使用下划线分隔的小写单词
 //
 // 迁移文件要求：
