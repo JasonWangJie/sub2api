@@ -132,19 +132,23 @@
     <div v-else class="library-grid" :class="{ 'library-grid--compact': compact }">
       <article v-for="item in items" :key="item.id" class="library-item">
         <button type="button" class="library-item__media" @click="openLightbox(item)">
-          <img
-            v-if="!brokenImages.has(String(item.id)) && thumbnailSrc(item)"
-            :src="thumbnailSrc(item)"
+          <LazyImage
+            class="library-item__lazy"
+            :src="thumbnailSrc(item) || undefined"
             :alt="item.title || t('imageWorkflow.library.untitled')"
-            loading="lazy"
-            decoding="async"
+            :load="() => ensureResolved(item)"
             @error="markBroken(item.id)"
-          />
-          <span v-else-if="brokenImages.has(String(item.id))" class="library-item__broken">
-            <Icon name="exclamationTriangle" size="lg" />
-            {{ t('imageWorkflow.library.imageUnavailable') }}
-          </span>
-          <span v-else class="library-item__broken"><span class="library-spinner" aria-hidden="true"></span></span>
+          >
+            <template #error>
+              <span class="library-item__broken">
+                <Icon name="exclamationTriangle" size="lg" />
+                {{ t('imageWorkflow.library.imageUnavailable') }}
+              </span>
+            </template>
+            <template #placeholder>
+              <span class="library-item__broken"><span class="library-spinner" aria-hidden="true"></span></span>
+            </template>
+          </LazyImage>
           <span class="library-item__mode" :class="`is-${item.execution_mode}`">
             <Icon :name="item.execution_mode === 'async' ? 'clock' : 'bolt'" size="xs" />
             {{ modeLabel(item.execution_mode) }}
@@ -218,7 +222,14 @@
       </article>
     </div>
 
-    <button v-if="nextCursor && !compact" type="button" class="library-load-more" :disabled="loadingMore" @click="loadMore">
+    <button
+      v-if="nextCursor && !compact"
+      ref="loadMoreSentinel"
+      type="button"
+      class="library-load-more"
+      :disabled="loadingMore"
+      @click="loadMore"
+    >
       <span v-if="loadingMore" class="library-spinner" aria-hidden="true"></span>
       {{ t('imageWorkflow.library.loadMore') }}
     </button>
@@ -232,10 +243,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
+import LazyImage from '@/components/common/LazyImage.vue'
+import { useInView } from '@/composables/useInView'
 import { useAppStore, useAuthStore } from '@/stores'
 import {
   archiveAsyncTask,
@@ -296,6 +309,8 @@ const submissionPreviewURLs = ref<Record<string, string>>({})
 const submissionBusyId = ref('')
 const editingId = ref('')
 const editingTitle = ref('')
+const resolveInflight = new Map<string, Promise<string>>()
+const { target: loadMoreSentinel, inView: loadMoreInView } = useInView({ rootMargin: '320px 0px', once: false })
 let stopRecoveryListener: (() => void) | null = null
 
 const filterOptions = computed(() => [
@@ -324,7 +339,7 @@ async function refresh() {
     const page = await listImageLibrary(queryForFilter())
     items.value = page.items
     nextCursor.value = page.next_cursor
-    await Promise.all([resolveItems(page.items), refreshSubmissions()])
+    await refreshSubmissions()
   } catch (cause: any) {
     error.value = cause?.message || t('imageWorkflow.library.loadFailed')
   } finally {
@@ -396,11 +411,12 @@ async function loadMore() {
     const known = new Set(items.value.map((item) => String(item.id)))
     items.value.push(...page.items.filter((item) => !known.has(String(item.id))))
     nextCursor.value = page.next_cursor
-    await resolveItems(page.items)
   } catch (cause: any) {
     appStore.showError(cause?.message || t('imageWorkflow.library.loadFailed'))
   } finally {
     loadingMore.value = false
+    await nextTick()
+    if (loadMoreInView.value && nextCursor.value) void loadMore()
   }
 }
 
@@ -553,17 +569,38 @@ function markBroken(id: string | number) {
   brokenImages.value = new Set([...brokenImages.value, String(id)])
 }
 
-async function resolveItems(candidates: ImageLibraryItem[]) {
-  await Promise.allSettled(candidates.map(async (item) => {
-    const id = String(item.id)
-    if (resolvedImages.value[id] || brokenImages.value.has(id)) return
-    try {
+async function ensureResolved(item: ImageLibraryItem): Promise<string> {
+  const id = String(item.id)
+  if (brokenImages.value.has(id)) throw new Error('image unavailable')
+  const width = props.compact ? 320 : 480
+  if (resolvedImages.value[id]) {
+    return buildOssThumbnailUrl(resolvedImages.value[id], { width })
+  }
+
+  const provisional = String(item.preview_url || item.view_url || '').trim()
+  let request = resolveInflight.get(id)
+  if (!request) {
+    request = (async () => {
       const access = await resolveImageLibraryViewURL(item.id)
       resolvedImages.value = { ...resolvedImages.value, [id]: access.url }
-    } catch {
-      markBroken(id)
-    }
-  }))
+      return buildOssThumbnailUrl(access.url, { width })
+    })()
+      .catch((cause) => {
+        if (!provisional) {
+          markBroken(id)
+          throw cause
+        }
+        return buildOssThumbnailUrl(provisional, { width })
+      })
+      .finally(() => {
+        resolveInflight.delete(id)
+      })
+    resolveInflight.set(id, request)
+  }
+
+  // Prefer a first paint from list URLs; signed resolve upgrades via src watch.
+  if (provisional) return buildOssThumbnailUrl(provisional, { width })
+  return request
 }
 
 function fullImageSrc(item: ImageLibraryItem): string {
@@ -571,11 +608,17 @@ function fullImageSrc(item: ImageLibraryItem): string {
 }
 
 function thumbnailSrc(item: ImageLibraryItem): string {
+  if (brokenImages.value.has(String(item.id))) return ''
   const full = fullImageSrc(item)
   return full ? buildOssThumbnailUrl(full, { width: props.compact ? 320 : 480 }) : ''
 }
 
-function openLightbox(item: ImageLibraryItem) {
+async function openLightbox(item: ImageLibraryItem) {
+  try {
+    await ensureResolved(item)
+  } catch {
+    return
+  }
   const full = fullImageSrc(item)
   if (!full) return
   lightboxSrc.value = full
@@ -605,6 +648,9 @@ function isArchiveFailed(item: ImageLibraryItem) {
 onMounted(() => {
   stopRecoveryListener = onPendingImageArchivesChanged(() => { void loadRecoveries() })
   void Promise.all([refresh(), loadRecoveries()])
+})
+watch(loadMoreInView, (visible) => {
+  if (visible && nextCursor.value && !loadingMore.value && !loading.value) void loadMore()
 })
 onUnmounted(() => {
   stopRecoveryListener?.()
@@ -724,7 +770,8 @@ defineExpose({ refresh })
 .dark .library-item { border-color: #374151; background: #111827; }
 .library-item__media { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; background: #f3f4f6; }
 .dark .library-item__media { background: #030712; }
-.library-item__media img { width: 100%; height: 100%; object-fit: cover; }
+.library-item__lazy { width: 100%; height: 100%; }
+.library-item__media :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .library-item__media:focus-visible { outline: 2px solid #0d9488; outline-offset: -2px; }
 .library-item__broken { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem; color: #9ca3af; font-size: 0.72rem; }
 .library-item__mode { position: absolute; left: 0.45rem; bottom: 0.45rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.4rem; border-radius: 4px; background: rgba(17, 24, 39, 0.84); color: #f9fafb; font-size: 0.65rem; font-weight: 700; }

@@ -75,18 +75,19 @@
       <div v-else class="plaza-grid">
         <article v-for="item in items" :key="item.id" class="plaza-item">
           <button type="button" class="plaza-item__media" @click="openPreview(item)">
-            <img
-              v-if="!broken.has(String(item.id))"
+            <LazyImage
+              class="plaza-item__lazy"
               :src="plazaThumbUrl(item)"
               :alt="item.title || t('imageWorkflow.library.untitled')"
-              loading="lazy"
-              decoding="async"
               @error="markBroken(item.id)"
-            />
-            <span v-else class="plaza-item__broken">
-              <Icon name="exclamationTriangle" size="lg" />
-              {{ t('imageWorkflow.library.imageUnavailable') }}
-            </span>
+            >
+              <template #error>
+                <span class="plaza-item__broken">
+                  <Icon name="exclamationTriangle" size="lg" />
+                  {{ t('imageWorkflow.library.imageUnavailable') }}
+                </span>
+              </template>
+            </LazyImage>
             <span class="plaza-item__platform">{{ platformName(item.platform) }}</span>
           </button>
           <div class="plaza-item__body">
@@ -141,7 +142,14 @@
         </article>
       </div>
 
-      <button v-if="nextCursor" type="button" class="plaza-load-more" :disabled="loadingMore" @click="loadMore">
+      <button
+        v-if="nextCursor"
+        ref="loadMoreSentinel"
+        type="button"
+        class="plaza-load-more"
+        :disabled="loadingMore"
+        @click="loadMore"
+      >
         <span v-if="loadingMore" class="plaza-spinner" aria-hidden="true"></span>
         {{ t('imageWorkflow.plaza.loadMore') }}
       </button>
@@ -202,11 +210,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import LazyImage from '@/components/common/LazyImage.vue'
+import { useInView } from '@/composables/useInView'
 import {
   IMAGE_PLAZA_REPORT_REASONS,
   listImagePlaza,
@@ -237,6 +247,7 @@ const previewDialog = ref<HTMLDialogElement | null>(null)
 const reportDialog = ref<HTMLDialogElement | null>(null)
 const previewItem = ref<ImagePlazaItem | null>(null)
 const reportItem = ref<ImagePlazaItem | null>(null)
+const { target: loadMoreSentinel, inView: loadMoreInView } = useInView({ rootMargin: '400px 0px', once: false })
 const filters = reactive({ q: '', platform: '', aspectRatio: '', sort: 'newest' as 'newest' | 'oldest' })
 const reportForm = reactive<{ reason: ImagePlazaReportReason; detail: string }>({
   reason: IMAGE_PLAZA_REPORT_REASONS[0],
@@ -281,17 +292,20 @@ async function loadMore() {
     appStore.showError(cause?.message || t('imagePlaza.loadFailed'))
   } finally {
     loadingMore.value = false
+    await nextTick()
+    if (loadMoreInView.value && nextCursor.value) void loadMore()
   }
+}
+
+function plazaThumbUrl(item: ImagePlazaItem) {
+  if (broken.value.has(String(item.id))) return ''
+  return buildOssThumbnailUrl(resolvePlazaImageUrl(item), { width: 480 })
 }
 
 function reuse(item: ImagePlazaItem) {
   if (!item.share_prompt || !item.prompt) return
   closePreview()
   router.push({ path: '/image-workbench', query: { prompt: item.prompt, model: item.model, size: item.size || undefined } })
-}
-
-function plazaThumbUrl(item: ImagePlazaItem) {
-  return buildOssThumbnailUrl(resolvePlazaImageUrl(item), { width: 480 })
 }
 
 async function adminHide(item: ImagePlazaItem) {
@@ -347,6 +361,10 @@ function markBroken(id: string | number) { broken.value = new Set([...broken.val
 function platformName(platform: string) { return platform === 'openai' ? 'OpenAI' : platform === 'gemini' ? 'Gemini' : platform === 'grok' ? 'Grok' : platform }
 function formatDate(value: string) { const time = Date.parse(value); return Number.isFinite(time) ? new Date(time).toLocaleString() : value }
 
+watch(loadMoreInView, (visible) => {
+  if (visible && nextCursor.value && !loadingMore.value && !loading.value) void loadMore()
+})
+
 onMounted(refresh)
 </script>
 
@@ -383,8 +401,9 @@ onMounted(refresh)
 .dark .plaza-item { border-color: #374151; background: #111827; }
 .plaza-item__media { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; background: #f3f4f6; }
 .dark .plaza-item__media { background: #030712; }
-.plaza-item__media img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.18s ease; }
-.plaza-item__media:hover img { transform: scale(1.015); }
+.plaza-item__lazy { width: 100%; height: 100%; }
+.plaza-item__media :deep(img) { width: 100%; height: 100%; object-fit: cover; transition: transform 0.18s ease; }
+.plaza-item__media:hover :deep(img) { transform: scale(1.015); }
 .plaza-item__media:focus-visible { outline: 2px solid #0d9488; outline-offset: -2px; }
 .plaza-item__platform { position: absolute; left: 0.45rem; bottom: 0.45rem; padding: 0.2rem 0.4rem; border-radius: 4px; background: rgba(17,24,39,0.84); color: #f9fafb; font-size: 0.62rem; font-weight: 700; }
 .plaza-item__broken { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; color: #9ca3af; font-size: 0.7rem; }
@@ -432,7 +451,7 @@ onMounted(refresh)
 .dialog-field .input { width: 100%; }
 
 @keyframes plaza-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .plaza-spinner { animation: none; } .plaza-item__media img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .plaza-spinner { animation: none; } .plaza-item__media :deep(img) { transition: none; } }
 @media (max-width: 900px) { .plaza-toolbar { grid-template-columns: 1fr 1fr; } .plaza-search { grid-column: 1 / -1; } }
 @media (max-width: 640px) { .plaza-header { flex-direction: column; } .plaza-toolbar { grid-template-columns: 1fr; } .plaza-search { grid-column: auto; } .plaza-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 430px) { .plaza-grid { grid-template-columns: 1fr; } .plaza-header__links { width: 100%; } .plaza-header__links > * { flex: 1; justify-content: center; } }

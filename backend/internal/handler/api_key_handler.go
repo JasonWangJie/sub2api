@@ -94,6 +94,9 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 			filters.GroupID = &gid
 		}
 	}
+	if includeLastUsedIP := strings.TrimSpace(strings.ToLower(c.Query("include_last_used_ip"))); includeLastUsedIP == "0" || includeLastUsedIP == "false" {
+		filters.SkipLastUsedIP = true
+	}
 
 	keys, result, err := h.apiKeyService.List(c.Request.Context(), subject.UserID, params, filters)
 	if err != nil {

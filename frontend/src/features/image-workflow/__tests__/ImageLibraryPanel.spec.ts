@@ -25,10 +25,18 @@ vi.mock('@/api/imageLibrary', () => ({
   importImageFile: mocks.importImageFile,
   importImageURL: mocks.importImageURL,
   listImageLibrary: mocks.listImageLibrary,
+  listMyPlazaSubmissionRequests: vi.fn(async () => ({ items: [] })),
   publishImageLibraryItem: mocks.publishImageLibraryItem,
   resolveImageLibraryViewURL: mocks.resolveImageLibraryViewURL,
+  syncPlazaSubmissionRequest: vi.fn(),
   updateImageLibraryItem: mocks.updateImageLibraryItem,
   withdrawImageLibraryItem: mocks.withdrawImageLibraryItem,
+  withdrawPlazaSubmissionRequest: vi.fn(),
+}))
+
+vi.mock('../submissionBlobStore', () => ({
+  getPlazaSubmissionBlob: vi.fn(async () => null),
+  removePlazaSubmissionBlob: vi.fn(),
 }))
 
 vi.mock('../archiveRecovery', () => ({
@@ -121,6 +129,14 @@ describe('ImageLibraryPanel', () => {
     expect(mocks.importImageFile).not.toHaveBeenCalled()
     expect(mocks.importImageURL).not.toHaveBeenCalled()
     expect(mocks.removePendingImageArchive).toHaveBeenCalledWith('archive_1')
+    wrapper.unmount()
+  })
+
+  it('does not eagerly resolve every library image URL on refresh', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(mocks.resolveImageLibraryViewURL).not.toHaveBeenCalled()
+    expect(wrapper.find('.library-item__lazy').exists()).toBe(true)
     wrapper.unmount()
   })
 })

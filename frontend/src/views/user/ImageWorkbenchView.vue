@@ -71,7 +71,12 @@
               <span>{{ capabilityError }}</span>
             </div>
 
-            <div v-else-if="capabilities" class="execution-mode" :class="`is-${capabilities.execution_mode}`" role="status">
+            <div
+              v-else-if="capabilities || selectedAccess?.supported"
+              class="execution-mode"
+              :class="`is-${isAsyncMode ? 'async' : 'realtime'}${capabilityLoading && !capabilities ? ' is-pending' : ''}`"
+              role="status"
+            >
               <span class="execution-mode__icon">
                 <Icon :name="isAsyncMode ? 'clock' : 'bolt'" size="md" />
               </span>
@@ -437,11 +442,21 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const lightboxSrc = ref('')
 const lightboxAlt = ref('')
 const libraryPanel = ref<InstanceType<typeof ImageLibraryPanel> | null>(null)
+const CAPABILITY_CACHE_TTL_MS = 5 * 60 * 1000
+const CAPABILITY_FRESH_MS = 30 * 1000
+const PREFETCH_CONCURRENCY = 2
+const PREFETCH_LIMIT = 8
+const capabilityCache = new Map<number, { data: ImageWorkbenchCapabilities; fetchedAt: number }>()
+let capabilityAbort: AbortController | null = null
+let capabilityRequestSeq = 0
+let prefetchToken = 0
+let keysAbort: AbortController | null = null
+let ignoreKeyWatch = false
+let requestController: AbortController | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 const promptError = ref('')
 const unknownSubmission = ref(false)
 const pendingSubmission = ref<PendingSubmission | null>(null)
-let requestController: AbortController | null = null
-let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const form = reactive({
   apiKeyId: '' as string | number,
@@ -466,15 +481,19 @@ const asyncTask = reactive<AsyncTaskState>({
 
 const workbenchKeys = computed(() => apiKeys.value.filter((key) => deriveWorkbenchAccess(key).supported))
 const selectedKey = computed(() => apiKeys.value.find((key) => String(key.id) === String(form.apiKeyId)) || null)
+const selectedAccess = computed(() => (selectedKey.value ? deriveWorkbenchAccess(selectedKey.value) : null))
 const keyOptions = computed<SelectOption[]>(() => workbenchKeys.value.map((key) => ({
   value: String(key.id),
   label: `${key.name} ${maskApiKey(key.key)}`,
   subtitle: `${key.group?.name || t('imageWorkbench.ungrouped')} · ${key.group?.platform || '—'} · ${deriveWorkbenchAccess(key).mode === 'async' ? t('imageWorkflow.mode.async') : t('imageWorkflow.mode.realtime')}`,
 })))
-const isGemini = computed(() => capabilities.value?.platform === 'gemini')
-const isOpenAI = computed(() => capabilities.value?.platform === 'openai')
+const isGemini = computed(() => (capabilities.value?.platform || selectedAccess.value?.platform) === 'gemini')
+const isOpenAI = computed(() => (capabilities.value?.platform || selectedAccess.value?.platform) === 'openai')
 const usesResolutionAspect = computed(() => isGemini.value || (isOpenAI.value && (capabilities.value?.aspect_ratios?.length || 0) > 0))
-const isAsyncMode = computed(() => capabilities.value?.execution_mode === 'async')
+const isAsyncMode = computed(() => {
+  if (capabilities.value) return capabilities.value.execution_mode === 'async'
+  return selectedAccess.value?.mode === 'async'
+})
 const modelOptions = computed(() => capabilities.value?.models || [])
 const maxReferences = computed(() => Math.max(0, Number(capabilities.value?.max_reference_images || 0)))
 const sizeOptions = computed(() => {
@@ -530,34 +549,112 @@ const taskStages = computed(() => {
 
 async function loadKeys() {
   loadingKeys.value = true
+  keysAbort?.abort()
+  keysAbort = new AbortController()
+  const signal = keysAbort.signal
   try {
-    const response = await keysAPI.list(1, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
+    const response = await keysAPI.list(1, 100, {
+      status: 'active',
+      sort_by: 'created_at',
+      sort_order: 'desc',
+      include_last_used_ip: false,
+    }, { signal })
     apiKeys.value = response.items || []
-    if (!workbenchKeys.value.some((key) => String(key.id) === String(form.apiKeyId))) {
-      form.apiKeyId = workbenchKeys.value[0] ? String(workbenchKeys.value[0].id) : ''
+    ignoreKeyWatch = true
+    try {
+      if (!workbenchKeys.value.some((key) => String(key.id) === String(form.apiKeyId))) {
+        form.apiKeyId = workbenchKeys.value[0] ? String(workbenchKeys.value[0].id) : ''
+      }
+    } finally {
+      await nextTick()
+      ignoreKeyWatch = false
     }
+    prefetchWorkbenchCapabilities(selectedKey.value?.id)
   } catch (cause: any) {
+    if (cause?.name === 'CanceledError' || cause?.code === 'ERR_CANCELED' || cause?.name === 'AbortError') return
     appStore.showError(cause?.message || t('imageWorkbench.loadKeysFailed'))
   } finally {
-    loadingKeys.value = false
+    if (!signal.aborted) loadingKeys.value = false
   }
 }
 
-async function loadCapabilities(key: ApiKey, quiet = false) {
-  if (!quiet) capabilityLoading.value = true
-  capabilityError.value = ''
+function readCapabilityCache(apiKeyId: number, maxAgeMs = CAPABILITY_CACHE_TTL_MS) {
+  const cached = capabilityCache.get(apiKeyId)
+  if (!cached) return null
+  if (Date.now() - cached.fetchedAt > maxAgeMs) return null
+  return cached
+}
+
+function writeCapabilityCache(apiKeyId: number, data: ImageWorkbenchCapabilities) {
+  capabilityCache.set(apiKeyId, { data, fetchedAt: Date.now() })
+}
+
+function isAbortError(cause: unknown) {
+  const error = cause as { name?: string; code?: string }
+  return error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED' || error?.name === 'AbortError'
+}
+
+async function loadCapabilities(key: ApiKey, quiet = false, options?: { force?: boolean }) {
+  const requestSeq = quiet ? capabilityRequestSeq : ++capabilityRequestSeq
+  if (!quiet) {
+    capabilityAbort?.abort()
+    capabilityAbort = new AbortController()
+    capabilityLoading.value = true
+    capabilityError.value = ''
+  }
+
+  const cached = options?.force ? null : readCapabilityCache(key.id)
+  if (cached) {
+    if (!quiet && requestSeq !== capabilityRequestSeq) return cached.data
+    capabilities.value = cached.data
+    applyCapabilityDefaults(cached.data)
+    if (!quiet) capabilityLoading.value = false
+    return cached.data
+  }
+
   try {
-    const next = await imageAPI.getCapabilities(key.id, key)
+    const next = await imageAPI.getCapabilities(key.id, key, quiet ? undefined : capabilityAbort?.signal)
+    writeCapabilityCache(key.id, next)
+    if (!quiet && requestSeq !== capabilityRequestSeq) return next
     capabilities.value = next
     applyCapabilityDefaults(next)
     return next
   } catch (cause: any) {
-    if (!quiet) capabilities.value = null
-    capabilityError.value = cause?.message || t('imageWorkflow.workbench.capabilityFailed')
+    if (isAbortError(cause)) return capabilities.value
+    if (!quiet && requestSeq === capabilityRequestSeq) {
+      capabilities.value = null
+      capabilityError.value = cause?.message || t('imageWorkflow.workbench.capabilityFailed')
+    }
     throw cause
   } finally {
-    if (!quiet) capabilityLoading.value = false
+    if (!quiet && requestSeq === capabilityRequestSeq) capabilityLoading.value = false
   }
+}
+
+function prefetchWorkbenchCapabilities(preferredId?: number) {
+  const token = ++prefetchToken
+  const targets = workbenchKeys.value
+    .filter((key) => key.id !== preferredId && !readCapabilityCache(key.id))
+    .slice(0, PREFETCH_LIMIT)
+  if (!targets.length) return
+
+  void (async () => {
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(PREFETCH_CONCURRENCY, targets.length) }, async () => {
+      while (token === prefetchToken && cursor < targets.length) {
+        const key = targets[cursor++]
+        if (!key || readCapabilityCache(key.id)) continue
+        try {
+          const next = await imageAPI.getCapabilities(key.id, key)
+          if (token !== prefetchToken) return
+          writeCapabilityCache(key.id, next)
+        } catch {
+          // Prefetch is best-effort; switch will fetch on demand.
+        }
+      }
+    })
+    await Promise.all(workers)
+  })()
 }
 
 function usesResolutionAspectFor(caps: ImageWorkbenchCapabilities | null | undefined): boolean {
@@ -581,8 +678,9 @@ function applyCapabilityDefaults(next: ImageWorkbenchCapabilities) {
 }
 
 async function refreshAll() {
+  capabilityCache.clear()
   await loadKeys()
-  if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
+  if (selectedKey.value) await loadCapabilities(selectedKey.value, false, { force: true }).catch(() => undefined)
   await libraryPanel.value?.refresh()
 }
 
@@ -639,7 +737,9 @@ async function startGenerate() {
   requestController?.abort()
   requestController = new AbortController()
   try {
-    const fresh = await loadCapabilities(key, true)
+    const cachedFresh = readCapabilityCache(key.id, CAPABILITY_FRESH_MS)
+    const fresh = cachedFresh?.data || await loadCapabilities(key, true, { force: true })
+    if (!fresh) return
     if (!sameCapabilitySnapshot(snapshot, fresh)) {
       capabilities.value = fresh
       applyCapabilityDefaults(fresh)
@@ -651,7 +751,7 @@ async function startGenerate() {
     if (fresh.execution_mode === 'async') await submitAsync(key, fresh)
     else await runRealtime(key, fresh)
   } catch (cause: any) {
-    if (cause?.name === 'AbortError') return
+    if (isAbortError(cause) || cause?.name === 'AbortError') return
     appStore.showError(cause?.message || t('imageWorkbench.generateFailed'))
   } finally {
     generating.value = false
@@ -1168,6 +1268,7 @@ function dataURLToFile(dataURL: string, filename: string): File {
 }
 
 watch(() => form.apiKeyId, async () => {
+  if (ignoreKeyWatch) return
   clearPollTimer()
   asyncTask.active = false
   asyncTask.taskId = ''
@@ -1175,8 +1276,24 @@ watch(() => form.apiKeyId, async () => {
   unknownSubmission.value = false
   pendingSubmission.value = null
   clearReferences()
-  if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
-  else capabilities.value = null
+  if (!selectedKey.value) {
+    capabilities.value = null
+    capabilityError.value = ''
+    capabilityLoading.value = false
+    return
+  }
+  const cached = readCapabilityCache(selectedKey.value.id)
+  if (cached) {
+    capabilities.value = cached.data
+    applyCapabilityDefaults(cached.data)
+    capabilityError.value = ''
+    capabilityLoading.value = false
+    // Refresh in background so UI stays instant on re-select / prefetch hits.
+    void loadCapabilities(selectedKey.value, true, { force: true }).catch(() => undefined)
+    return
+  }
+  capabilities.value = null
+  await loadCapabilities(selectedKey.value).catch(() => undefined)
 })
 
 watch(aspectRatioOptions, (options) => {
@@ -1185,12 +1302,24 @@ watch(aspectRatioOptions, (options) => {
 
 onMounted(async () => {
   await loadKeys()
-  if (selectedKey.value && !capabilities.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
+  if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
   if (typeof route.query.prompt === 'string') form.prompt = route.query.prompt
   if (typeof route.query.model === 'string' && modelOptions.value.some((model) => model.id === route.query.model)) form.model = route.query.model
   if (typeof route.query.size === 'string' && sizeOptions.value.includes(route.query.size)) form.size = route.query.size
   if (Object.keys(route.query).length) await nextTick(() => router.replace({ path: route.path }))
   await restoreDeferredSubmissions()
+})
+
+onUnmounted(() => {
+  keysAbort?.abort()
+  capabilityAbort?.abort()
+  requestController?.abort()
+  prefetchToken += 1
+  clearPollTimer()
+  clearReferences()
+  results.value.forEach((item) => {
+    if (item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  })
 })
 
 async function restoreDeferredSubmissions() {
@@ -1232,12 +1361,6 @@ async function restoreDeferredSubmissions() {
     // Local restore is best-effort; network/API failures should not block the workbench.
   }
 }
-
-onUnmounted(() => {
-  requestController?.abort()
-  clearPollTimer()
-  clearReferences()
-})
 </script>
 
 <style scoped>
@@ -1278,6 +1401,7 @@ onUnmounted(() => {
 
 .execution-mode { position: relative; display: flex; align-items: flex-start; gap: 0.65rem; margin-top: 0.75rem; padding: 0.7rem; border: 1px solid #99f6e4; border-radius: 6px; background: #f0fdfa; color: #115e59; }
 .execution-mode.is-async { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.execution-mode.is-pending { opacity: 0.72; }
 .dark .execution-mode { border-color: rgba(45, 212, 191, 0.35); background: rgba(13, 148, 136, 0.12); color: #99f6e4; }
 .dark .execution-mode.is-async { border-color: rgba(251, 191, 36, 0.4); background: rgba(146, 64, 14, 0.18); color: #fde68a; }
 .execution-mode__icon { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 6px; }

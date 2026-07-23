@@ -142,4 +142,7 @@ type APIKeyListFilters struct {
 	Search  string
 	Status  string
 	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
+	// SkipLastUsedIP skips the usage-log IP lookup. Workbench and other lightweight
+	// listings do not need LastUsedIP and that query dominates list latency.
+	SkipLastUsedIP bool
 }

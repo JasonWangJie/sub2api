@@ -39,4 +39,12 @@ describe('ImageWorkbenchView capability-driven controls', () => {
     expect(source).toContain('savePlazaSubmissionBlob')
     expect(source).not.toContain('await Promise.allSettled(results.value.map((result) => archiveResult(result, current)))')
   })
+
+  it('caches and aborts capability loads when switching keys', () => {
+    expect(source).toContain('capabilityCache')
+    expect(source).toContain('capabilityAbort')
+    expect(source).toContain('prefetchWorkbenchCapabilities')
+    expect(source).toContain('include_last_used_ip: false')
+    expect(source).toContain('readCapabilityCache')
+  })
 })

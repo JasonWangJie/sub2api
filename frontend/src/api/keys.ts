@@ -23,6 +23,8 @@ export async function list(
     group_id?: number | string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
+    /** When false, backend skips usage-log last-used IP lookup (faster for workbench). */
+    include_last_used_ip?: boolean
   },
   options?: {
     signal?: AbortSignal

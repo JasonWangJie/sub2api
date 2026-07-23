@@ -452,8 +452,10 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	for i := range keys {
 		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
 	}
-	if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
-		return nil, nil, err
+	if !filters.SkipLastUsedIP {
+		if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
@@ -472,8 +474,10 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	for i := range keys {
 		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
 	}
-	if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
-		return nil, err
+	if !filters.SkipLastUsedIP {
+		if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
+			return nil, err
+		}
 	}
 	return outKeys, nil
 }
