@@ -6,10 +6,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -197,6 +199,108 @@ func TestLogger_AccessLogIncludesCoreFields(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("access log event not found")
+	}
+}
+
+func TestLogger_SuccessfulGatewayAccessIsSampledAndSkipsOpsSink(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	original := globalGatewaySuccessAccessSampler
+	globalGatewaySuccessAccessSampler = newGatewaySuccessAccessSampler(2)
+	t.Cleanup(func() { globalGatewaySuccessAccessSampler = original })
+	sink := initMiddlewareTestLogger(t)
+
+	r := gin.New()
+	r.Use(Logger())
+	r.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), &service.APIKey{ID: 101})
+		c.Next()
+	})
+	r.GET("/v1/models", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	for i := 0; i < 4; i++ {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	}
+
+	var accessEvents int
+	for _, event := range sink.list() {
+		if event == nil || event.Message != "http request completed" {
+			continue
+		}
+		accessEvents++
+		if skipped, _ := event.Fields[logger.OpsSystemLogSkipField].(bool); !skipped {
+			t.Fatalf("sampled gateway success must skip ops system log sink")
+		}
+		if every, _ := event.Fields["access_log_sample_every"].(uint64); every != 2 {
+			t.Fatalf("access_log_sample_every=%v, want 2", event.Fields["access_log_sample_every"])
+		}
+	}
+	if accessEvents != 2 {
+		t.Fatalf("access events=%d, want 2", accessEvents)
+	}
+}
+
+func TestGatewaySuccessAccessSamplerConcurrentRatio(t *testing.T) {
+	sampler := newGatewaySuccessAccessSampler(20)
+	var allowed atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < 2000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if sampler.allow() {
+				allowed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := allowed.Load(); got != 100 {
+		t.Fatalf("allowed=%d, want 100", got)
+	}
+}
+
+func TestSuccessfulGatewayAccessIncludesWebSocketUpgrade(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set(string(ContextKeyAPIKey), &service.APIKey{ID: 101})
+	if !isSuccessfulGatewayAccess(c, http.StatusSwitchingProtocols, false) {
+		t.Fatalf("websocket upgrade must be treated as a successful gateway access")
+	}
+}
+
+func TestLogger_GatewayErrorsBypassSuccessSampling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	original := globalGatewaySuccessAccessSampler
+	globalGatewaySuccessAccessSampler = newGatewaySuccessAccessSampler(1000)
+	t.Cleanup(func() { globalGatewaySuccessAccessSampler = original })
+	sink := initMiddlewareTestLogger(t)
+
+	r := gin.New()
+	r.Use(Logger())
+	r.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), &service.APIKey{ID: 101})
+		c.Next()
+	})
+	r.GET("/v1/models", func(c *gin.Context) {
+		c.Status(http.StatusBadGateway)
+	})
+
+	for i := 0; i < 3; i++ {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	}
+
+	var accessEvents int
+	for _, event := range sink.list() {
+		if event == nil || event.Message != "http request completed" {
+			continue
+		}
+		accessEvents++
+		if skipped, _ := event.Fields[logger.OpsSystemLogSkipField].(bool); skipped {
+			t.Fatalf("gateway errors must remain eligible for ops system log sink")
+		}
+	}
+	if accessEvents != 3 {
+		t.Fatalf("access events=%d, want 3", accessEvents)
 	}
 }
 

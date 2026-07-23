@@ -75,14 +75,23 @@ func (s *usageLogWindowBatchRepoStub) GetAccountWindowStats(ctx context.Context,
 type sessionLimitCacheHotpathStub struct {
 	SessionLimitCache
 
-	batchData map[int64]float64
-	batchErr  error
+	batchData    map[int64]float64
+	batchErr     error
+	batchStarted chan struct{}
+	batchWait    <-chan struct{}
 
-	setData map[int64]float64
-	setErr  error
+	setData       map[int64]float64
+	setErr        error
+	batchSetCalls atomic.Int64
 }
 
 func (s *sessionLimitCacheHotpathStub) GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
+	if s.batchStarted != nil {
+		close(s.batchStarted)
+	}
+	if s.batchWait != nil {
+		<-s.batchWait
+	}
 	if s.batchErr != nil {
 		return nil, s.batchErr
 	}
@@ -104,6 +113,44 @@ func (s *sessionLimitCacheHotpathStub) SetWindowCost(ctx context.Context, accoun
 	}
 	s.setData[accountID] = cost
 	return nil
+}
+
+func (s *sessionLimitCacheHotpathStub) SetWindowCostBatch(ctx context.Context, costs map[int64]float64) error {
+	s.batchSetCalls.Add(1)
+	if s.setErr != nil {
+		return s.setErr
+	}
+	if s.setData == nil {
+		s.setData = make(map[int64]float64)
+	}
+	for accountID, cost := range costs {
+		s.setData[accountID] = cost
+	}
+	return nil
+}
+
+type rpmCacheHotpathStub struct {
+	RPMCache
+
+	batchData    map[int64]int
+	batchStarted chan struct{}
+	batchWait    <-chan struct{}
+}
+
+func (s *rpmCacheHotpathStub) GetRPMBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error) {
+	if s.batchStarted != nil {
+		close(s.batchStarted)
+	}
+	if s.batchWait != nil {
+		<-s.batchWait
+	}
+	out := make(map[int64]int, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if count, ok := s.batchData[accountID]; ok {
+			out[accountID] = count
+		}
+	}
+	return out, nil
 }
 
 type modelsListAccountRepoStub struct {
@@ -360,6 +407,7 @@ func TestWithWindowCostPrefetch_BatchReadAndContextReuse(t *testing.T) {
 
 	require.Equal(t, int64(1), repo.batchCalls.Load())
 	require.Equal(t, 22.0, cache.setData[2])
+	require.Equal(t, int64(1), cache.batchSetCalls.Load())
 
 	hit, miss, batchSQL, fallback, errCount := GatewayWindowCostPrefetchStats()
 	require.Equal(t, int64(1), hit)
@@ -421,6 +469,63 @@ func TestWithWindowCostPrefetch_AllHitNoSQL(t *testing.T) {
 	require.Equal(t, int64(0), batchSQL)
 	require.Equal(t, int64(0), fallback)
 	require.Equal(t, int64(0), errCount)
+}
+
+func TestWithSchedulingPrefetch_RunsIndependentReadsConcurrently(t *testing.T) {
+	windowStarted := make(chan struct{})
+	rpmStarted := make(chan struct{})
+	release := make(chan struct{})
+	account := Account{
+		ID:       7,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"window_cost_limit": 100.0,
+			"base_rpm":          60,
+		},
+	}
+	svc := &GatewayService{
+		sessionLimitCache: &sessionLimitCacheHotpathStub{
+			batchData:    map[int64]float64{account.ID: 12.5},
+			batchStarted: windowStarted,
+			batchWait:    release,
+		},
+		usageLogRepo: &usageLogWindowBatchRepoStub{},
+		rpmCache: &rpmCacheHotpathStub{
+			batchData:    map[int64]int{account.ID: 8},
+			batchStarted: rpmStarted,
+			batchWait:    release,
+		},
+	}
+
+	result := make(chan context.Context, 1)
+	go func() {
+		result <- svc.withSchedulingPrefetch(context.Background(), []Account{account})
+	}()
+
+	for name, started := range map[string]<-chan struct{}{
+		"window cost": windowStarted,
+		"rpm":         rpmStarted,
+	} {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("%s prefetch did not start concurrently", name)
+		}
+	}
+	close(release)
+
+	select {
+	case outCtx := <-result:
+		cost, costOK := windowCostFromPrefetchContext(outCtx, account.ID)
+		count, rpmOK := rpmFromPrefetchContext(outCtx, account.ID)
+		require.True(t, costOK)
+		require.True(t, rpmOK)
+		require.Equal(t, 12.5, cost)
+		require.Equal(t, 8, count)
+	case <-time.After(time.Second):
+		t.Fatal("combined scheduling prefetch did not finish")
+	}
 }
 
 func TestWithWindowCostPrefetch_BatchErrorFallbackSingleQuery(t *testing.T) {

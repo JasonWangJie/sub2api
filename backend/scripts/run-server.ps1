@@ -32,6 +32,61 @@ if (-not $env:DATA_DIR -or [string]::IsNullOrWhiteSpace($env:DATA_DIR)) {
   $env:DATA_DIR = $BackendRoot
 }
 
+function Resolve-GoExecutable {
+  $command = Get-Command go -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($command) {
+    return $command.Source
+  }
+
+  $candidates = @()
+  $toolchainRoot = $null
+  if ($env:GOROOT) {
+    $candidates += (Join-Path $env:GOROOT 'bin\go.exe')
+  }
+  if ($env:ProgramFiles) {
+    $candidates += (Join-Path $env:ProgramFiles 'Go\bin\go.exe')
+  }
+  if ($env:LOCALAPPDATA) {
+    $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Go\bin\go.exe')
+
+    $goModPath = Join-Path $BackendRoot 'go.mod'
+    $requiredVersion = $null
+    if (Test-Path $goModPath) {
+      $versionLine = Get-Content $goModPath -Encoding UTF8 |
+        Where-Object { $_ -match '^go\s+([0-9]+(?:\.[0-9]+)+)\s*$' } |
+        Select-Object -First 1
+      if ($versionLine -and $versionLine -match '^go\s+([0-9]+(?:\.[0-9]+)+)\s*$') {
+        $requiredVersion = $Matches[1]
+      }
+    }
+
+    $toolchainRoot = Join-Path $env:LOCALAPPDATA 'CodexToolchains'
+    if ($requiredVersion) {
+      $candidates += (Join-Path $toolchainRoot "go$requiredVersion\go\bin\go.exe")
+    }
+  }
+
+  foreach ($candidate in @($candidates | Select-Object -Unique)) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+      return $candidate
+    }
+  }
+
+  if ($toolchainRoot -and (Test-Path $toolchainRoot)) {
+    $managedCandidates = @(
+      Get-ChildItem -Path (Join-Path $toolchainRoot 'go*\go\bin\go.exe') -File -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Select-Object -ExpandProperty FullName
+    )
+    foreach ($candidate in $managedCandidates) {
+      return $candidate
+    }
+  }
+
+  throw '[run-server] Go was not found. Install the version declared in go.mod and add its bin directory to PATH.'
+}
+
 function Get-ServerPort {
   param([int]$Override)
 
@@ -116,9 +171,12 @@ function Stop-PortListeners {
 }
 
 $listenPort = Get-ServerPort -Override $Port
+$goExecutable = Resolve-GoExecutable
+$goVersion = (& $goExecutable version) -join ' '
 Write-Host "[run-server] DATA_DIR=$($env:DATA_DIR)"
+Write-Host "[run-server] GO=$goExecutable ($goVersion)"
 Write-Host "[run-server] starting go run ./cmd/server on :$listenPort"
 Stop-PortListeners -ListenPort $listenPort
 
-& go run ./cmd/server
+& $goExecutable run ./cmd/server
 exit $LASTEXITCODE

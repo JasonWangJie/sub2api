@@ -26,3 +26,38 @@ sudo systemctl restart sub2api
 
 # 卸载
 curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+
+
+
+## PGSQL 相关
+#### 1. 安装 postgresql 全套（服务端 + 客户端）
+
+```
+apt update
+apt install postgresql postgresql-client -y
+```
+
+安装完成后，`psql`命令就会被注册到系统环境变量。
+
+#### 2. 验证服务运行状态
+
+```
+systemctl status postgresql
+```
+
+若未启动，执行启动、开机自启：
+
+```
+systemctl start postgresql
+systemctl enable postgresql
+```
+
+#### 3. 本机登录 PostgreSQL（两种常用方式）
+
+##### 方式 1：系统用户免密登录（推荐）
+
+```
+sudo -u postgres psql
+```
+
+成功后会进入`postgres=#`数据库交互终端。

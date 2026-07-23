@@ -91,6 +91,7 @@ type UsageRecordWorkerPool struct {
 	droppedPoolStopped    atomic.Uint64
 	syncFallback          atomic.Uint64
 	lastDropLogNanos      atomic.Int64
+	lastSyncLogNanos      atomic.Int64
 	autoScaleEnabled      bool
 	autoScaleMinWorkers   int
 	autoScaleMaxWorkers   int
@@ -169,11 +170,13 @@ func (p *UsageRecordWorkerPool) Submit(task UsageRecordTask) UsageRecordSubmitMo
 	switch p.overflowPolicy {
 	case config.UsageRecordOverflowPolicySync:
 		p.syncFallback.Add(1)
+		p.logSyncFallback()
 		p.execute(task)
 		return UsageRecordSubmitModeSync
 	case config.UsageRecordOverflowPolicySample:
 		if p.shouldSyncFallback() {
 			p.syncFallback.Add(1)
+			p.logSyncFallback()
 			p.execute(task)
 			return UsageRecordSubmitModeSync
 		}
@@ -352,6 +355,27 @@ func (p *UsageRecordWorkerPool) logDrop(reason string) {
 		zap.Uint64("dropped_pool_stopped", stats.DroppedPoolStopped),
 		zap.Uint64("sync_fallback_tasks", stats.SyncFallbackTasks),
 	).Warn("usage_record.task_dropped")
+}
+
+func (p *UsageRecordWorkerPool) logSyncFallback() {
+	now := time.Now().UnixNano()
+	last := p.lastSyncLogNanos.Load()
+	if now-last < int64(usageRecordDropLogInterval) {
+		return
+	}
+	if !p.lastSyncLogNanos.CompareAndSwap(last, now) {
+		return
+	}
+
+	stats := p.Stats()
+	logger.L().With(
+		zap.String("component", "service.usage_record_worker_pool"),
+		zap.String("overflow_policy", p.overflowPolicy),
+		zap.Int("max_concurrency", stats.MaxConcurrency),
+		zap.Int64("running_workers", stats.RunningWorkers),
+		zap.Uint64("waiting_tasks", stats.WaitingTasks),
+		zap.Uint64("sync_fallback_tasks", stats.SyncFallbackTasks),
+	).Warn("usage_record.sync_fallback")
 }
 
 func usageRecordPoolOptionsFromConfig(cfg *config.Config) UsageRecordWorkerPoolOptions {

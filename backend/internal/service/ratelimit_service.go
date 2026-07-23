@@ -32,6 +32,14 @@ type RateLimitService struct {
 	runtimeBlocker        AccountRuntimeBlocker
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
+	sessionWindowUpdateMu sync.Mutex
+	sessionWindowUpdates  map[int64]sessionWindowUpdateStamp
+	sessionWindowSlots    chan struct{}
+}
+
+type sessionWindowUpdateStamp struct {
+	at          time.Time
+	fingerprint string
 }
 
 type AccountRuntimeBlocker interface {
@@ -80,15 +88,23 @@ const (
 	openAI403CounterWindowMinutes   = 180
 )
 
+const (
+	sessionWindowUpdateMinInterval = 5 * time.Second
+	sessionWindowUpdateTimeout     = 10 * time.Second
+	sessionWindowUpdateConcurrency = 32
+)
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
-		accountRepo:        accountRepo,
-		usageRepo:          usageRepo,
-		cfg:                cfg,
-		geminiQuotaService: geminiQuotaService,
-		tempUnschedCache:   tempUnschedCache,
-		usageCache:         make(map[int64]*geminiUsageCacheEntry),
+		accountRepo:          accountRepo,
+		usageRepo:            usageRepo,
+		cfg:                  cfg,
+		geminiQuotaService:   geminiQuotaService,
+		tempUnschedCache:     tempUnschedCache,
+		usageCache:           make(map[int64]*geminiUsageCacheEntry),
+		sessionWindowUpdates: make(map[int64]sessionWindowUpdateStamp),
+		sessionWindowSlots:   make(chan struct{}, sessionWindowUpdateConcurrency),
 	}
 }
 
@@ -1605,6 +1621,79 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 	}
 
 	slog.Info("account_overloaded", "account_id", account.ID, "until", until)
+}
+
+// ScheduleSessionWindowUpdate persists successful-response rate-limit metadata
+// outside the response path. Identical window headers are coalesced per account;
+// saturation drops only this best-effort sample and lets the next request retry.
+func (s *RateLimitService) ScheduleSessionWindowUpdate(ctx context.Context, account *Account, headers http.Header) {
+	if s == nil || account == nil || account.ID <= 0 || headers.Get("anthropic-ratelimit-unified-5h-status") == "" {
+		return
+	}
+	// Services assembled directly in tests keep the historical synchronous path.
+	if s.sessionWindowSlots == nil {
+		s.UpdateSessionWindow(ctx, account, headers)
+		return
+	}
+
+	fingerprint := strings.Join([]string{
+		headers.Get("anthropic-ratelimit-unified-5h-status"),
+		headers.Get("anthropic-ratelimit-unified-5h-reset"),
+		headers.Get("anthropic-ratelimit-unified-7d-reset"),
+		headers.Get("anthropic-ratelimit-unified-7d_oi-reset"),
+	}, "\x00")
+	now := time.Now()
+	if !s.claimSessionWindowUpdate(account.ID, fingerprint, now) {
+		return
+	}
+
+	select {
+	case s.sessionWindowSlots <- struct{}{}:
+	default:
+		s.releaseSessionWindowUpdateClaim(account.ID, fingerprint, now)
+		return
+	}
+
+	accountSnapshot := *account
+	headerSnapshot := headers.Clone()
+	baseCtx := context.Background()
+	if ctx != nil {
+		baseCtx = context.WithoutCancel(ctx)
+	}
+	go func() {
+		defer func() {
+			<-s.sessionWindowSlots
+			if recovered := recover(); recovered != nil {
+				slog.Error("session_window_update_panic", "account_id", accountSnapshot.ID, "panic", recovered)
+			}
+		}()
+		updateCtx, cancel := context.WithTimeout(baseCtx, sessionWindowUpdateTimeout)
+		defer cancel()
+		s.UpdateSessionWindow(updateCtx, &accountSnapshot, headerSnapshot)
+	}()
+}
+
+func (s *RateLimitService) claimSessionWindowUpdate(accountID int64, fingerprint string, now time.Time) bool {
+	s.sessionWindowUpdateMu.Lock()
+	defer s.sessionWindowUpdateMu.Unlock()
+	previous, ok := s.sessionWindowUpdates[accountID]
+	if ok && previous.fingerprint == fingerprint && now.Sub(previous.at) < sessionWindowUpdateMinInterval {
+		return false
+	}
+	if s.sessionWindowUpdates == nil {
+		s.sessionWindowUpdates = make(map[int64]sessionWindowUpdateStamp)
+	}
+	s.sessionWindowUpdates[accountID] = sessionWindowUpdateStamp{at: now, fingerprint: fingerprint}
+	return true
+}
+
+func (s *RateLimitService) releaseSessionWindowUpdateClaim(accountID int64, fingerprint string, at time.Time) {
+	s.sessionWindowUpdateMu.Lock()
+	defer s.sessionWindowUpdateMu.Unlock()
+	current, ok := s.sessionWindowUpdates[accountID]
+	if ok && current.fingerprint == fingerprint && current.at.Equal(at) {
+		delete(s.sessionWindowUpdates, accountID)
+	}
 }
 
 // UpdateSessionWindow 从成功响应更新5h窗口状态

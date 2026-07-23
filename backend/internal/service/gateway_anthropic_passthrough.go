@@ -372,7 +372,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	model string,
 ) (*streamingResult, error) {
 	if s.rateLimitService != nil {
-		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+		s.rateLimitService.ScheduleSessionWindowUpdate(ctx, account, resp.Header)
 	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -767,7 +767,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	account *Account,
 ) (*ClaudeUsage, error) {
 	if s.rateLimitService != nil {
-		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+		s.rateLimitService.ScheduleSessionWindowUpdate(ctx, account, resp.Header)
 	}
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)

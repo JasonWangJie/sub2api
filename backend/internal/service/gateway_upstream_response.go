@@ -646,8 +646,8 @@ type streamingResult struct {
 }
 
 func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
-	// 更新5h窗口状态
-	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	// 响应头采样不阻塞首个 SSE 事件。
+	s.rateLimitService.ScheduleSessionWindowUpdate(ctx, account, resp.Header)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -1329,8 +1329,8 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 }
 
 func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*ClaudeUsage, error) {
-	// 更新5h窗口状态
-	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
+	// 响应头采样与响应体读取并行，避免增加非流式总耗时。
+	s.rateLimitService.ScheduleSessionWindowUpdate(ctx, account, resp.Header)
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {

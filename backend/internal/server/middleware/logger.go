@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -28,15 +29,7 @@ func Logger() gin.HandlerFunc {
 		}
 
 		endTime := time.Now()
-		latency := endTime.Sub(startTime)
-
-		method := c.Request.Method
 		statusCode := c.Writer.Status()
-		clientIP := ip.GetClientIP(c)
-		protocol := c.Request.Proto
-		accountID, hasAccountID := c.Request.Context().Value(ctxkey.AccountID).(int64)
-		platform, _ := c.Request.Context().Value(ctxkey.Platform).(string)
-		model, _ := c.Request.Context().Value(ctxkey.Model).(string)
 		reason, rejected := GetIngressRejectReason(c)
 		if rejected {
 			recordIngressReject(c, reason)
@@ -53,6 +46,19 @@ func Logger() gin.HandlerFunc {
 			}
 		}
 
+		gatewaySuccess := isSuccessfulGatewayAccess(c, statusCode, rejected)
+		if gatewaySuccess && !globalGatewaySuccessAccessSampler.allow() {
+			return
+		}
+
+		latency := endTime.Sub(startTime)
+		method := c.Request.Method
+		clientIP := ip.GetClientIP(c)
+		protocol := c.Request.Proto
+		accountID, hasAccountID := c.Request.Context().Value(ctxkey.AccountID).(int64)
+		platform, _ := c.Request.Context().Value(ctxkey.Platform).(string)
+		model, _ := c.Request.Context().Value(ctxkey.Model).(string)
+
 		fields := []zap.Field{
 			zap.String("component", "http.access"),
 			zap.Int("status_code", statusCode),
@@ -65,6 +71,12 @@ func Logger() gin.HandlerFunc {
 		if rejected {
 			fields = append(fields,
 				zap.String("ingress_reject_reason", string(reason)),
+				zap.Bool(logger.OpsSystemLogSkipField, true),
+			)
+		}
+		if gatewaySuccess {
+			fields = append(fields,
+				zap.Uint64("access_log_sample_every", globalGatewaySuccessAccessSampler.sampleEvery()),
 				zap.Bool(logger.OpsSystemLogSkipField, true),
 			)
 		}
@@ -85,4 +97,14 @@ func Logger() gin.HandlerFunc {
 			l.Warn("http request contains gin errors", zap.String("errors", c.Errors.String()))
 		}
 	}
+}
+
+func isSuccessfulGatewayAccess(c *gin.Context, statusCode int, rejected bool) bool {
+	successfulStatus := statusCode == http.StatusSwitchingProtocols ||
+		(statusCode >= http.StatusOK && statusCode < http.StatusBadRequest)
+	if c == nil || rejected || len(c.Errors) > 0 || !successfulStatus {
+		return false
+	}
+	apiKey, ok := GetAPIKeyFromContext(c)
+	return ok && apiKey != nil
 }

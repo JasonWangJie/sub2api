@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/stretchr/testify/require"
 )
 
 // sessionWindowMockRepo is a minimal AccountRepository mock that records calls
@@ -438,4 +441,75 @@ func TestUpdateSessionWindow_NoStatusHeader(t *testing.T) {
 	if len(repo.sessionWindowCalls) != 0 {
 		t.Errorf("expected no calls when status header absent, got %d", len(repo.sessionWindowCalls))
 	}
+}
+
+type asyncSessionWindowRepo struct {
+	AccountRepository
+
+	calls   atomic.Int64
+	started chan struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (r *asyncSessionWindowRepo) UpdateSessionWindow(context.Context, int64, *time.Time, *time.Time, string) error {
+	r.calls.Add(1)
+	r.once.Do(func() { close(r.started) })
+	if r.release != nil {
+		<-r.release
+	}
+	return nil
+}
+
+func TestScheduleSessionWindowUpdate_IsAsyncAndCoalescesIdenticalHeaders(t *testing.T) {
+	release := make(chan struct{})
+	repo := &asyncSessionWindowRepo{
+		started: make(chan struct{}),
+		release: release,
+	}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	resetAt := time.Now().Add(3 * time.Hour).Truncate(time.Second)
+	account := &Account{ID: 42, SessionWindowStatus: "allowed", SessionWindowEnd: &resetAt}
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetAt.Unix()))
+
+	svc.ScheduleSessionWindowUpdate(context.Background(), account, headers)
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("background session-window update did not start")
+	}
+
+	// The first persistence call is still blocked. Identical response headers
+	// must return immediately without scheduling another database write.
+	svc.ScheduleSessionWindowUpdate(context.Background(), account, headers)
+	require.Equal(t, int64(1), repo.calls.Load())
+
+	close(release)
+	require.Eventually(t, func() bool {
+		return len(svc.sessionWindowSlots) == 0
+	}, time.Second, time.Millisecond)
+}
+
+func TestScheduleSessionWindowUpdate_SurvivesCallerCancellation(t *testing.T) {
+	repo := &asyncSessionWindowRepo{started: make(chan struct{})}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	windowEnd := time.Now().Add(3 * time.Hour)
+	account := &Account{ID: 43, SessionWindowStatus: "allowed", SessionWindowEnd: &windowEnd}
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	svc.ScheduleSessionWindowUpdate(ctx, account, headers)
+
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("caller cancellation stopped the accepted response metadata update")
+	}
+	require.Eventually(t, func() bool {
+		return len(svc.sessionWindowSlots) == 0
+	}, time.Second, time.Millisecond)
 }

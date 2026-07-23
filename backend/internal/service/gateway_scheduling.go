@@ -11,6 +11,7 @@ import (
 	mathrand "math/rand"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -82,16 +83,17 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
-	// 调试日志：记录调度入口参数
-	excludedIDsList := make([]int64, 0, len(excludedIDs))
-	for id := range excludedIDs {
-		excludedIDsList = append(excludedIDsList, id)
+	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		excludedIDsList := make([]int64, 0, len(excludedIDs))
+		for id := range excludedIDs {
+			excludedIDsList = append(excludedIDsList, id)
+		}
+		slog.Debug("account_scheduling_starting",
+			"group_id", derefGroupID(groupID),
+			"model", requestedModel,
+			"session", shortSessionHash(sessionHash),
+			"excluded_ids", excludedIDsList)
 	}
-	slog.Debug("account_scheduling_starting",
-		"group_id", derefGroupID(groupID),
-		"model", requestedModel,
-		"session", shortSessionHash(sessionHash),
-		"excluded_ids", excludedIDsList)
 
 	cfg := s.schedulingConfig()
 
@@ -123,8 +125,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 
-	// [DEBUG-STICKY] 调度器入口日志
-	slog.Info("sticky.scheduler_entry",
+	slog.Debug("sticky.scheduler_entry",
 		"group_id", derefGroupID(groupID),
 		"session_hash", shortSessionHash(sessionHash),
 		"sticky_account_id", stickyAccountID,
@@ -210,8 +211,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	if len(accounts) == 0 {
 		return nil, ErrNoAvailableAccounts
 	}
-	ctx = s.withWindowCostPrefetch(ctx, accounts)
-	ctx = s.withRPMPrefetch(ctx, accounts)
+	ctx = s.withSchedulingPrefetch(ctx, accounts)
 
 	// 提前构建 accountByID（供 Layer 1 和 Layer 1.5 使用）
 	accountByID := make(map[int64]*Account, len(accounts))
@@ -1163,6 +1163,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 					"accounts", len(ids),
 					"window_start", startTime.Format(time.RFC3339),
 					"duration_ms", time.Since(queryStart).Milliseconds())
+				cacheUpdates := make(map[int64]float64, len(ids))
 				for _, accountID := range ids {
 					stats := statsByAccount[accountID]
 					cost := 0.0
@@ -1170,8 +1171,9 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 						cost = stats.StandardCost
 					}
 					costs[accountID] = cost
-					_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
+					cacheUpdates[accountID] = cost
 				}
+				_ = s.sessionLimitCache.SetWindowCostBatch(ctx, cacheUpdates)
 				continue
 			}
 			windowCostPrefetchErrorTotal.Add(1)
@@ -1180,6 +1182,7 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 
 		// 回退路径：缺少批量仓储能力或批量查询失败时，按账号单查（失败开放）。
 		windowCostPrefetchFallbackTotal.Add(int64(len(ids)))
+		cacheUpdates := make(map[int64]float64, len(ids))
 		for _, accountID := range ids {
 			stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
 			if err != nil {
@@ -1188,8 +1191,9 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 			}
 			cost := stats.StandardCost
 			costs[accountID] = cost
-			_ = s.sessionLimitCache.SetWindowCost(ctx, accountID, cost)
+			cacheUpdates[accountID] = cost
 		}
+		_ = s.sessionLimitCache.SetWindowCostBatch(ctx, cacheUpdates)
 	}
 
 	return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
@@ -1299,6 +1303,55 @@ func (s *GatewayService) withRPMPrefetch(ctx context.Context, accounts []Account
 		return ctx // 失败开放
 	}
 	return context.WithValue(ctx, rpmPrefetchContextKey, counts)
+}
+
+// withSchedulingPrefetch overlaps the independent Redis/DB reads needed by
+// window-cost and RPM filtering. Both helpers are fail-open and only attach
+// immutable maps to child contexts, so their results can be merged safely.
+func (s *GatewayService) withSchedulingPrefetch(ctx context.Context, accounts []Account) context.Context {
+	needsWindowCost := false
+	needsRPM := false
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsAnthropicOAuthOrSetupToken() {
+			continue
+		}
+		needsWindowCost = needsWindowCost || account.GetWindowCostLimit() > 0
+		needsRPM = needsRPM || account.GetBaseRPM() > 0
+		if needsWindowCost && needsRPM {
+			break
+		}
+	}
+
+	switch {
+	case !needsWindowCost && !needsRPM:
+		return ctx
+	case !needsWindowCost:
+		return s.withRPMPrefetch(ctx, accounts)
+	case !needsRPM:
+		return s.withWindowCostPrefetch(ctx, accounts)
+	}
+
+	var windowCtx, rpmCtx context.Context
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		windowCtx = s.withWindowCostPrefetch(ctx, accounts)
+	}()
+	go func() {
+		defer wg.Done()
+		rpmCtx = s.withRPMPrefetch(ctx, accounts)
+	}()
+	wg.Wait()
+
+	if costs, ok := windowCtx.Value(windowCostPrefetchContextKey).(map[int64]float64); ok {
+		ctx = context.WithValue(ctx, windowCostPrefetchContextKey, costs)
+	}
+	if counts, ok := rpmCtx.Value(rpmPrefetchContextKey).(map[int64]int); ok {
+		ctx = context.WithValue(ctx, rpmPrefetchContextKey, counts)
+	}
+	return ctx
 }
 
 // isAccountSchedulableForRPM 检查账号是否可根据 RPM 进行调度
