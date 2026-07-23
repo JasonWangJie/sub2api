@@ -27,6 +27,11 @@ server:
   # 用于生成邮件中的外部链接（例如：重置密码链接）的前端基础地址
   # Example: "https://example.com"
   frontend_url: ""
+  # Infinite canvas external URL shown in the authenticated header (opens in a new tab).
+  # Leave empty to hide the button.
+  # Header「无限画布」外链，新窗口打开；留空则隐藏按钮。
+  # Example: "https://canvas.example.com"
+  infinite_canvas_url: ""
   # Maximum time to receive complete request headers. Does not limit response streams.
   # 完整读取请求头的最大时间；不限制响应流持续时间。
   read_header_timeout: 10

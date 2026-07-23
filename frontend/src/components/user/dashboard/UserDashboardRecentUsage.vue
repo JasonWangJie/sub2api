@@ -1,6 +1,6 @@
 <template>
-  <div class="card">
-    <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+  <div class="card overflow-hidden border-sky-100/80 dark:border-dark-700/50">
+    <div class="flex items-center justify-between border-b border-sky-100/80 px-6 py-4 dark:border-dark-700">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('dashboard.recentUsage') }}</h2>
       <span class="badge badge-gray">{{ t('dashboard.last7Days') }}</span>
     </div>

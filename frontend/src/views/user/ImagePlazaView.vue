@@ -88,8 +88,27 @@
                 </span>
               </template>
             </LazyImage>
-            <span class="plaza-item__platform">{{ platformName(item.platform) }}</span>
+            <span
+              class="plaza-item__platform"
+              :class="platformChipClass(item.platform)"
+              :title="platformLabel(item.platform)"
+            >
+              <PlatformIcon :platform="asGroupPlatform(item.platform)" size="xs" class="plaza-item__platform-icon" />
+              <span class="plaza-item__platform-name">{{ platformLabel(item.platform) }}</span>
+            </span>
           </button>
+          <div class="plaza-item__reuse">
+            <button
+              type="button"
+              class="plaza-reuse-btn"
+              :disabled="!item.share_prompt || !item.prompt"
+              :title="item.share_prompt ? t('imagePlaza.oneClickSame') : t('imageWorkflow.plaza.promptPrivate')"
+              @click="reuse(item)"
+            >
+              <Icon name="sparkles" size="sm" />
+              {{ t('imagePlaza.oneClickSame') }}
+            </button>
+          </div>
           <div class="plaza-item__body">
             <div class="plaza-item__title-row">
               <h2 :title="item.title">{{ item.title || t('imageWorkflow.library.untitled') }}</h2>
@@ -100,7 +119,11 @@
               <span>{{ item.aspect_ratio || item.size || '—' }}</span>
               <span>{{ formatDate(item.published_at) }}</span>
             </p>
-            <p v-if="item.share_prompt && item.prompt" class="plaza-item__prompt">{{ item.prompt }}</p>
+            <p
+              v-if="item.share_prompt && item.prompt"
+              class="plaza-item__prompt"
+              :title="item.prompt"
+            >{{ item.prompt }}</p>
             <p v-else class="plaza-item__prompt is-private">{{ t('imageWorkflow.plaza.promptPrivate') }}</p>
             <div class="plaza-item__publisher">
               <Icon name="userCircle" size="sm" />
@@ -110,16 +133,22 @@
           <div class="plaza-item__actions">
             <button
               type="button"
-              class="plaza-action"
-              :disabled="!item.share_prompt || !item.prompt"
-              :title="item.share_prompt ? t('imagePlaza.reuse') : t('imageWorkflow.plaza.promptPrivate')"
-              :aria-label="t('imagePlaza.reuse')"
-              @click="reuse(item)"
+              class="plaza-text-action"
+              :title="t('imageWorkbench.view')"
+              @click="openPreview(item)"
             >
-              <Icon name="refresh" size="sm" />
+              <Icon name="eye" size="sm" />
+              {{ t('batchImage.detail.preview') }}
             </button>
-            <a class="plaza-action" :href="resolvePlazaImageUrl(item)" target="_blank" rel="noopener" :title="t('imageWorkbench.download')" :aria-label="t('imageWorkbench.download')">
+            <a
+              class="plaza-text-action"
+              :href="resolvePlazaImageUrl(item)"
+              target="_blank"
+              rel="noopener"
+              :title="t('imageWorkbench.download')"
+            >
               <Icon name="download" size="sm" />
+              {{ t('imageWorkbench.download') }}
             </a>
             <button
               v-if="authStore.isAdmin"
@@ -128,6 +157,7 @@
               :disabled="busyId === String(item.id)"
               @click="adminHide(item)"
             >
+              <Icon name="trash" size="sm" />
               {{ t('common.delete') }}
             </button>
             <button
@@ -136,6 +166,7 @@
               class="plaza-text-action"
               @click="openReport(item)"
             >
+              <Icon name="exclamationTriangle" size="sm" />
               {{ t('imageWorkflow.plaza.report') }}
             </button>
           </div>
@@ -154,27 +185,26 @@
         {{ t('imageWorkflow.plaza.loadMore') }}
       </button>
 
-      <dialog ref="previewDialog" class="plaza-dialog" @click="closeOnBackdrop">
-        <div v-if="previewItem" class="plaza-dialog__surface">
-          <header>
-            <div class="min-w-0">
-              <h2>{{ previewItem.title || t('imageWorkflow.library.untitled') }}</h2>
-              <p>{{ previewItem.public_identity }} · {{ formatDate(previewItem.published_at) }}</p>
-            </div>
-            <button type="button" class="plaza-icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="closePreview">
-              <Icon name="x" size="sm" />
-            </button>
-          </header>
-          <img :src="resolvePlazaImageUrl(previewItem)" :alt="previewItem.title" />
-          <p v-if="previewItem.share_prompt && previewItem.prompt" class="plaza-dialog__prompt">{{ previewItem.prompt }}</p>
-          <footer>
-            <button v-if="previewItem.share_prompt && previewItem.prompt" type="button" class="btn btn-primary" @click="reuse(previewItem)">
-              {{ t('imagePlaza.oneClickSame') }}
-            </button>
-            <a :href="resolvePlazaImageUrl(previewItem)" target="_blank" rel="noopener" class="btn btn-secondary">{{ t('imageWorkbench.view') }}</a>
-          </footer>
+      <Teleport to="body">
+        <div
+          v-if="previewItem"
+          class="plaza-lightbox"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="previewItem.title || t('imageWorkflow.library.untitled')"
+          @click="closePreview"
+        >
+          <button type="button" class="plaza-lightbox__close" :title="t('common.close')" :aria-label="t('common.close')" @click="closePreview">
+            <Icon name="x" size="sm" />
+          </button>
+          <img
+            class="plaza-lightbox__img"
+            :src="resolvePlazaImageUrl(previewItem)"
+            :alt="previewItem.title || t('imageWorkflow.library.untitled')"
+            @click.stop
+          />
         </div>
-      </dialog>
+      </Teleport>
 
       <dialog ref="reportDialog" class="plaza-dialog" @click="closeReportOnBackdrop">
         <form class="plaza-dialog__surface plaza-dialog__surface--form" @submit.prevent="submitReport">
@@ -210,12 +240,13 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LazyImage from '@/components/common/LazyImage.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { useInView } from '@/composables/useInView'
 import {
   IMAGE_PLAZA_REPORT_REASONS,
@@ -227,6 +258,8 @@ import {
 import { reviewPublication } from '@/api/imageLibrary'
 import type { ImagePlazaItem } from '@/features/image-workflow/types'
 import { useAppStore, useAuthStore } from '@/stores'
+import type { GroupPlatform } from '@/types'
+import { platformLabel } from '@/utils/platformColors'
 import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 
 const { t } = useI18n()
@@ -243,7 +276,6 @@ const items = ref<ImagePlazaItem[]>([])
 const nextCursor = ref<string | null>(null)
 const total = ref<number | null>(null)
 const broken = ref(new Set<string>())
-const previewDialog = ref<HTMLDialogElement | null>(null)
 const reportDialog = ref<HTMLDialogElement | null>(null)
 const previewItem = ref<ImagePlazaItem | null>(null)
 const reportItem = ref<ImagePlazaItem | null>(null)
@@ -261,7 +293,7 @@ function query(cursor?: string) {
     aspect_ratio: filters.aspectRatio || undefined,
     sort: filters.sort,
     cursor,
-    limit: 36,
+    limit: 9,
   }
 }
 
@@ -302,10 +334,34 @@ function plazaThumbUrl(item: ImagePlazaItem) {
   return buildOssThumbnailUrl(resolvePlazaImageUrl(item), { width: 480 })
 }
 
+const REUSE_PROMPT_KEY = 'image-workbench:reuse-payload'
+
 function reuse(item: ImagePlazaItem) {
   if (!item.share_prompt || !item.prompt) return
   closePreview()
-  router.push({ path: '/image-workbench', query: { prompt: item.prompt, model: item.model, size: item.size || undefined } })
+  const payload = {
+    prompt: item.prompt,
+    model: item.model || undefined,
+    size: item.size || undefined,
+  }
+  // Prefer sessionStorage so the full prompt is kept (URL length can truncate long text).
+  let stored = false
+  try {
+    sessionStorage.setItem(REUSE_PROMPT_KEY, JSON.stringify(payload))
+    stored = true
+  } catch {
+    stored = false
+  }
+  router.push({
+    path: '/image-workbench',
+    query: stored
+      ? { reuse: '1' }
+      : {
+          prompt: payload.prompt,
+          model: payload.model,
+          size: payload.size,
+        },
+  })
 }
 
 async function adminHide(item: ImagePlazaItem) {
@@ -324,12 +380,23 @@ async function adminHide(item: ImagePlazaItem) {
   }
 }
 
+function lockBodyScroll(locked: boolean) {
+  document.body.style.overflow = locked ? 'hidden' : ''
+}
+
+function onPreviewKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && previewItem.value) closePreview()
+}
+
 function openPreview(item: ImagePlazaItem) {
   previewItem.value = item
-  previewDialog.value?.showModal()
+  lockBodyScroll(true)
 }
-function closePreview() { previewDialog.value?.close(); previewItem.value = null }
-function closeOnBackdrop(event: MouseEvent) { if (event.target === previewDialog.value) closePreview() }
+
+function closePreview() {
+  previewItem.value = null
+  lockBodyScroll(false)
+}
 
 function openReport(item: ImagePlazaItem) {
   reportItem.value = item
@@ -358,14 +425,33 @@ async function submitReport() {
 }
 
 function markBroken(id: string | number) { broken.value = new Set([...broken.value, String(id)]) }
-function platformName(platform: string) { return platform === 'openai' ? 'OpenAI' : platform === 'gemini' ? 'Gemini' : platform === 'grok' ? 'Grok' : platform }
+function asGroupPlatform(platform: string): GroupPlatform | undefined {
+  if (platform === 'openai' || platform === 'gemini' || platform === 'grok' || platform === 'anthropic' || platform === 'antigravity') {
+    return platform
+  }
+  return undefined
+}
+function platformChipClass(platform: string) {
+  if (platform === 'openai') return 'is-openai'
+  if (platform === 'gemini') return 'is-gemini'
+  if (platform === 'grok') return 'is-grok'
+  return 'is-default'
+}
 function formatDate(value: string) { const time = Date.parse(value); return Number.isFinite(time) ? new Date(time).toLocaleString() : value }
 
 watch(loadMoreInView, (visible) => {
   if (visible && nextCursor.value && !loadingMore.value && !loading.value) void loadMore()
 })
 
-onMounted(refresh)
+onMounted(() => {
+  window.addEventListener('keydown', onPreviewKeydown)
+  void refresh()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onPreviewKeydown)
+  lockBodyScroll(false)
+})
 </script>
 
 <style scoped>
@@ -396,30 +482,152 @@ onMounted(refresh)
 .plaza-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.65rem 0.15rem; color: #6b7280; font-size: 0.7rem; }
 .plaza-summary strong { color: #0f766e; font-weight: 700; }
 
-.plaza-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 0.75rem; }
-.plaza-item { min-width: 0; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.plaza-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.plaza-item { display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
 .dark .plaza-item { border-color: #374151; background: #111827; }
-.plaza-item__media { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; background: #f3f4f6; }
+.plaza-item__media { position: relative; display: block; width: 100%; aspect-ratio: 1 / 1; overflow: hidden; background: #f3f4f6; }
 .dark .plaza-item__media { background: #030712; }
 .plaza-item__lazy { width: 100%; height: 100%; }
 .plaza-item__media :deep(img) { width: 100%; height: 100%; object-fit: cover; transition: transform 0.18s ease; }
 .plaza-item__media:hover :deep(img) { transform: scale(1.015); }
 .plaza-item__media:focus-visible { outline: 2px solid #0d9488; outline-offset: -2px; }
-.plaza-item__platform { position: absolute; left: 0.45rem; bottom: 0.45rem; padding: 0.2rem 0.4rem; border-radius: 4px; background: rgba(17,24,39,0.84); color: #f9fafb; font-size: 0.62rem; font-weight: 700; }
+.plaza-item__platform {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 1;
+  display: inline-flex;
+  max-width: calc(100% - 1rem);
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.28rem 0.58rem 0.28rem 0.38rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.58);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 6px 16px rgba(0, 0, 0, 0.22);
+  color: #f8fafc;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  backdrop-filter: blur(12px) saturate(1.25);
+  -webkit-backdrop-filter: blur(12px) saturate(1.25);
+  pointer-events: none;
+}
+.plaza-item__platform-icon,
+.plaza-item__platform :deep(svg) {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 auto;
+  opacity: 0.95;
+}
+.plaza-item__platform-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plaza-item__platform.is-openai {
+  border-color: rgba(52, 211, 153, 0.42);
+  background:
+    linear-gradient(135deg, rgba(6, 95, 70, 0.78), rgba(17, 24, 39, 0.42)),
+    rgba(17, 24, 39, 0.45);
+  color: #a7f3d0;
+  box-shadow:
+    0 1px 0 rgba(167, 243, 208, 0.18) inset,
+    0 6px 16px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+.plaza-item__platform.is-gemini {
+  border-color: rgba(96, 165, 250, 0.45);
+  background:
+    linear-gradient(135deg, rgba(30, 64, 175, 0.78), rgba(17, 24, 39, 0.42)),
+    rgba(17, 24, 39, 0.45);
+  color: #bfdbfe;
+  box-shadow:
+    0 1px 0 rgba(191, 219, 254, 0.18) inset,
+    0 6px 16px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+.plaza-item__platform.is-grok {
+  border-color: rgba(212, 212, 216, 0.35);
+  background:
+    linear-gradient(135deg, rgba(39, 39, 42, 0.88), rgba(17, 24, 39, 0.48)),
+    rgba(17, 24, 39, 0.5);
+  color: #e4e4e7;
+  box-shadow:
+    0 1px 0 rgba(244, 244, 245, 0.12) inset,
+    0 6px 16px rgba(0, 0, 0, 0.24);
+}
+.plaza-item__platform.is-default {
+  color: #e2e8f0;
+}
 .plaza-item__broken { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; color: #9ca3af; font-size: 0.7rem; }
+.plaza-item__reuse { padding: 0.55rem 0.7rem 0; }
+.plaza-reuse-btn {
+  display: inline-flex;
+  width: 100%;
+  height: 2.15rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid #99f6e4;
+  border-radius: 6px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.plaza-reuse-btn:hover:not(:disabled) { border-color: #14b8a6; background: #ccfbf1; color: #115e59; }
+.plaza-reuse-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+.dark .plaza-reuse-btn { border-color: #134e4a; background: rgba(13,148,136,0.16); color: #5eead4; }
+.dark .plaza-reuse-btn:hover:not(:disabled) { border-color: #2dd4bf; background: rgba(13,148,136,0.28); color: #99f6e4; }
 .plaza-item__body { padding: 0.7rem 0.7rem 0.4rem; }
 .plaza-item__title-row { display: flex; min-width: 0; align-items: flex-start; gap: 0.45rem; }
 .plaza-item__title-row h2 { min-width: 0; flex: 1; overflow: hidden; color: #111827; font-size: 0.82rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .dark .plaza-item__title-row h2 { color: #f9fafb; }
 .owner-badge { flex: 0 0 auto; padding: 0.12rem 0.32rem; border-radius: 4px; background: #ccfbf1; color: #115e59; font-size: 0.6rem; font-weight: 700; }
 .plaza-item__meta { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; margin-top: 0.3rem; color: #6b7280; font-size: 0.64rem; }
-.plaza-item__prompt { display: -webkit-box; min-height: 2.1rem; margin-top: 0.45rem; overflow: hidden; color: #4b5563; font-size: 0.7rem; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.plaza-item__prompt {
+  display: -webkit-box;
+  min-height: 3.15rem;
+  margin-top: 0.45rem;
+  overflow: hidden;
+  color: #4b5563;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  word-break: break-word;
+}
 .dark .plaza-item__prompt { color: #d1d5db; }
 .plaza-item__prompt.is-private { color: #9ca3af; font-style: italic; }
 .plaza-item__publisher { display: flex; min-width: 0; align-items: center; gap: 0.3rem; margin-top: 0.55rem; color: #6b7280; font-size: 0.66rem; }
 .plaza-item__publisher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plaza-item__actions { display: flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.7rem 0.7rem; }
-.plaza-text-action { min-width: 0; flex: 1; height: 2.25rem; overflow: hidden; padding: 0 0.55rem; border: 1px solid #d1d5db; border-radius: 6px; color: #4b5563; font-size: 0.7rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.plaza-item__actions { display: flex; align-items: center; gap: 0.35rem; margin-top: auto; padding: 0.4rem 0.7rem 0.7rem; }
+.plaza-text-action {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  overflow: hidden;
+  padding: 0 0.4rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #4b5563;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dark .plaza-text-action { border-color: #4b5563; color: #d1d5db; }
 .plaza-text-action:hover { border-color: #0d9488; color: #0f766e; }
 .plaza-text-action.is-danger { border-color: #fca5a5; color: #b91c1c; }
@@ -431,6 +639,42 @@ onMounted(refresh)
 .plaza-load-more { display: flex; width: 100%; min-height: 2.6rem; align-items: center; justify-content: center; gap: 0.45rem; margin-top: 0.9rem; border: 1px solid #d1d5db; border-radius: 6px; color: #4b5563; font-size: 0.78rem; font-weight: 700; }
 .dark .plaza-load-more { border-color: #4b5563; color: #d1d5db; }
 
+.plaza-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(3, 7, 18, 0.88);
+  cursor: zoom-out;
+}
+.plaza-lightbox__img {
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  cursor: default;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.plaza-lightbox__close {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 81;
+  display: inline-grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.72);
+  color: #f9fafb;
+  cursor: pointer;
+}
+.plaza-lightbox__close:hover { background: rgba(17, 24, 39, 0.92); border-color: rgba(255, 255, 255, 0.5); }
+
 .plaza-dialog { width: min(880px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 0; overflow: auto; border: 0; border-radius: 8px; background: transparent; }
 .plaza-dialog::backdrop { background: rgba(3,7,18,0.72); }
 .plaza-dialog__surface { overflow: hidden; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #111827; }
@@ -439,9 +683,6 @@ onMounted(refresh)
 .dark .plaza-dialog__surface > header { border-color: #374151; }
 .plaza-dialog__surface > header h2 { overflow-wrap: anywhere; font-size: 0.95rem; font-weight: 750; }
 .plaza-dialog__surface > header p { margin-top: 0.15rem; color: #6b7280; font-size: 0.68rem; }
-.plaza-dialog__surface > img { width: 100%; max-height: 68vh; object-fit: contain; background: #030712; }
-.plaza-dialog__prompt { padding: 0.8rem; color: #4b5563; font-size: 0.78rem; line-height: 1.6; white-space: pre-wrap; }
-.dark .plaza-dialog__prompt { color: #d1d5db; }
 .plaza-dialog__surface > footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.8rem; border-top: 1px solid #e5e7eb; }
 .dark .plaza-dialog__surface > footer { border-color: #374151; }
 .plaza-dialog__surface--form { padding-bottom: 0.1rem; }
@@ -452,7 +693,7 @@ onMounted(refresh)
 
 @keyframes plaza-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .plaza-spinner { animation: none; } .plaza-item__media :deep(img) { transition: none; } }
-@media (max-width: 900px) { .plaza-toolbar { grid-template-columns: 1fr 1fr; } .plaza-search { grid-column: 1 / -1; } }
-@media (max-width: 640px) { .plaza-header { flex-direction: column; } .plaza-toolbar { grid-template-columns: 1fr; } .plaza-search { grid-column: auto; } .plaza-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 430px) { .plaza-grid { grid-template-columns: 1fr; } .plaza-header__links { width: 100%; } .plaza-header__links > * { flex: 1; justify-content: center; } }
+@media (max-width: 900px) { .plaza-toolbar { grid-template-columns: 1fr 1fr; } .plaza-search { grid-column: 1 / -1; } .plaza-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .plaza-header { flex-direction: column; } .plaza-toolbar { grid-template-columns: 1fr; } .plaza-search { grid-column: auto; } .plaza-grid { grid-template-columns: 1fr; } .plaza-text-action { font-size: 0.62rem; } }
+@media (max-width: 430px) { .plaza-header__links { width: 100%; } .plaza-header__links > * { flex: 1; justify-content: center; } }
 </style>

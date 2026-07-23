@@ -211,9 +211,17 @@
 cd d:\个人项目\Git仓库\sub2api\backend
 .\run-server.cmd
 # 或：powershell -File .\scripts\run-server.ps1
+
+cd backend
+.\scripts\run-server.ps1
+
 # 默认 http://localhost:8080
 # 终端 2 — 前端
 cd d:\个人项目\Git仓库\sub2api\frontend
 pnpm install
 pnpm run dev
+
+cd frontend
+pnpm run dev
+
 # 默认 http://127.0.0.1:3000 ，/api 与 /v1 代理到 :8080

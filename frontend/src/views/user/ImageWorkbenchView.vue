@@ -374,6 +374,7 @@ import {
   getPlazaSubmissionBlob,
   removePlazaSubmissionBlob,
   savePlazaSubmissionBlob,
+  bindPlazaSubmissionRequestId,
 } from '@/features/image-workflow/submissionBlobStore'
 import {
   removePendingImageArchive,
@@ -1051,14 +1052,12 @@ async function publishLocalResult(result: WorkbenchResult) {
       checksum_sha256: blob.checksumSha256,
       client_blob_key: result.archiveKey,
     }, result.archiveKey)
-    await savePlazaSubmissionBlob({
-      ...blob,
-      requestId: item.id,
-    }).catch(() => undefined)
     result.submissionRequestId = item.id
     result.archiveStatus = item.status === 'approved_pending_sync' ? 'approved_pending_sync' : 'pending_review'
     appStore.showSuccess(t('imageWorkflow.library.submitted'))
-    await libraryPanel.value?.refresh()
+    // Bind requestId in the background — do not block the success toast on IndexedDB.
+    void bindPlazaSubmissionRequestId(result.archiveKey, item.id).catch(() => undefined)
+    void libraryPanel.value?.refresh()
   } catch (cause: any) {
     result.archiveStatus = 'failed'
     const message = cause?.message || t('imageWorkflow.workbench.publishFailed')
@@ -1303,9 +1302,28 @@ watch(aspectRatioOptions, (options) => {
 onMounted(async () => {
   await loadKeys()
   if (selectedKey.value) await loadCapabilities(selectedKey.value).catch(() => undefined)
-  if (typeof route.query.prompt === 'string') form.prompt = route.query.prompt
-  if (typeof route.query.model === 'string' && modelOptions.value.some((model) => model.id === route.query.model)) form.model = route.query.model
-  if (typeof route.query.size === 'string' && sizeOptions.value.includes(route.query.size)) form.size = route.query.size
+  const reusePayload = (() => {
+    try {
+      const raw = sessionStorage.getItem('image-workbench:reuse-payload')
+      if (!raw) return null
+      sessionStorage.removeItem('image-workbench:reuse-payload')
+      return JSON.parse(raw) as { prompt?: string; model?: string; size?: string }
+    } catch {
+      return null
+    }
+  })()
+  const incomingPrompt = typeof reusePayload?.prompt === 'string'
+    ? reusePayload.prompt
+    : (typeof route.query.prompt === 'string' ? route.query.prompt : '')
+  if (incomingPrompt) form.prompt = incomingPrompt
+  const incomingModel = typeof reusePayload?.model === 'string' ? reusePayload.model : route.query.model
+  if (typeof incomingModel === 'string' && modelOptions.value.some((model) => model.id === incomingModel)) {
+    form.model = incomingModel
+  }
+  const incomingSize = typeof reusePayload?.size === 'string' ? reusePayload.size : route.query.size
+  if (typeof incomingSize === 'string' && sizeOptions.value.includes(incomingSize)) {
+    form.size = incomingSize
+  }
   if (Object.keys(route.query).length) await nextTick(() => router.replace({ path: route.path }))
   await restoreDeferredSubmissions()
 })

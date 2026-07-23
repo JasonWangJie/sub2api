@@ -534,20 +534,36 @@
   /* ============ 侧边栏 ============ */
   .sidebar {
     @apply fixed inset-y-0 left-0 z-40;
-    @apply w-64 bg-white dark:bg-dark-900;
-    @apply border-r border-gray-200 dark:border-dark-800;
     @apply flex flex-col;
     @apply transition-transform duration-300;
+    width: 16rem;
+    background:
+      linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(241, 248, 255, 0.96) 48%, rgba(255, 255, 255, 0.98) 100%);
+    border-right: 1px solid rgba(186, 230, 253, 0.7);
+    box-shadow: 4px 0 24px rgba(14, 165, 233, 0.04);
     transition-property: width, transform;
+  }
+
+  .dark .sidebar {
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.96) 100%);
+    border-right-color: rgba(51, 65, 85, 0.85);
+    box-shadow: 4px 0 28px rgba(2, 6, 23, 0.35);
   }
 
   .sidebar-header {
     @apply h-16 px-6;
     @apply flex items-center gap-3;
-    @apply border-b border-gray-100 dark:border-dark-800;
+    border-bottom: 1px solid rgba(186, 230, 253, 0.55);
+    background: linear-gradient(90deg, rgba(224, 242, 254, 0.55), transparent 70%);
     transition:
       padding 0.2s ease,
       gap 0.2s ease;
+  }
+
+  .dark .sidebar-header {
+    border-bottom-color: rgba(51, 65, 85, 0.8);
+    background: linear-gradient(90deg, rgba(14, 165, 233, 0.08), transparent 72%);
   }
 
   .sidebar-nav {
@@ -555,21 +571,101 @@
   }
 
   .sidebar-link {
-    @apply flex items-center gap-3 rounded-xl py-2.5;
-    @apply overflow-hidden;
+    @apply relative isolate flex items-center gap-3 overflow-hidden rounded-xl py-2.5;
     @apply text-sm font-medium;
-    @apply text-gray-600 dark:text-dark-300;
+    @apply text-slate-600 dark:text-dark-300;
     @apply transition-all duration-200;
-    @apply hover:bg-gray-100 dark:hover:bg-dark-800;
-    @apply hover:text-gray-900 dark:hover:text-white;
     padding-left: 1.0625rem;
     padding-right: 0.875rem;
+    background: transparent;
+  }
+
+  .sidebar-link > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* 悬浮扫光（同首页按钮：仅悬停时单向扫过，离开瞬时复位） */
+  .sidebar-link::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      115deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.55) 48%,
+      transparent 70%
+    );
+    transform: translateX(-130%);
+    transition: none;
+  }
+
+  .dark .sidebar-link::before {
+    background: linear-gradient(
+      115deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.18) 48%,
+      transparent 70%
+    );
+  }
+
+  .sidebar-link:hover::before,
+  .sidebar-link:focus-visible::before {
+    transform: translateX(130%);
+    transition: transform 480ms ease;
+  }
+
+  .sidebar-link:hover,
+  .sidebar-link:focus-visible {
+    color: rgb(15 23 42);
+    background: linear-gradient(90deg, rgba(224, 242, 254, 0.9), rgba(240, 253, 250, 0.55));
+    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
+  }
+
+  .dark .sidebar-link:hover,
+  .dark .sidebar-link:focus-visible {
+    color: #fff;
+    background: linear-gradient(90deg, rgba(14, 165, 233, 0.14), rgba(20, 184, 166, 0.08));
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.18);
   }
 
   .sidebar-link-active {
-    @apply bg-primary-50 dark:bg-primary-900/20;
-    @apply text-primary-600 dark:text-primary-400;
-    @apply hover:bg-primary-100 dark:hover:bg-primary-900/30;
+    color: rgb(3 105 161);
+    background: linear-gradient(90deg, rgba(186, 230, 253, 0.55), rgba(204, 251, 241, 0.35));
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.28);
+  }
+
+  .dark .sidebar-link-active {
+    color: rgb(125 211 252);
+    background: linear-gradient(90deg, rgba(14, 165, 233, 0.18), rgba(20, 184, 166, 0.1));
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+  }
+
+  .sidebar-link-active::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 0 4px 4px 0;
+    background: linear-gradient(180deg, #38bdf8 0%, #14b8a6 100%);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.45);
+    z-index: 2;
+  }
+
+  .sidebar-link-active:hover,
+  .sidebar-link-active:focus-visible {
+    color: rgb(3 105 161);
+    background: linear-gradient(90deg, rgba(186, 230, 253, 0.7), rgba(204, 251, 241, 0.45));
+  }
+
+  .dark .sidebar-link-active:hover,
+  .dark .sidebar-link-active:focus-visible {
+    color: rgb(186 230 253);
+    background: linear-gradient(90deg, rgba(14, 165, 233, 0.24), rgba(20, 184, 166, 0.12));
   }
 
   .sidebar-section {
@@ -578,8 +674,18 @@
 
   .sidebar-section-title {
     @apply mb-2 px-3;
-    @apply text-xs font-semibold uppercase tracking-wider;
-    @apply text-gray-400 dark:text-dark-500;
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em];
+    color: rgb(100 116 139);
+  }
+
+  .dark .sidebar-section-title {
+    color: rgb(100 116 139);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-link::before {
+      display: none;
+    }
   }
 
   /* ============ 页面头部 ============ */

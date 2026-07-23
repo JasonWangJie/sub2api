@@ -1,4 +1,5 @@
 <template>
+  <div class="flex flex-col gap-5">
   <!-- Row 1: Core Stats -->
   <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <!-- Balance -->
@@ -219,6 +220,7 @@
         </div>
       </div>
     </div>
+  </div>
   </div>
 </template>
 

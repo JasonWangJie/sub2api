@@ -2,6 +2,9 @@ export default {
   dashboard: {
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
+    greetingMorning: '早上好，',
+    greetingAfternoon: '下午好，',
+    greetingEvening: '晚上好，',
     balance: '余额',
     apiKeys: 'API 密钥',
     todayRequests: '今日请求',

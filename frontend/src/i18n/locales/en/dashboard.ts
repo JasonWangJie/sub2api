@@ -2,6 +2,9 @@ export default {
   dashboard: {
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
+    greetingMorning: 'Good morning,',
+    greetingAfternoon: 'Good afternoon,',
+    greetingEvening: 'Good evening,',
     balance: 'Balance',
     apiKeys: 'API Keys',
     todayRequests: 'Today Requests',

@@ -1,7 +1,11 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
+  <div class="min-h-screen bg-[#f3f8fc] dark:bg-dark-950">
+    <!-- Background Decorations -->
     <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
+    <div
+      class="pointer-events-none fixed inset-0 opacity-[0.035] dark:opacity-[0.05]"
+      style="background-image: radial-gradient(rgba(14,165,233,0.9) 0.6px, transparent 0.6px); background-size: 18px 18px;"
+    ></div>
 
     <!-- Sidebar -->
     <AppSidebar />

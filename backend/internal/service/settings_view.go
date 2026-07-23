@@ -297,6 +297,7 @@ type PublicSettings struct {
 	APIBaseURL                       string
 	ContactInfo                      string
 	DocURL                           string
+	InfiniteCanvasURL                string
 	HomeContent                      string
 	HideCcsImportButton              bool
 

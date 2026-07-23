@@ -1,28 +1,43 @@
 <template>
-  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50">
-    <div class="flex h-16 items-center justify-between px-4 md:px-6">
+  <header class="app-header sticky top-0 z-30">
+    <div class="app-header__beam" aria-hidden="true"></div>
+    <div class="app-header__inner flex h-16 items-center justify-between px-4 md:px-6">
       <!-- Left: Mobile Menu Toggle + Page Title -->
-      <div class="flex items-center gap-4">
+      <div class="flex min-w-0 items-center gap-4">
         <button
           @click="toggleMobileSidebar"
-          class="btn-ghost btn-icon lg:hidden"
+          class="app-header__icon-btn btn-ghost btn-icon lg:hidden"
           :aria-label="t('common.toggleMenu')"
         >
           <Icon name="menu" size="md" />
         </button>
 
-        <div class="hidden lg:block">
-          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
+        <div class="app-header__title-block hidden min-w-0 lg:block">
+          <h1 class="app-header__title truncate">
             {{ pageTitle }}
           </h1>
-          <p v-if="pageDescription" class="text-xs text-gray-500 dark:text-dark-400">
+          <p v-if="pageDescription" class="app-header__desc truncate">
             {{ pageDescription }}
           </p>
         </div>
       </div>
 
-      <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
-      <div class="flex items-center gap-3">
+      <!-- Right: Infinite Canvas + Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
+      <div class="app-header__actions flex items-center gap-2.5 sm:gap-3">
+        <!-- Infinite Canvas -->
+        <a
+          v-if="infiniteCanvasUrl"
+          :href="infiniteCanvasUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="app-header__chip app-header__canvas"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h6.5v6.5h-6.5zM13.75 3.75h6.5v6.5h-6.5zM3.75 13.75h6.5v6.5h-6.5zM13.75 13.75h6.5v6.5h-6.5z" />
+          </svg>
+          <span class="hidden sm:inline">{{ t('nav.infiniteCanvas') }}</span>
+        </a>
+
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
@@ -32,7 +47,7 @@
           :href="docUrl"
           target="_blank"
           rel="noopener noreferrer"
-          class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+          class="app-header__chip"
         >
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
@@ -47,10 +62,11 @@
         <!-- Balance Display -->
         <div
           v-if="user"
-          class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
+          class="app-header__balance group relative hidden items-center gap-2 sm:flex"
         >
+          <span class="app-header__balance-dot" aria-hidden="true"></span>
           <svg
-            class="h-4 w-4 text-primary-600 dark:text-primary-400"
+            class="h-4 w-4 text-sky-600 dark:text-sky-300"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -62,17 +78,17 @@
               d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
             />
           </svg>
-          <span class="text-sm font-semibold text-primary-700 dark:text-primary-300">
+          <span class="text-sm font-semibold tracking-tight text-sky-800 dark:text-sky-200">
             {{ formatHeaderMoney(availableBalance) }}
           </span>
           <span
             v-if="frozenBalance > 0"
-            class="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+            class="rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
           >
             {{ balanceFrozenLabel }}
           </span>
           <div
-            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg group-hover:block dark:border-dark-700 dark:bg-dark-800"
+            class="app-header__balance-tip pointer-events-none absolute right-0 top-full mt-2.5 hidden w-56 p-3 text-xs group-hover:block"
           >
             <div class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceAvailableText }}</span>
@@ -82,7 +98,7 @@
               <span class="text-gray-500 dark:text-dark-400">{{ balanceFrozenText }}</span>
               <span class="font-medium text-amber-700 dark:text-amber-200">{{ formatHeaderMoney(frozenBalance) }}</span>
             </div>
-            <div class="mt-2 border-t border-gray-100 pt-2 dark:border-dark-700">
+            <div class="mt-2 border-t border-sky-100 pt-2 dark:border-dark-700">
               <div class="flex items-center justify-between">
                 <span class="text-gray-500 dark:text-dark-400">{{ balanceTotalText }}</span>
                 <span class="font-semibold text-gray-900 dark:text-white">{{ formatHeaderMoney(totalBalance) }}</span>
@@ -95,10 +111,11 @@
         <div v-if="user" class="relative" ref="dropdownRef">
           <button
             @click="toggleDropdown"
-            class="flex items-center gap-2 rounded-xl p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-800"
+            class="app-header__user"
             :aria-label="t('common.userMenu')"
+            :aria-expanded="dropdownOpen"
           >
-            <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-sm font-medium text-white shadow-sm">
+            <div class="app-header__avatar">
               <img
                 v-if="avatarUrl"
                 :src="avatarUrl"
@@ -107,22 +124,27 @@
               >
               <span v-else>{{ userInitials }}</span>
             </div>
-            <div class="hidden text-left md:block">
-              <div class="text-sm font-medium text-gray-900 dark:text-white">
+            <div class="hidden min-w-0 text-left md:block">
+              <div class="truncate text-sm font-medium text-slate-800 dark:text-white">
                 {{ displayName }}
               </div>
-              <div class="text-xs capitalize text-gray-500 dark:text-dark-400">
+              <div class="text-[11px] capitalize tracking-wide text-slate-500 dark:text-dark-400">
                 {{ user.role }}
               </div>
             </div>
-            <Icon name="chevronDown" size="sm" class="hidden text-gray-400 md:block" />
+            <Icon
+              name="chevronDown"
+              size="sm"
+              class="hidden text-slate-400 transition-transform duration-200 md:block"
+              :class="{ 'rotate-180': dropdownOpen }"
+            />
           </button>
 
           <!-- Dropdown Menu -->
           <transition name="dropdown">
-            <div v-if="dropdownOpen" class="dropdown right-0 mt-2 w-56">
+            <div v-if="dropdownOpen" class="dropdown app-header__dropdown right-0 mt-2 w-56">
               <!-- User Info -->
-              <div class="border-b border-gray-100 px-4 py-3 dark:border-dark-700">
+              <div class="border-b border-sky-100/80 px-4 py-3 dark:border-dark-700">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ displayName }}
                 </div>
@@ -130,11 +152,11 @@
               </div>
 
               <!-- Balance (mobile only) -->
-              <div class="border-b border-gray-100 px-4 py-2 dark:border-dark-700 sm:hidden">
+              <div class="border-b border-sky-100/80 px-4 py-2 dark:border-dark-700 sm:hidden">
                 <div class="text-xs text-gray-500 dark:text-dark-400">
                   {{ t('common.balance') }}
                 </div>
-                <div class="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                <div class="text-sm font-semibold text-sky-600 dark:text-sky-400">
                   {{ formatHeaderMoney(availableBalance) }}
                 </div>
                 <div v-if="frozenBalance > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-300">
@@ -176,7 +198,7 @@
               <!-- Contact Support (only show if configured) -->
               <div
                 v-if="contactInfo"
-                class="border-t border-gray-100 px-4 py-2.5 dark:border-dark-700"
+                class="border-t border-sky-100/80 px-4 py-2.5 dark:border-dark-700"
               >
                 <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <svg
@@ -199,7 +221,7 @@
                 </div>
               </div>
 
-              <div v-if="showOnboardingButton" class="border-t border-gray-100 py-1 dark:border-dark-700">
+              <div v-if="showOnboardingButton" class="border-t border-sky-100/80 py-1 dark:border-dark-700">
                 <button @click="handleReplayGuide" class="dropdown-item w-full">
                   <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
                     <path
@@ -210,7 +232,7 @@
                 </button>
               </div>
 
-              <div class="border-t border-gray-100 py-1 dark:border-dark-700">
+              <div class="border-t border-sky-100/80 py-1 dark:border-dark-700">
                 <button
                   @click="handleLogout"
                   class="dropdown-item w-full text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
@@ -264,6 +286,7 @@ const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
 const docUrl = computed(() => sanitizeUrl(appStore.docUrl))
+const infiniteCanvasUrl = computed(() => sanitizeUrl(appStore.infiniteCanvasUrl))
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
 const availableBalance = computed(() => Number(user.value?.balance || 0))
 const frozenBalance = computed(() => Number(user.value?.frozen_balance || 0))
@@ -370,6 +393,201 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.app-header {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(186, 230, 253, 0.55);
+  background:
+    linear-gradient(180deg, rgba(224, 242, 254, 0.45), transparent 70%),
+    linear-gradient(90deg, rgba(240, 249, 255, 0.82), rgba(255, 255, 255, 0.72) 48%, rgba(236, 254, 255, 0.55));
+  backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 8px 24px rgba(14, 165, 233, 0.04);
+}
+
+.app-header__beam {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: -1px;
+  z-index: 2;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(56, 189, 248, 0.15) 18%,
+    #38bdf8 42%,
+    #e0f2fe 50%,
+    #14b8a6 58%,
+    rgba(45, 212, 191, 0.2) 78%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: app-header-beam 4.8s linear infinite;
+  opacity: 0.9;
+}
+
+.app-header__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.app-header__title-block {
+  position: relative;
+  padding-left: 0.85rem;
+}
+
+.app-header__title-block::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  bottom: 0.2rem;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #38bdf8, #14b8a6);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.45);
+}
+
+.app-header__title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.app-header__desc {
+  margin: 0.15rem 0 0;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.app-header__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(186, 230, 253, 0.7);
+  border-radius: 0.75rem;
+  padding: 0.35rem 0.7rem;
+  color: #475569;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.55);
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-header__chip:hover {
+  color: #0369a1;
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(224, 242, 254, 0.85);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.1);
+}
+
+.app-header__balance {
+  border: 1px solid rgba(125, 211, 252, 0.55);
+  border-radius: 0.85rem;
+  padding: 0.35rem 0.75rem;
+  background:
+    linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(204, 251, 241, 0.55));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.app-header__balance:hover {
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.65);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 8px 18px rgba(14, 165, 233, 0.12);
+}
+
+.app-header__balance-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  animation: app-header-pulse 2.4s ease-in-out infinite;
+}
+
+.app-header__balance-tip {
+  z-index: 40;
+  border: 1px solid rgba(186, 230, 253, 0.75);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.app-header__user {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.9rem;
+  padding: 0.3rem 0.45rem 0.3rem 0.3rem;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-header__user:hover,
+.app-header__user[aria-expanded='true'] {
+  border-color: rgba(186, 230, 253, 0.7);
+  background: rgba(240, 249, 255, 0.75);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.08);
+}
+
+.app-header__avatar {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.7rem;
+  background: linear-gradient(145deg, #0ea5e9, #14b8a6);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.55),
+    0 6px 14px rgba(14, 165, 233, 0.28);
+}
+
+.app-header__dropdown {
+  border-color: rgba(186, 230, 253, 0.65);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.app-header__icon-btn {
+  border: 1px solid rgba(186, 230, 253, 0.55);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+@keyframes app-header-beam {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 220% 50%; }
+}
+
+@keyframes app-header-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.08); }
+}
+
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s ease;
@@ -379,5 +597,100 @@ onBeforeUnmount(() => {
 .dropdown-leave-to {
   opacity: 0;
   transform: scale(0.95) translateY(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header__beam,
+  .app-header__balance-dot {
+    animation: none;
+  }
+}
+</style>
+
+<style>
+/* Dark-mode overrides kept unscoped: Vue scoped compiler drops :global(.dark) in production. */
+.dark .app-header {
+  border-bottom-color: rgba(51, 65, 85, 0.75);
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.12), transparent 72%),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.86) 55%, rgba(12, 74, 110, 0.28));
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28);
+}
+
+.dark .app-header__beam {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(56, 189, 248, 0.2) 18%,
+    #38bdf8 42%,
+    #7dd3fc 50%,
+    #2dd4bf 58%,
+    rgba(45, 212, 191, 0.25) 78%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  opacity: 1;
+}
+
+.dark .app-header__title {
+  color: #f8fafc;
+}
+
+.dark .app-header__desc {
+  color: #94a3b8;
+}
+
+.dark .app-header__chip {
+  color: #94a3b8;
+  border-color: rgba(51, 65, 85, 0.85);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.dark .app-header__chip:hover {
+  color: #e0f2fe;
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(14, 165, 233, 0.16);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.25);
+}
+
+.dark .app-header__balance {
+  border-color: rgba(56, 189, 248, 0.3);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(20, 184, 166, 0.12));
+  box-shadow: none;
+}
+
+.dark .app-header__balance:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.3);
+}
+
+.dark .app-header__balance-tip {
+  border-color: rgba(51, 65, 85, 0.9);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 16px 36px rgba(2, 6, 23, 0.45);
+}
+
+.dark .app-header__user:hover,
+.dark .app-header__user[aria-expanded='true'] {
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(30, 41, 59, 0.65);
+  box-shadow: none;
+}
+
+.dark .app-header__avatar {
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.85),
+    0 6px 14px rgba(14, 165, 233, 0.28);
+}
+
+.dark .app-header__dropdown {
+  border-color: rgba(51, 65, 85, 0.9);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.45);
+}
+
+.dark .app-header__icon-btn {
+  border-color: rgba(51, 65, 85, 0.85);
+  background: rgba(15, 23, 42, 0.55);
+  color: #e2e8f0;
 }
 </style>

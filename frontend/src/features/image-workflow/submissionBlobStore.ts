@@ -137,6 +137,29 @@ export async function savePlazaSubmissionBlob(
   return normalized
 }
 
+/** Bind requestId without rehashing or rewriting overflow scans of every image blob. */
+export async function bindPlazaSubmissionRequestId(id: string, requestId: string): Promise<void> {
+  if (!id || !requestId) return
+  if (!hasIndexedDB()) {
+    const item = memoryFallback.get(id)
+    if (item) {
+      memoryFallback.set(id, { ...item, requestId })
+      notifyChanged()
+    }
+    return
+  }
+  const database = await openDatabase()
+  const transaction = database.transaction(SUBMISSION_STORE, 'readwrite')
+  const store = transaction.objectStore(SUBMISSION_STORE)
+  const existing = await requestResult(store.get(id)) as PlazaSubmissionBlob | undefined
+  if (existing) {
+    existing.requestId = requestId
+    store.put(existing)
+  }
+  await transactionDone(transaction)
+  notifyChanged()
+}
+
 export async function getPlazaSubmissionBlob(id: string): Promise<PlazaSubmissionBlob | null> {
   if (!id) return null
   if (!hasIndexedDB()) {
