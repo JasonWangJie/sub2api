@@ -14,6 +14,215 @@ import (
 
 const maxOpenAIImageDimensionProbeBytes int64 = 1 << 20
 
+// OpenAI image workbench / async clients select resolution + aspect ratio.
+// Upstream OpenAI Images still expects a concrete WxH `size` (or "auto").
+var openAIImageSizeByResolutionAspect = map[string]map[string]string{
+	"1K": {
+		"1:1":  "1024x1024",
+		"3:2":  "1536x1024",
+		"2:3":  "1024x1536",
+		"16:9": "1536x1024",
+		"9:16": "1024x1536",
+	},
+	"2K": {
+		"1:1":  "2048x2048",
+		"3:2":  "2048x1152",
+		"2:3":  "1152x2048",
+		"16:9": "2048x1152",
+		"9:16": "1152x2048",
+	},
+	"4K": {
+		"1:1":  "4096x4096",
+		"3:2":  "4096x2304",
+		"2:3":  "2304x4096",
+		"16:9": "4096x2304",
+		"9:16": "2304x4096",
+	},
+}
+
+func openAIImageWorkbenchResolutions() []string {
+	return []string{"1K", "2K", "4K"}
+}
+
+func openAIImageWorkbenchAspectRatios() []string {
+	return []string{"1:1", "3:2", "2:3", "16:9", "9:16"}
+}
+
+func normalizeOpenAIImageResolution(raw string) string {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "1K":
+		return "1K"
+	case "2K":
+		return "2K"
+	case "4K":
+		return "4K"
+	case "AUTO":
+		return "auto"
+	default:
+		return ""
+	}
+}
+
+func normalizeOpenAIImageAspectRatio(raw string) string {
+	ratio := strings.TrimSpace(raw)
+	if ratio == "" {
+		return ""
+	}
+	lower := strings.ToLower(ratio)
+	if lower == "auto" || ratio == "自动" {
+		return "auto"
+	}
+	parts := strings.Split(ratio, ":")
+	if len(parts) != 2 {
+		return ""
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if left == "" || right == "" {
+		return ""
+	}
+	return left + ":" + right
+}
+
+func isOpenAIImageWxHSize(size string) bool {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return false
+	}
+	if strings.EqualFold(size, "auto") {
+		return true
+	}
+	_, _, ok := parseImageBillingDimensions(size)
+	return ok
+}
+
+// MapOpenAIImageDimensions converts resolution + aspect_ratio into the upstream
+// OpenAI Images `size` value.
+func MapOpenAIImageDimensions(resolution, aspectRatio string) (string, error) {
+	rawResolution := strings.TrimSpace(resolution)
+	rawAspect := strings.TrimSpace(aspectRatio)
+	resolution = normalizeOpenAIImageResolution(rawResolution)
+	aspectRatio = normalizeOpenAIImageAspectRatio(rawAspect)
+	if resolution == "" {
+		return "", fmt.Errorf("unsupported_image_dimensions: unsupported resolution %q", rawResolution)
+	}
+	if resolution == "auto" {
+		return "auto", nil
+	}
+	if rawAspect != "" && aspectRatio == "" {
+		return "", fmt.Errorf("unsupported_image_dimensions: unsupported aspect_ratio %q", rawAspect)
+	}
+	if aspectRatio == "" || aspectRatio == "auto" {
+		aspectRatio = "1:1"
+	}
+	byRatio, ok := openAIImageSizeByResolutionAspect[resolution]
+	if !ok {
+		return "", fmt.Errorf("unsupported_image_dimensions: unsupported resolution %q", rawResolution)
+	}
+	size, ok := byRatio[aspectRatio]
+	if !ok {
+		return "", fmt.Errorf("unsupported_image_dimensions: unsupported aspect_ratio %q for resolution %q", aspectRatio, resolution)
+	}
+	return size, nil
+}
+
+// normalizeOpenAIImagesDimensions accepts several client shapes:
+//   - resolution + aspect_ratio
+//   - resolution + size as aspect ratio (e.g. size="9:16")
+//   - size as WxH / auto (legacy OpenAI Images)
+//   - size as 1K/2K/4K (treated as resolution)
+// Explicit aspect_ratio wins over size-as-ratio. Legacy WxH size wins over
+// resolution mapping when size is a concrete pixel size.
+func normalizeOpenAIImagesDimensions(req *OpenAIImagesRequest) error {
+	if req == nil {
+		return nil
+	}
+
+	rawResolution := strings.TrimSpace(req.Resolution)
+	rawAspect := strings.TrimSpace(req.AspectRatio)
+	if rawResolution != "" {
+		req.Resolution = normalizeOpenAIImageResolution(rawResolution)
+		if req.Resolution == "" {
+			return fmt.Errorf("unsupported_image_dimensions: unsupported resolution %q", rawResolution)
+		}
+	} else {
+		req.Resolution = ""
+	}
+	if rawAspect != "" {
+		req.AspectRatio = normalizeOpenAIImageAspectRatio(rawAspect)
+		if req.AspectRatio == "" {
+			return fmt.Errorf("unsupported_image_dimensions: unsupported aspect_ratio %q", rawAspect)
+		}
+	} else {
+		req.AspectRatio = ""
+	}
+
+	size := strings.TrimSpace(req.Size)
+	if size != "" {
+		switch {
+		case isOpenAIImageWxHSize(size):
+			// Legacy OpenAI Images pixel size / auto.
+			req.Size = size
+			if req.Resolution != "" {
+				req.SizeTier = NormalizeImageBillingTierOrDefault(req.Resolution)
+				req.NeedsSizeRewrite = true
+			}
+			return nil
+		case normalizeOpenAIImageAspectRatio(size) != "":
+			// Clients may send aspect ratio in `size` (e.g. "9:16").
+			if req.AspectRatio == "" {
+				req.AspectRatio = normalizeOpenAIImageAspectRatio(size)
+			}
+			req.Size = ""
+			size = ""
+		case normalizeOpenAIImageResolution(size) != "" && normalizeOpenAIImageResolution(size) != "auto":
+			// Treat size="1K"/"2K"/"4K" as resolution for convenience.
+			if req.Resolution == "" {
+				req.Resolution = normalizeOpenAIImageResolution(size)
+			}
+			req.Size = ""
+			size = ""
+		default:
+			return fmt.Errorf("unsupported_image_dimensions: unsupported size %q", size)
+		}
+	}
+
+	if req.Resolution == "" && req.AspectRatio == "" {
+		return nil
+	}
+	if req.Resolution == "" {
+		return fmt.Errorf("unsupported_image_dimensions: resolution is required when aspect_ratio is set")
+	}
+
+	mapped, err := MapOpenAIImageDimensions(req.Resolution, req.AspectRatio)
+	if err != nil {
+		return err
+	}
+	req.Size = mapped
+	req.ExplicitSize = true
+	req.NeedsSizeRewrite = true
+	if req.Resolution == "auto" {
+		req.SizeTier = ImageBillingSize2K
+	} else {
+		req.SizeTier = NormalizeImageBillingTierOrDefault(req.Resolution)
+	}
+	return nil
+}
+
+func OpenAIImagesBillingInputSize(req *OpenAIImagesRequest) string {
+	return openAIImagesBillingInputSize(req)
+}
+
+func openAIImagesBillingInputSize(req *OpenAIImagesRequest) string {
+	if req == nil {
+		return ""
+	}
+	if resolution := strings.TrimSpace(req.Resolution); resolution != "" && resolution != "auto" {
+		return resolution
+	}
+	return strings.TrimSpace(req.Size)
+}
+
 func detectOpenAIImageResultSize(encoded string) string {
 	payload := strings.TrimSpace(encoded)
 	if strings.HasPrefix(strings.ToLower(payload), "data:") {

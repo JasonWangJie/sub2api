@@ -143,6 +143,9 @@ export default {
       submitReport: 'Submit report',
       reportSubmitted: 'Report submitted',
       reportFailed: 'Failed to submit report',
+      adminDeleteConfirm: 'Hide this public image from the plaza?',
+      adminDeleteReason: 'Removed by admin',
+      adminDeleted: 'Removed from the plaza',
       reasons: {
         spam: 'Spam or fraudulent content',
         sexual: 'Sexual or nude content',

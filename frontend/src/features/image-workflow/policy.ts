@@ -97,8 +97,14 @@ export function normalizeCapabilities(
     // Field aliases support older capability schemas. Missing or explicitly
     // empty fields stay empty so the client never advertises server-disabled features.
     models,
-    sizes: stringArray(data.sizes ?? data.image_sizes),
-    resolutions: stringArray(data.resolutions ?? data.image_resolutions ?? (platform === 'gemini' ? data.image_sizes : [])),
+    sizes: stringArray(data.sizes ?? (platform === 'openai' && Array.isArray(data.aspect_ratios) && data.aspect_ratios.length
+      ? []
+      : data.image_sizes)),
+    resolutions: stringArray(
+      data.resolutions
+      ?? data.image_resolutions
+      ?? ((platform === 'gemini' || platform === 'openai') ? data.image_sizes : []),
+    ),
     aspect_ratios: stringArray(data.aspect_ratios),
     qualities: stringArray(data.qualities),
     output_formats: stringArray(data.output_formats ?? data.formats),

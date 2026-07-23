@@ -1787,7 +1787,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					FirstTokenMs:     firstTokenMs,
 					ImageCount:       imageCount,
 					ImageSize:        parsed.SizeTier,
-					ImageInputSize:   parsed.Size,
+					ImageInputSize:   openAIImagesBillingInputSize(parsed),
 					ImageOutputSizes: imageOutputSizes,
 				}, err
 			}
@@ -1831,7 +1831,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		FirstTokenMs:     firstTokenMs,
 		ImageCount:       imageCount,
 		ImageSize:        parsed.SizeTier,
-		ImageInputSize:   parsed.Size,
+		ImageInputSize:   openAIImagesBillingInputSize(parsed),
 		ImageOutputSizes: imageOutputSizes,
 	}, nil
 }

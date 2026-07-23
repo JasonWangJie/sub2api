@@ -145,7 +145,8 @@ func configureImageWorkbenchPlatform(out *ImageWorkbenchCapabilities, group *Gro
 		out.SupportsReferenceImages = true
 		out.MaxOutputImages = 4
 		out.MaxReferenceImages = 5
-		out.ImageSizes = []string{"auto", "1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152"}
+		out.ImageSizes = openAIImageWorkbenchResolutions()
+		out.AspectRatios = openAIImageWorkbenchAspectRatios()
 		out.Qualities = []string{"auto", "low", "medium", "high"}
 		out.Formats = []string{"png", "jpeg", "webp"}
 		out.Backgrounds = []string{"auto", "opaque", "transparent"}

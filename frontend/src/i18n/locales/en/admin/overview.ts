@@ -128,7 +128,7 @@ export default {
         runtimeDescription: 'Queue recovery, reference download limits, URL signing, and retention controls.',
         asyncPublicBaseUrl: 'Public site base URL for task query links',
         workerConcurrency: 'Worker concurrency',
-        executionTimeoutSeconds: 'Execution timeout (seconds)',
+        executionTimeoutSeconds: 'Execution timeout (seconds, default 1200)',
         signedUrlExpirySeconds: 'Signed URL TTL (seconds)',
         inputRetentionHours: 'Reference image retention (hours)',
         uploadPerMinute: 'SC uploads per API key / minute',

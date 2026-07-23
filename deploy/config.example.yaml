@@ -1286,8 +1286,9 @@ async_image:
   worker_lease_seconds: 120
   # 扫描延迟队列、失效租约和 PostgreSQL 可恢复任务的间隔，单位秒（默认 30）。
   recovery_interval_seconds: 30
-  # 单次上游图片生成调用的最大执行时间，单位秒（默认 900）。
-  execution_timeout_seconds: 900
+  # 单次上游图片生成调用的最大执行时间，单位秒（默认 1200 = 20 分钟）。
+  # 超时后任务会失败结束；恢复环按 started_at 墙钟时间判定，不依赖心跳。
+  execution_timeout_seconds: 1200
   # OSS 上传/后处理最大尝试次数（默认 5）；不会因此重新调用生图上游。
   storage_retry_attempts: 5
   # 已固定账单命令的同步扣费最大尝试次数（默认 10）；不会重复生成图片或重复扣费。

@@ -176,6 +176,32 @@ func (h *DurableAsyncImageHandler) recoverAsyncImageTasks(ctx context.Context, c
 			logger.L().Warn("async_image.library_archive_backfill_failed", zap.Error(err))
 		}
 	}
+
+	executionTimeout := asyncImageExecutionTimeout(cfg)
+	startedBefore := time.Now().UTC().Add(-executionTimeout)
+	if timeoutRepo, ok := repo.(service.AsyncImageInvocationTimeoutRepository); ok {
+		timedOut, err := timeoutRepo.ListTimedOutInvokingAsyncImageTasks(ctx, startedBefore, 100)
+		if err == nil {
+			for _, task := range timedOut {
+				code := "execution_timeout"
+				message := asyncImageSafeError(fmt.Errorf("image generation timed out after %s", executionTimeout.Round(time.Second)))
+				finished := time.Now().UTC()
+				_, transitionErr := h.tasks.Transition(ctx, service.AsyncImageTaskTransition{
+					TaskID: task.TaskID, ExpectedVersion: task.Version,
+					FromStatuses: []string{service.AsyncImageTaskStatusInvoking},
+					ToStatus:     service.AsyncImageTaskStatusFailed,
+					ErrorCode:    &code, ErrorMessage: &message, FinishedAt: &finished,
+					ClearRequestPayload: true, EventType: "execution_timeout",
+				})
+				if transitionErr != nil && !errors.Is(transitionErr, service.ErrAsyncImageInvalidTransition) {
+					logger.L().Warn("async_image.mark_execution_timeout_failed", zap.String("task_id", task.TaskID), zap.Error(transitionErr))
+				}
+			}
+		} else if ctx.Err() == nil {
+			logger.L().Warn("async_image.list_execution_timeouts_failed", zap.Error(err))
+		}
+	}
+
 	staleBefore := time.Now().UTC().Add(-lease)
 	invoking, err := repo.ListRecoverableAsyncImageTasks(ctx, []string{service.AsyncImageTaskStatusInvoking}, staleBefore, 0, 0, 100)
 	if err == nil {
@@ -270,6 +296,9 @@ func (h *DurableAsyncImageHandler) asyncImageHeartbeatLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if h.cancelAsyncImageInvocationIfTimedOut(ctx, taskID, cancelProcess) {
+				return
+			}
 			if !queueLeaseLost {
 				err := h.queue.Heartbeat(ctx, reservation)
 				if errors.Is(err, service.ErrAsyncImageQueueLeaseLost) {
@@ -293,6 +322,55 @@ func (h *DurableAsyncImageHandler) asyncImageHeartbeatLoop(
 			}
 		}
 	}
+}
+
+func (h *DurableAsyncImageHandler) cancelAsyncImageInvocationIfTimedOut(
+	ctx context.Context,
+	taskID string,
+	cancelProcess context.CancelFunc,
+) bool {
+	if h == nil || h.tasks == nil || h.tasks.Repository() == nil || cancelProcess == nil {
+		return false
+	}
+	task, err := h.tasks.Repository().GetAsyncImageTaskByTaskID(ctx, taskID)
+	if err != nil || task == nil || task.Status != service.AsyncImageTaskStatusInvoking {
+		return false
+	}
+	cfg, cfgErr := h.storage.RuntimeConfig(ctx)
+	if cfgErr != nil {
+		cfg = service.AsyncImageRuntimeConfig{}
+	}
+	if !asyncImageInvocationTimedOut(task, asyncImageExecutionTimeout(cfg), time.Now().UTC()) {
+		return false
+	}
+	logger.L().Warn("async_image.execution_timeout_cancel",
+		zap.String("task_id", taskID),
+		zap.Duration("timeout", asyncImageExecutionTimeout(cfg)),
+	)
+	cancelProcess()
+	return true
+}
+
+func asyncImageExecutionTimeout(cfg service.AsyncImageRuntimeConfig) time.Duration {
+	if cfg.ExecutionTimeoutSeconds > 0 {
+		return time.Duration(cfg.ExecutionTimeoutSeconds) * time.Second
+	}
+	return 20 * time.Minute
+}
+
+func asyncImageInvocationTimedOut(task *service.AsyncImageTask, timeout time.Duration, now time.Time) bool {
+	if task == nil || timeout <= 0 {
+		return false
+	}
+	start := task.StartedAt
+	if start == nil || start.IsZero() {
+		if task.CreatedAt.IsZero() {
+			return false
+		}
+		created := task.CreatedAt
+		start = &created
+	}
+	return !start.After(now.Add(-timeout))
 }
 
 func (h *DurableAsyncImageHandler) asyncImageInvocationCanOutliveQueueLease(ctx context.Context, taskID string) bool {
@@ -388,10 +466,7 @@ func (h *DurableAsyncImageHandler) invokeAsyncImageTask(parent context.Context, 
 		return asyncImageWorkerDisposition{}
 	}
 
-	executionTimeout := time.Duration(cfg.ExecutionTimeoutSeconds) * time.Second
-	if executionTimeout <= 0 {
-		executionTimeout = 15 * time.Minute
-	}
+	executionTimeout := asyncImageExecutionTimeout(cfg)
 	executionCtx, cancel := context.WithTimeout(parent, executionTimeout)
 	defer cancel()
 	body, path, contentType, err := h.buildAsyncImageUpstreamRequest(executionCtx, task, payload, cfg, storage)
@@ -445,7 +520,7 @@ func (h *DurableAsyncImageHandler) invokeAsyncImageTask(parent context.Context, 
 		return h.deferAsyncImageForLocalCapacity(parent, task, cfg)
 	}
 	if executionCtx.Err() != nil {
-		h.markAsyncImageExecutionUnknown(parent, task, "upstream execution timed out before its outcome was durably recorded")
+		h.failAsyncImageTask(parent, task, "execution_timeout", fmt.Sprintf("image generation timed out after %s", executionTimeout.Round(time.Second)), false)
 		return asyncImageWorkerDisposition{}
 	}
 	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {

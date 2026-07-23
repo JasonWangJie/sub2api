@@ -14,6 +14,8 @@ export interface ImageGenerateParams {
   prompt: string
   n?: number
   size?: string
+  resolution?: string
+  aspect_ratio?: string
   quality?: string
   response_format?: 'url' | 'b64_json'
   output_format?: string
@@ -156,7 +158,9 @@ export async function generateImage(
     model: params.model,
     prompt: params.prompt,
     n: params.n ?? 1,
-    ...(params.size ? { size: params.size } : {}),
+    ...(params.resolution ? { resolution: params.resolution } : {}),
+    ...(params.aspect_ratio ? { aspect_ratio: params.aspect_ratio } : {}),
+    ...(params.size && !params.resolution ? { size: params.size } : {}),
     ...(params.quality ? { quality: params.quality } : {}),
     response_format: params.response_format || 'b64_json',
     ...(params.output_format ? { output_format: params.output_format } : {}),
@@ -186,7 +190,9 @@ export async function editImage(
   form.append('prompt', params.prompt)
   files.forEach((file) => form.append('image', file, file.name))
   form.append('n', String(params.n ?? 1))
-  if (params.size) form.append('size', params.size)
+  if (params.resolution) form.append('resolution', params.resolution)
+  if (params.aspect_ratio) form.append('aspect_ratio', params.aspect_ratio)
+  if (params.size && !params.resolution) form.append('size', params.size)
   if (params.quality) form.append('quality', params.quality)
   if (params.output_format) form.append('output_format', params.output_format)
   if (params.background && params.background !== 'auto') form.append('background', params.background)
@@ -264,7 +270,9 @@ export async function prepareOpenAIAsyncSubmission(
     field('model', params.model)
     field('prompt', params.prompt)
     field('n', String(params.n ?? 1))
-    if (params.size) field('size', params.size)
+    if (params.resolution) field('resolution', params.resolution)
+    if (params.aspect_ratio) field('aspect_ratio', params.aspect_ratio)
+    if (params.size && !params.resolution) field('size', params.size)
     if (params.quality) field('quality', params.quality)
     if (params.output_format) field('output_format', params.output_format)
     if (params.background && params.background !== 'auto') field('background', params.background)
@@ -284,7 +292,9 @@ export async function prepareOpenAIAsyncSubmission(
       model: params.model,
       prompt: params.prompt,
       n: params.n ?? 1,
-      size: params.size,
+      ...(params.resolution ? { resolution: params.resolution } : {}),
+      ...(params.aspect_ratio ? { aspect_ratio: params.aspect_ratio } : {}),
+      ...(params.size && !params.resolution ? { size: params.size } : {}),
       quality: params.quality,
       output_format: params.output_format,
       background: params.background,

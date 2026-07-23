@@ -161,7 +161,7 @@
             </div>
 
             <div v-if="capabilities" class="parameter-grid">
-              <label v-if="isGemini && sizeOptions.length" class="parameter-field">
+              <label v-if="usesResolutionAspect && sizeOptions.length" class="parameter-field">
                 <span>{{ t('imageWorkflow.workbench.resolution') }}</span>
                 <select v-model="form.size" class="input" :disabled="generating || asyncTask.active">
                   <option v-for="size in sizeOptions" :key="size" :value="size">{{ size }}</option>
@@ -174,7 +174,7 @@
                 </select>
               </label>
 
-              <label v-if="isGemini && aspectRatioOptions.length" class="parameter-field">
+              <label v-if="usesResolutionAspect && aspectRatioOptions.length" class="parameter-field">
                 <span>{{ t('imageWorkflow.workbench.aspectRatio') }}</span>
                 <select v-model="form.aspectRatio" class="input" :disabled="generating || asyncTask.active">
                   <option v-for="ratio in aspectRatioOptions" :key="ratio" :value="ratio">{{ ratio }}</option>
@@ -299,9 +299,9 @@
             </div>
             <div v-else class="result-grid">
               <article v-for="result in results" :key="result.id" class="result-item">
-                <a :href="result.url" target="_blank" rel="noopener" class="result-item__media">
-                  <img :src="result.url" :alt="form.prompt" loading="lazy" decoding="async" />
-                </a>
+                <button type="button" class="result-item__media" @click="openResultLightbox(result.url, form.prompt)">
+                  <img :src="resultThumb(result.url)" :alt="form.prompt" loading="lazy" decoding="async" />
+                </button>
                 <div class="result-item__footer">
                   <span class="archive-state" :class="`is-${result.archiveStatus}`">
                     <span v-if="result.archiveStatus === 'archiving' || result.archiveStatus === 'publishing' || result.archiveStatus === 'syncing'" class="workbench-spinner" aria-hidden="true"></span>
@@ -332,9 +332,9 @@
                   >
                     {{ t('imageWorkflow.workbench.retryArchive') }}
                   </button>
-                  <a :href="result.url" target="_blank" rel="noopener" class="result-icon-button" :title="t('imageWorkbench.view')" :aria-label="t('imageWorkbench.view')">
-                    <Icon name="externalLink" size="sm" />
-                  </a>
+                  <button type="button" class="result-icon-button" :title="t('imageWorkbench.view')" :aria-label="t('imageWorkbench.view')" @click="openResultLightbox(result.url, form.prompt)">
+                    <Icon name="eye" size="sm" />
+                  </button>
                 </div>
               </article>
             </div>
@@ -343,10 +343,12 @@
 
         <aside class="workbench-column workbench-column--library">
           <section class="workbench-panel">
-            <ImageLibraryPanel ref="libraryPanel" compact @reuse="reuseLibraryItem" @view="viewLibraryItem" />
+            <ImageLibraryPanel ref="libraryPanel" compact @reuse="reuseLibraryItem" />
           </section>
         </aside>
       </div>
+
+      <ImageLightbox :src="lightboxSrc" :alt="lightboxAlt" @close="lightboxSrc = ''" />
     </div>
   </AppLayout>
 </template>
@@ -357,11 +359,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ImageLibraryPanel from '@/features/image-workflow/ImageLibraryPanel.vue'
 import { keysAPI } from '@/api'
 import * as imageAPI from '@/api/imageWorkbench'
-import { archiveAsyncTask, createPlazaSubmissionRequest, imageLibraryViewURL, importImageFile, importImageURL, listMyPlazaSubmissionRequests, syncPlazaSubmissionRequest } from '@/api/imageLibrary'
+import { archiveAsyncTask, createPlazaSubmissionRequest, importImageFile, importImageURL, listMyPlazaSubmissionRequests, syncPlazaSubmissionRequest } from '@/api/imageLibrary'
 import {
   getPlazaSubmissionBlob,
   removePlazaSubmissionBlob,
@@ -376,6 +379,7 @@ import { deriveWorkbenchAccess, sameCapabilitySnapshot } from '@/features/image-
 import type { ImageLibraryItem, ImageWorkbenchCapabilities } from '@/features/image-workflow/types'
 import type { ApiKey } from '@/types'
 import { maskApiKey } from '@/utils/maskApiKey'
+import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 import { useAppStore, useAuthStore } from '@/stores'
 
 interface ReferenceImage {
@@ -430,6 +434,8 @@ const capabilities = ref<ImageWorkbenchCapabilities | null>(null)
 const referenceImages = ref<ReferenceImage[]>([])
 const results = ref<WorkbenchResult[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
+const lightboxSrc = ref('')
+const lightboxAlt = ref('')
 const libraryPanel = ref<InstanceType<typeof ImageLibraryPanel> | null>(null)
 const promptError = ref('')
 const unknownSubmission = ref(false)
@@ -466,12 +472,14 @@ const keyOptions = computed<SelectOption[]>(() => workbenchKeys.value.map((key) 
   subtitle: `${key.group?.name || t('imageWorkbench.ungrouped')} · ${key.group?.platform || '—'} · ${deriveWorkbenchAccess(key).mode === 'async' ? t('imageWorkflow.mode.async') : t('imageWorkflow.mode.realtime')}`,
 })))
 const isGemini = computed(() => capabilities.value?.platform === 'gemini')
+const isOpenAI = computed(() => capabilities.value?.platform === 'openai')
+const usesResolutionAspect = computed(() => isGemini.value || (isOpenAI.value && (capabilities.value?.aspect_ratios?.length || 0) > 0))
 const isAsyncMode = computed(() => capabilities.value?.execution_mode === 'async')
 const modelOptions = computed(() => capabilities.value?.models || [])
 const maxReferences = computed(() => Math.max(0, Number(capabilities.value?.max_reference_images || 0)))
 const sizeOptions = computed(() => {
   if (!capabilities.value) return []
-  return isGemini.value ? capabilities.value.resolutions : capabilities.value.sizes
+  return usesResolutionAspect.value ? capabilities.value.resolutions : capabilities.value.sizes
 })
 const aspectRatioOptions = computed(() => {
   const options = capabilities.value?.aspect_ratios || []
@@ -552,10 +560,16 @@ async function loadCapabilities(key: ApiKey, quiet = false) {
   }
 }
 
+function usesResolutionAspectFor(caps: ImageWorkbenchCapabilities | null | undefined): boolean {
+  if (!caps) return false
+  if (caps.platform === 'gemini') return true
+  return caps.platform === 'openai' && (caps.aspect_ratios?.length || 0) > 0
+}
+
 function applyCapabilityDefaults(next: ImageWorkbenchCapabilities) {
   const modelIDs = next.models.map((model) => model.id)
   if (!modelIDs.includes(form.model)) form.model = modelIDs[0] || ''
-  const sizes = next.platform === 'gemini' ? next.resolutions : next.sizes
+  const sizes = usesResolutionAspectFor(next) ? next.resolutions : next.sizes
   if (!sizes.includes(form.size)) form.size = sizes[0] || ''
   const ratios = next.aspect_ratios.filter((ratio) => ratio !== 'auto' || referenceImages.value.length > 0)
   if (!ratios.includes(form.aspectRatio)) form.aspectRatio = ratios[0] || ''
@@ -664,7 +678,12 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
       prompt: form.prompt.trim(),
       imageFiles: referenceImages.value.map((item) => item.file),
       n: form.count,
-      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      ...(usesResolutionAspectFor(current)
+        ? {
+            resolution: selectedCapabilityOption(sizeOptions.value, form.size),
+            aspect_ratio: selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio),
+          }
+        : { size: selectedCapabilityOption(sizeOptions.value, form.size) }),
       quality: selectedCapabilityOption(qualityOptions.value, form.quality),
       response_format: 'b64_json',
       output_format: selectedCapabilityOption(formatOptions.value, form.format),
@@ -675,7 +694,12 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
       model: form.model,
       prompt: form.prompt.trim(),
       n: form.count,
-      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      ...(usesResolutionAspectFor(current)
+        ? {
+            resolution: selectedCapabilityOption(sizeOptions.value, form.size),
+            aspect_ratio: selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio),
+          }
+        : { size: selectedCapabilityOption(sizeOptions.value, form.size) }),
       quality: selectedCapabilityOption(qualityOptions.value, form.quality),
       response_format: 'b64_json',
       output_format: selectedCapabilityOption(formatOptions.value, form.format),
@@ -744,7 +768,12 @@ async function submitAsync(key: ApiKey, current: ImageWorkbenchCapabilities) {
       prompt: form.prompt.trim(),
       imageFiles: referenceImages.value.map((item) => item.file),
       n: form.count,
-      size: selectedCapabilityOption(sizeOptions.value, form.size),
+      ...(usesResolutionAspectFor(current)
+        ? {
+            resolution: selectedCapabilityOption(sizeOptions.value, form.size),
+            aspect_ratio: selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio),
+          }
+        : { size: selectedCapabilityOption(sizeOptions.value, form.size) }),
       quality: selectedCapabilityOption(qualityOptions.value, form.quality),
       output_format: selectedCapabilityOption(formatOptions.value, form.format),
       background: showBackground.value ? selectedCapabilityOption(backgroundOptions.value, form.background) : undefined,
@@ -915,7 +944,7 @@ async function publishLocalResult(result: WorkbenchResult) {
       source_type: 'realtime_import',
       model: form.model,
       requested_size: selectedCapabilityOption(sizeOptions.value, form.size),
-      aspect_ratio: isGemini.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+      aspect_ratio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
       quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
       content_type: blob.contentType,
       byte_size: blob.byteSize,
@@ -981,7 +1010,7 @@ async function archiveResult(result: WorkbenchResult, current = capabilities.val
     prompt: form.prompt.trim(),
     title: truncateTitle(form.prompt),
     requested_size: selectedCapabilityOption(sizeOptions.value, form.size),
-    aspect_ratio: isGemini.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+    aspect_ratio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
     quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
     output_format: selectedCapabilityOption(formatOptions.value, form.format),
     visibility: 'private',
@@ -1085,8 +1114,14 @@ function reuseLibraryItem(item: ImageLibraryItem) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function viewLibraryItem(item: ImageLibraryItem) {
-  window.open(imageLibraryViewURL(item), '_blank', 'noopener,noreferrer')
+function resultThumb(url: string) {
+  return buildOssThumbnailUrl(url, { width: 480 })
+}
+
+function openResultLightbox(url: string, alt = '') {
+  if (!url) return
+  lightboxSrc.value = url
+  lightboxAlt.value = alt
 }
 
 async function copyTaskId() {
@@ -1145,7 +1180,7 @@ watch(() => form.apiKeyId, async () => {
 })
 
 watch(aspectRatioOptions, (options) => {
-  if (isGemini.value && !options.includes(form.aspectRatio)) form.aspectRatio = options[0] || '1:1'
+  if (usesResolutionAspect.value && !options.includes(form.aspectRatio)) form.aspectRatio = options[0] || '1:1'
 })
 
 onMounted(async () => {
@@ -1322,7 +1357,7 @@ onUnmounted(() => {
 .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.65rem; }
 .result-item { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 6px; }
 .dark .result-item { border-color: #374151; }
-.result-item__media { display: block; width: 100%; aspect-ratio: 1 / 1; background: #f3f4f6; }
+.result-item__media { display: block; width: 100%; aspect-ratio: 1 / 1; padding: 0; border: 0; cursor: zoom-in; background: #f3f4f6; }
 .dark .result-item__media { background: #030712; }
 .result-item__media img { width: 100%; height: 100%; object-fit: contain; }
 .result-item__footer { display: flex; min-height: 2.6rem; align-items: center; gap: 0.45rem; padding: 0.4rem; }

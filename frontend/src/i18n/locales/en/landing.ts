@@ -85,7 +85,7 @@ export default {
     description: 'Browse publicly shared images from all users — search, download, or reuse',
     searchPlaceholder: 'Search prompt, tags, time',
     selectAllPage: 'Select all on this page',
-    sharedHint: 'Global feed · you can only delete your own posts',
+    sharedHint: 'Global feed · admins can remove posts; members can report',
     total: '{n} images',
     empty: 'No public images yet — generate one and sync to the plaza',
     goWorkbench: 'Open Image Workbench',

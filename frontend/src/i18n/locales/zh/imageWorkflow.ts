@@ -143,6 +143,9 @@ export default {
       submitReport: '提交举报',
       reportSubmitted: '举报已提交',
       reportFailed: '提交举报失败',
+      adminDeleteConfirm: '确定下架这张公开图片吗？下架后普通用户将不可见。',
+      adminDeleteReason: '管理员下架',
+      adminDeleted: '已从广场下架',
       reasons: {
         spam: '垃圾或欺诈内容',
         sexual: '情色或裸露内容',

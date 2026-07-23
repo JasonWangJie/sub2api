@@ -194,7 +194,12 @@ func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlat
 		}
 		if err == nil {
 			payload.Body = append([]byte(nil), body...)
-			model, requestedSize, prompt, imageCount = parsed.Model, parsed.Size, parsed.Prompt, parsed.N
+			model, prompt, imageCount = parsed.Model, parsed.Prompt, parsed.N
+			requestedSize = service.OpenAIImagesBillingInputSize(parsed)
+			if requestedSize == "" {
+				requestedSize = parsed.Size
+			}
+			aspectRatio = parsed.AspectRatio
 			moderationBody = parsed.ModerationBody()
 			kind = service.AsyncImageRequestTypeTextToImage
 			if parsed.IsEdits() {
@@ -400,10 +405,14 @@ func (h *DurableAsyncImageHandler) get(c *gin.Context, protocol string) {
 		return
 	}
 	details, err := h.tasks.GetForAPIKey(c.Request.Context(), apiKey.ID, c.Param("task_id"))
-	if err != nil || details == nil || details.Task == nil || details.Task.Protocol != protocol {
+	if err != nil || details == nil || details.Task == nil {
 		h.writeProtocolError(c, protocol, http.StatusNotFound, "task_not_found", "asynchronous image task not found")
 		return
 	}
+	// Dialect paths are separate for submissions, but an owning API key may still
+	// poll with either query URL. Always answer in the dialect of the request
+	// path so a failed Gemini SC task queried via /tasks_async returns BB
+	// {"status":"failed","fail_reason":...} instead of a false task_not_found.
 	runtimeCfg, err := h.storage.RuntimeConfig(c.Request.Context())
 	if err != nil {
 		h.writeProtocolError(c, protocol, http.StatusServiceUnavailable, "configuration_unavailable", "asynchronous image configuration is unavailable")
@@ -432,7 +441,7 @@ func (h *DurableAsyncImageHandler) writeBBQuery(c *gin.Context, details *service
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "succeeded", "task_id": task.TaskID, "data": data})
 	case "failed":
-		c.JSON(http.StatusOK, gin.H{"status": "failed", "fail_reason": asyncImageFailureMessage(task)})
+		c.JSON(http.StatusOK, gin.H{"status": "failed", "task_id": task.TaskID, "fail_reason": asyncImageFailureMessage(task)})
 	case "queued":
 		c.Header("Retry-After", "3")
 		c.JSON(http.StatusOK, gin.H{"status": "queued", "task_id": task.TaskID})
@@ -831,6 +840,11 @@ func asyncImageFailureMessage(task *service.AsyncImageTask) string {
 			return "image generation eligibility changed before execution"
 		case "upstream_failed", "gateway_unavailable":
 			return "upstream image generation failed"
+		case "execution_timeout":
+			if task.ErrorMessage != nil && strings.TrimSpace(*task.ErrorMessage) != "" {
+				return strings.TrimSpace(*task.ErrorMessage)
+			}
+			return "image generation timed out"
 		}
 	}
 	return "image generation failed"

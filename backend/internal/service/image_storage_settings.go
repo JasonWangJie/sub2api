@@ -761,7 +761,7 @@ func defaultAsyncImageRuntimeConfig() AsyncImageRuntimeConfig {
 		WorkerConcurrency:       4,
 		WorkerLeaseSeconds:      120,
 		RecoveryIntervalSeconds: 30,
-		ExecutionTimeoutSeconds: 900,
+		ExecutionTimeoutSeconds: 1200,
 		StorageRetryAttempts:    5,
 		BillingRetryAttempts:    10,
 		RetryBackoffSeconds:     30,

@@ -279,6 +279,32 @@ LIMIT $5`, pq.Array(statuses), updatedBefore, storageRetryLimit, billingRetryLim
 	return scanAsyncImageTasks(rows)
 }
 
+// ListTimedOutInvokingAsyncImageTasks returns invoking tasks whose wall-clock
+// start (started_at, else created_at) is at or before startedBefore. Heartbeats
+// refresh updated_at, so lease-based recovery alone cannot end hung upstream calls.
+func (r *asyncImageTaskRepository) ListTimedOutInvokingAsyncImageTasks(
+	ctx context.Context,
+	startedBefore time.Time,
+	limit int,
+) ([]*service.AsyncImageTask, error) {
+	if r == nil || r.sql == nil {
+		return nil, service.ErrAsyncImageInvalidInput
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.sql.QueryContext(ctx, `SELECT `+asyncImageTaskSummaryColumns+`
+FROM async_image_tasks
+WHERE status = $1 AND COALESCE(started_at, created_at) <= $2
+ORDER BY COALESCE(started_at, created_at), id
+LIMIT $3`, service.AsyncImageTaskStatusInvoking, startedBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanAsyncImageTasks(rows)
+}
+
 func (r *asyncImageTaskRepository) TouchAsyncImageTask(ctx context.Context, taskID string, statuses []string) error {
 	if r == nil || r.sql == nil || strings.TrimSpace(taskID) == "" || len(statuses) == 0 {
 		return service.ErrAsyncImageInvalidInput

@@ -131,10 +131,10 @@
 
     <div v-else class="library-grid" :class="{ 'library-grid--compact': compact }">
       <article v-for="item in items" :key="item.id" class="library-item">
-        <button type="button" class="library-item__media" @click="emit('view', itemForView(item))">
+        <button type="button" class="library-item__media" @click="openLightbox(item)">
           <img
-            v-if="!brokenImages.has(String(item.id)) && resolvedImages[String(item.id)]"
-            :src="resolvedImages[String(item.id)]"
+            v-if="!brokenImages.has(String(item.id)) && thumbnailSrc(item)"
+            :src="thumbnailSrc(item)"
             :alt="item.title || t('imageWorkflow.library.untitled')"
             loading="lazy"
             decoding="async"
@@ -189,7 +189,7 @@
             <button type="button" class="library-action" :title="t('imageWorkflow.library.reuse')" :aria-label="t('imageWorkflow.library.reuse')" @click="emit('reuse', item)">
               <Icon name="refresh" size="sm" />
             </button>
-            <a class="library-action" :href="resolvedImages[String(item.id)] || '#'" target="_blank" rel="noopener" :title="t('imageWorkbench.download')" :aria-label="t('imageWorkbench.download')">
+            <a class="library-action" :href="fullImageSrc(item) || '#'" target="_blank" rel="noopener" :title="t('imageWorkbench.download')" :aria-label="t('imageWorkbench.download')">
               <Icon name="download" size="sm" />
             </a>
             <button
@@ -222,6 +222,12 @@
       <span v-if="loadingMore" class="library-spinner" aria-hidden="true"></span>
       {{ t('imageWorkflow.library.loadMore') }}
     </button>
+
+    <ImageLightbox
+      :src="lightboxSrc"
+      :alt="lightboxAlt"
+      @close="lightboxSrc = ''"
+    />
   </section>
 </template>
 
@@ -229,6 +235,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import { useAppStore, useAuthStore } from '@/stores'
 import {
   archiveAsyncTask,
@@ -256,6 +263,7 @@ import {
   removePlazaSubmissionBlob,
 } from './submissionBlobStore'
 import type { ImageLibraryItem, ImagePlazaSubmissionRequest, ImagePublicationStatus } from './types'
+import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 
 const props = withDefaults(defineProps<{ compact?: boolean; limit?: number }>(), {
   compact: false,
@@ -278,6 +286,8 @@ const filter = ref('all')
 const busyId = ref('')
 const brokenImages = ref(new Set<string>())
 const resolvedImages = ref<Record<string, string>>({})
+const lightboxSrc = ref('')
+const lightboxAlt = ref('')
 const recoveries = ref<PendingImageArchive[]>([])
 const recoveryPreviewURLs = ref<Record<string, string>>({})
 const recoveryBusyId = ref('')
@@ -556,8 +566,20 @@ async function resolveItems(candidates: ImageLibraryItem[]) {
   }))
 }
 
-function itemForView(item: ImageLibraryItem): ImageLibraryItem {
-  return { ...item, view_url: resolvedImages.value[String(item.id)] || item.view_url }
+function fullImageSrc(item: ImageLibraryItem): string {
+  return resolvedImages.value[String(item.id)] || item.preview_url || item.view_url || ''
+}
+
+function thumbnailSrc(item: ImageLibraryItem): string {
+  const full = fullImageSrc(item)
+  return full ? buildOssThumbnailUrl(full, { width: props.compact ? 320 : 480 }) : ''
+}
+
+function openLightbox(item: ImageLibraryItem) {
+  const full = fullImageSrc(item)
+  if (!full) return
+  lightboxSrc.value = full
+  lightboxAlt.value = item.title || t('imageWorkflow.library.untitled')
 }
 
 function modeLabel(mode: string) {

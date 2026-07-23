@@ -190,21 +190,19 @@
 
           <template #cell-results="{ row }">
             <div class="flex min-w-[150px] items-center gap-2.5 whitespace-nowrap">
-              <a
+              <button
                 v-if="taskPreviewUrl(row)"
-                :href="taskViewUrl(row)"
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
                 class="block h-10 w-10 flex-none overflow-hidden rounded border border-gray-200 bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-700 dark:bg-dark-800"
-                @click.prevent.stop="openTaskResult(row)"
+                @click.stop="openTaskResult(row)"
               >
                 <img
-                  :src="taskPreviewUrl(row)"
+                  :src="taskThumbUrl(row)"
                   :alt="t('asyncImageTasks.detail.resultAlt', { index: 1 })"
                   class="h-full w-full object-cover"
                   loading="lazy"
                 />
-              </a>
+              </button>
               <div>
                 <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
                   {{ resultCount(row) }} / {{ row.image_count ?? resultCount(row) }}
@@ -362,17 +360,15 @@
           </div>
           <div v-if="detail.results?.length" class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             <figure v-for="(result, index) in detail.results" :key="result.id" class="group overflow-hidden rounded-md border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-900">
-              <a
+              <button
                 v-if="resultViewUrl(result)"
-                :href="resultViewUrl(result)"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="block aspect-square overflow-hidden bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-dark-800"
-                @click.prevent="openResultImage(result)"
+                type="button"
+                class="block w-full aspect-square overflow-hidden bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-dark-800"
+                @click="openResultImage(result)"
               >
                 <img
-                  v-if="resultPreviewUrl(result)"
-                  :src="resultPreviewUrl(result)"
+                  v-if="resultThumbUrl(result)"
+                  :src="resultThumbUrl(result)"
                   :alt="t('asyncImageTasks.detail.resultAlt', { index: index + 1 })"
                   class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                   loading="lazy"
@@ -380,14 +376,13 @@
                 <span v-else class="flex h-full items-center justify-center text-gray-400">
                   <Icon name="inbox" size="lg" />
                 </span>
-              </a>
+              </button>
               <div v-else class="flex aspect-square items-center justify-center bg-gray-100 text-gray-400 dark:bg-dark-800">
                 <Icon name="inbox" size="lg" />
               </div>
               <figcaption class="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-gray-500 dark:text-gray-400">
                 <span>#{{ result.index ?? index + 1 }}</span>
                 <span class="truncate">{{ resultSize(result) }}</span>
-                <Icon v-if="resultViewUrl(result)" name="externalLink" size="xs" />
               </figcaption>
             </figure>
           </div>
@@ -424,6 +419,8 @@
       @confirm="resumeTask"
       @cancel="resumeTarget = null"
     />
+
+    <ImageLightbox :src="lightboxSrc" :alt="lightboxAlt" @close="lightboxSrc = ''" />
   </AppLayout>
 </template>
 
@@ -437,6 +434,7 @@ import AutoRefreshButton from '@/components/common/AutoRefreshButton.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
@@ -446,6 +444,7 @@ import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatBytes, formatCurrency, formatDateTime } from '@/utils/format'
+import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 import { sanitizeUrl } from '@/utils/url'
 
 import asyncImageTasksAPI from './api'
@@ -493,6 +492,8 @@ const loading = ref(false)
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<AsyncImageTask | null>(null)
+const lightboxSrc = ref('')
+const lightboxAlt = ref('')
 const resumeTarget = ref<AsyncImageTask | null>(null)
 const resuming = ref(false)
 const pagination = reactive({ page: 1, page_size: 20, total: 0, pages: 0 })
@@ -685,12 +686,22 @@ function taskPreviewUrl(task: AsyncImageTask): string {
   return safeResultUrl(task.preview_url)
 }
 
-function taskViewUrl(task: AsyncImageTask): string {
-  return safeResultUrl(task.view_url || task.preview_url)
+function taskThumbUrl(task: AsyncImageTask): string {
+  return buildOssThumbnailUrl(taskPreviewUrl(task), {
+    width: 160,
+    provider: task.storage_provider,
+  })
 }
 
 function resultPreviewUrl(result: AsyncImageTaskResult): string {
   return safeResultUrl(result.preview_url)
+}
+
+function resultThumbUrl(result: AsyncImageTaskResult): string {
+  return buildOssThumbnailUrl(resultPreviewUrl(result) || resultViewUrl(result), {
+    width: 360,
+    provider: result.provider || detail.value?.storage_provider,
+  })
 }
 
 function resultViewUrl(result: AsyncImageTaskResult): string {
@@ -701,20 +712,25 @@ async function openResolvedImage(viewUrl?: string | null, previewUrl?: string | 
   const stableURL = safeResultUrl(viewUrl)
   const fallbackURL = safeResultUrl(previewUrl)
   if (!stableURL) {
-    if (fallbackURL) window.open(fallbackURL, '_blank', 'noopener,noreferrer')
+    if (fallbackURL) {
+      lightboxSrc.value = fallbackURL
+      lightboxAlt.value = ''
+    }
     return
   }
 
-  const popup = window.open('about:blank', '_blank')
-  if (popup) popup.opener = null
   try {
     const access = await asyncImageTasksAPI.resolveView(stableURL)
-    const accessURL = safeResultUrl(access.url)
+    const accessURL = safeResultUrl(access.url) || fallbackURL
     if (!accessURL) throw new Error('Invalid image result URL')
-    if (popup) popup.location.replace(accessURL)
-    else window.location.assign(accessURL)
+    lightboxSrc.value = accessURL
+    lightboxAlt.value = ''
   } catch (error) {
-    popup?.close()
+    if (fallbackURL) {
+      lightboxSrc.value = fallbackURL
+      lightboxAlt.value = ''
+      return
+    }
     appStore.showError(extractApiErrorMessage(error, t('asyncImageTasks.errors.openResult')))
   }
 }

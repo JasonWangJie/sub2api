@@ -200,7 +200,15 @@ BB Gemini 参数约束：
 
 ## 5. BB / OpenAI
 
-OpenAI `_oa` 接口复用现有 OpenAI Images 解析、模型映射、内容审核、账号选择、故障切换、并发和计费链路。`model`、`prompt`、`n`、`size`、`quality`、`background`、`output_format`、`output_compression`、`response_format`、`moderation`、`style` 等既有原生参数按模型能力继续兼容；`stream` 必须为 `false` 或省略。
+OpenAI `_oa` 接口复用现有 OpenAI Images 解析、模型映射、内容审核、账号选择、故障切换、并发和计费链路。`model`、`prompt`、`n`、`quality`、`background`、`output_format`、`output_compression`、`response_format`、`moderation`、`style` 等既有原生参数按模型能力继续兼容；`stream` 必须为 `false` 或省略。
+
+尺寸推荐传 `resolution`（`1K`/`2K`/`4K`）+ `aspect_ratio`（`1:1`/`3:2`/`2:3`/`16:9`/`9:16`）。`size` 兼容：
+
+- 比例字符串（如 `9:16`），等价于 `aspect_ratio`
+- 旧版 WxH（如 `1024x1024`）或 `auto`
+- 档位字符串（如 `2K`），等价于 `resolution`
+
+网关会映射为上游 OpenAI Images 的 WxH `size` 后再转发。
 
 ### 5.1 文生图
 
@@ -210,11 +218,21 @@ POST /v1/images/generations_oa
 
 ```json
 {
-  "model": "gpt-image-1",
+  "model": "gpt-image-2",
   "prompt": "一只在沙滩上的猫，写实风格",
   "n": 1,
-  "size": "1536x1024",
+  "resolution": "1K",
+  "aspect_ratio": "3:2",
   "quality": "high"
+}
+```
+
+```json
+{
+  "model": "gpt-image-2",
+  "prompt": "竖屏建筑工艺长镜头",
+  "resolution": "2K",
+  "size": "9:16"
 }
 ```
 
@@ -226,18 +244,17 @@ POST /v1/images/edits_oa
 
 ```json
 {
-  "model": "gpt-image-1",
+  "model": "gpt-image-2",
   "prompt": "保留主体，把背景换成夜景",
-  "images": [
-    {
-      "image_url": "https://cdn.example.com/reference.png"
-    }
+  "image_urls": [
+    "https://cdn.example.com/reference.png"
   ],
-  "size": "1024x1024"
+  "resolution": "1K",
+  "aspect_ratio": "1:1"
 }
 ```
 
-JSON 图生图至少需要一个 `images[].image_url`。`images[].file_id` 不受支持；遮罩图 URL 使用现有的 `mask.image_url` 格式。
+JSON 图生图使用 `image_urls`（URL 字符串数组）。仍兼容旧的 `images[].image_url` 对象数组。`images[].file_id` 不受支持；遮罩图 URL 使用现有的 `mask.image_url` 格式。网关在转发上游 API Key 通道前会把 `image_urls` 规范化为上游 `images[].image_url`。
 
 ### 5.3 图生图 multipart
 
@@ -309,11 +326,14 @@ Authorization: Bearer <提交任务的同一个 API_KEY>
 ```json
 {
   "status": "failed",
+  "task_id": "asyncimg_0123456789abcdef",
   "fail_reason": "image generation failed"
 }
 ```
 
 成功和失败查询都返回 HTTP `200`。只有 `status` 为 `succeeded` 时才可以消费 `data[].url`；不要根据 HTTP `200` 单独判断任务成功。
+
+同一 API Key 提交的任务可用 BB 或 SC 查询路径读取；响应按请求路径的方言格式返回，避免因路径与提交方言不一致而误报 `task_not_found`。
 
 ## 7. SC / Gemini
 
@@ -530,6 +550,8 @@ Authorization: Bearer <提交任务的同一个 API_KEY>
 | `execution_unknown` | 上游请求发出后进程中断，无法确认是否产生结果 | `failed` / `failed` |
 
 只有 OSS 结果清单已持久化且账务状态已确认，任务才对外显示成功。标准模式要求原计费入口确认成功；全站 `simple` 模式沿用项目现有“不扣费但记录用量”语义，以 `not_billable` 作为已确认终态。因而 `processing` 可能表示图片已经生成但仍在上传或结算，客户端必须继续轮询。
+
+单次上游调用受 `async_image.execution_timeout_seconds` 限制（默认 `1200`，即 20 分钟）。Worker 会对该次 invoke 使用 `context` 超时；若上游忽略取消、心跳又不断刷新 `updated_at`，恢复环仍会按 `started_at`（没有则用 `created_at`）的墙钟时间把仍为 `invoking` 的任务标记为 `failed`，`error_code=execution_timeout`。对外 BB `fail_reason` / SC `failReason` 为可读超时文案。配置文件与后台图片存储设置里的异步运行参数均可调整；已保存的后台设置优先于配置文件。
 
 标准 Gemini/OpenAI 同步上游没有可依赖的幂等保证。系统不会自动重新调用处于 `execution_unknown` 的任务，以免生成第二份图片和产生第二次上游费用。自动重试和管理员“续跑”只处理存储、计费和用量日志等后处理阶段，不会在原任务号下重新生成。
 

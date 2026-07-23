@@ -289,6 +289,13 @@ type AsyncImageLibraryArchiveOutboxRepository interface {
 	MarkAsyncImageOutboxTerminal(ctx context.Context, id int64, claimToken string, publishedAt time.Time, message string) error
 }
 
+// AsyncImageInvocationTimeoutRepository lists hung invoking tasks by wall-clock
+// start time. Heartbeats keep updated_at fresh, so lease-only recovery cannot
+// terminate upstream calls that ignore context cancellation.
+type AsyncImageInvocationTimeoutRepository interface {
+	ListTimedOutInvokingAsyncImageTasks(ctx context.Context, startedBefore time.Time, limit int) ([]*AsyncImageTask, error)
+}
+
 type AsyncImageTaskService struct {
 	repo AsyncImageTaskRepository
 }

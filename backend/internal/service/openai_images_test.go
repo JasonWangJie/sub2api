@@ -361,7 +361,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSONEditURLs(t *testing.T)
 	body := []byte(`{
 		"model":"gpt-image-2",
 		"prompt":"replace the background",
-		"images":[{"image_url":"https://example.com/source.png"}],
+		"image_urls":["https://example.com/source.png"],
 		"mask":{"image_url":"https://example.com/mask.png"},
 		"input_fidelity":"high",
 		"output_compression":90,
@@ -380,6 +380,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSONEditURLs(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, parsed)
 	require.Equal(t, []string{"https://example.com/source.png"}, parsed.InputImageURLs)
+	require.True(t, parsed.NeedsInputRewrite)
 	require.Equal(t, "https://example.com/mask.png", parsed.MaskImageURL)
 	require.Equal(t, "high", parsed.InputFidelity)
 	require.NotNil(t, parsed.OutputCompression)
@@ -388,6 +389,32 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSONEditURLs(t *testing.T)
 	require.Equal(t, 2, *parsed.PartialImages)
 	require.True(t, parsed.HasMask)
 	require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
+
+	rewritten, _, err := rewriteOpenAIImagesEditInputs(body, "application/json", parsed)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(rewritten, "image_urls").Exists())
+	require.Equal(t, "https://example.com/source.png", gjson.GetBytes(rewritten, "images.0.image_url").String())
+}
+
+func TestOpenAIGatewayServiceParseOpenAIImagesRequest_LegacyImagesCompat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{
+		"model":"gpt-image-2",
+		"prompt":"replace the background",
+		"images":[{"image_url":"https://example.com/source.png"}]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	svc := &OpenAIGatewayService{}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://example.com/source.png"}, parsed.InputImageURLs)
+	require.False(t, parsed.NeedsInputRewrite)
 }
 
 func TestCollectOpenAIImagePointers_RecognizesDirectAssets(t *testing.T) {

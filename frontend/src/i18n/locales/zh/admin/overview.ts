@@ -128,7 +128,7 @@ export default {
         runtimeDescription: '配置队列恢复、参考图下载限制、链接签名和保留时间。',
         asyncPublicBaseUrl: '任务查询链接的站点公开地址',
         workerConcurrency: 'Worker 并发数',
-        executionTimeoutSeconds: '任务执行超时（秒）',
+        executionTimeoutSeconds: '任务执行超时（秒，默认 1200）',
         signedUrlExpirySeconds: '签名链接有效期（秒）',
         inputRetentionHours: '参考图保留时间（小时）',
         uploadPerMinute: '每个 API Key 每分钟 SC 上传数',

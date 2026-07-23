@@ -2,10 +2,37 @@ package handler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAsyncImageExecutionTimeoutDefaultsToTwentyMinutes(t *testing.T) {
+	require.Equal(t, 20*time.Minute, asyncImageExecutionTimeout(service.AsyncImageRuntimeConfig{}))
+	require.Equal(t, 20*time.Minute, asyncImageExecutionTimeout(service.AsyncImageRuntimeConfig{ExecutionTimeoutSeconds: 1200}))
+	require.Equal(t, 5*time.Minute, asyncImageExecutionTimeout(service.AsyncImageRuntimeConfig{ExecutionTimeoutSeconds: 300}))
+}
+
+func TestAsyncImageInvocationTimedOutUsesStartedAtWallClock(t *testing.T) {
+	now := time.Date(2026, 7, 23, 15, 0, 0, 0, time.UTC)
+	started := now.Add(-21 * time.Minute)
+	task := &service.AsyncImageTask{
+		Status:    service.AsyncImageTaskStatusInvoking,
+		StartedAt: &started,
+		CreatedAt: now.Add(-30 * time.Minute),
+	}
+	require.True(t, asyncImageInvocationTimedOut(task, 20*time.Minute, now))
+	require.False(t, asyncImageInvocationTimedOut(task, 30*time.Minute, now))
+
+	fresh := now.Add(-5 * time.Minute)
+	task.StartedAt = &fresh
+	require.False(t, asyncImageInvocationTimedOut(task, 20*time.Minute, now))
+
+	task.StartedAt = nil
+	task.CreatedAt = now.Add(-25 * time.Minute)
+	require.True(t, asyncImageInvocationTimedOut(task, 20*time.Minute, now))
+}
 
 func TestApplyCapturedGeminiImageDimensionsUsesActualOutputForBilling(t *testing.T) {
 	requested := "0.5K"

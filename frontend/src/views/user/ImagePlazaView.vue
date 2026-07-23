@@ -77,7 +77,7 @@
           <button type="button" class="plaza-item__media" @click="openPreview(item)">
             <img
               v-if="!broken.has(String(item.id))"
-              :src="resolvePlazaImageUrl(item)"
+              :src="plazaThumbUrl(item)"
               :alt="item.title || t('imageWorkflow.library.untitled')"
               loading="lazy"
               decoding="async"
@@ -120,10 +120,21 @@
             <a class="plaza-action" :href="resolvePlazaImageUrl(item)" target="_blank" rel="noopener" :title="t('imageWorkbench.download')" :aria-label="t('imageWorkbench.download')">
               <Icon name="download" size="sm" />
             </a>
-            <button v-if="item.is_owner && item.asset_id" type="button" class="plaza-text-action" @click="withdraw(item)">
-              {{ t('imageWorkflow.library.withdraw') }}
+            <button
+              v-if="authStore.isAdmin"
+              type="button"
+              class="plaza-text-action is-danger"
+              :disabled="busyId === String(item.id)"
+              @click="adminHide(item)"
+            >
+              {{ t('common.delete') }}
             </button>
-            <button v-else type="button" class="plaza-text-action" @click="openReport(item)">
+            <button
+              v-else
+              type="button"
+              class="plaza-text-action"
+              @click="openReport(item)"
+            >
               {{ t('imageWorkflow.plaza.report') }}
             </button>
           </div>
@@ -203,17 +214,20 @@ import {
   resolvePlazaImageUrl,
   type ImagePlazaReportReason,
 } from '@/api/imagePlaza'
-import { withdrawImageLibraryItem } from '@/api/imageLibrary'
+import { reviewPublication } from '@/api/imageLibrary'
 import type { ImagePlazaItem } from '@/features/image-workflow/types'
-import { useAppStore } from '@/stores'
+import { useAppStore, useAuthStore } from '@/stores'
+import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 
 const { t } = useI18n()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const ratios = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
 const loading = ref(false)
 const loadingMore = ref(false)
 const reporting = ref(false)
+const busyId = ref('')
 const error = ref('')
 const items = ref<ImagePlazaItem[]>([])
 const nextCursor = ref<string | null>(null)
@@ -276,14 +290,23 @@ function reuse(item: ImagePlazaItem) {
   router.push({ path: '/image-workbench', query: { prompt: item.prompt, model: item.model, size: item.size || undefined } })
 }
 
-async function withdraw(item: ImagePlazaItem) {
-  if (!item.asset_id || !window.confirm(t('imageWorkflow.library.withdrawConfirm'))) return
+function plazaThumbUrl(item: ImagePlazaItem) {
+  return buildOssThumbnailUrl(resolvePlazaImageUrl(item), { width: 480 })
+}
+
+async function adminHide(item: ImagePlazaItem) {
+  const id = item.publication_id || item.id
+  if (!id || !window.confirm(t('imageWorkflow.plaza.adminDeleteConfirm'))) return
+  busyId.value = String(item.id)
   try {
-    await withdrawImageLibraryItem(item.asset_id)
+    await reviewPublication(id, 'hide', t('imageWorkflow.plaza.adminDeleteReason'))
     items.value = items.value.filter((candidate) => candidate.id !== item.id)
-    appStore.showSuccess(t('imageWorkflow.library.withdrawn'))
+    if (total.value != null) total.value = Math.max(0, total.value - 1)
+    appStore.showSuccess(t('imageWorkflow.plaza.adminDeleted'))
   } catch (cause: any) {
     appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
+  } finally {
+    busyId.value = ''
   }
 }
 
@@ -380,6 +403,8 @@ onMounted(refresh)
 .plaza-text-action { min-width: 0; flex: 1; height: 2.25rem; overflow: hidden; padding: 0 0.55rem; border: 1px solid #d1d5db; border-radius: 6px; color: #4b5563; font-size: 0.7rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .dark .plaza-text-action { border-color: #4b5563; color: #d1d5db; }
 .plaza-text-action:hover { border-color: #0d9488; color: #0f766e; }
+.plaza-text-action.is-danger { border-color: #fca5a5; color: #b91c1c; }
+.plaza-text-action.is-danger:hover { border-color: #ef4444; color: #991b1b; }
 .plaza-empty { display: flex; min-height: 17rem; flex-direction: column; align-items: center; justify-content: center; gap: 0.45rem; border: 1px dashed #d1d5db; border-radius: 8px; color: #6b7280; text-align: center; font-size: 0.78rem; }
 .dark .plaza-empty { border-color: #374151; color: #9ca3af; }
 .plaza-empty.is-error { color: #b91c1c; }

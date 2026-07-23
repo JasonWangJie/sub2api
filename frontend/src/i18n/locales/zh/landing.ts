@@ -85,7 +85,7 @@ export default {
     description: '浏览全站用户公开的生成图片，支持搜索、下载与一键同款',
     searchPlaceholder: '搜索提示词、标签、时间',
     selectAllPage: '全选当前页',
-    sharedHint: '全站共享 · 仅可删除自己发布的图片',
+    sharedHint: '全站共享 · 管理员可下架，普通用户可举报',
     total: '共 {n} 张图片',
     empty: '广场还没有图片，去工作台生成并勾选同步吧',
     goWorkbench: '打开图片工作台',

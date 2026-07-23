@@ -2102,7 +2102,7 @@ func setDefaults() {
 	viper.SetDefault("async_image.worker_concurrency", 4)
 	viper.SetDefault("async_image.worker_lease_seconds", 120)
 	viper.SetDefault("async_image.recovery_interval_seconds", 30)
-	viper.SetDefault("async_image.execution_timeout_seconds", 900)
+	viper.SetDefault("async_image.execution_timeout_seconds", 1200)
 	viper.SetDefault("async_image.storage_retry_attempts", 5)
 	viper.SetDefault("async_image.billing_retry_attempts", 10)
 	viper.SetDefault("async_image.retry_backoff_seconds", 30)

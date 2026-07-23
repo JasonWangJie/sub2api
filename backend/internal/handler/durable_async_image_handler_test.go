@@ -107,6 +107,29 @@ func TestExtractOpenAIAsyncImageOutputsB64(t *testing.T) {
 	require.NotEmpty(t, outputs[0].Checksum)
 }
 
+func TestWriteBBQueryFailedIncludesTaskIDAndFailReason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &DurableAsyncImageHandler{}
+	message := "upstream image generation failed"
+	code := "upstream_failed"
+	details := &service.AsyncImageTaskDetails{
+		Task: &service.AsyncImageTask{
+			TaskID:       "asyncimg_failed",
+			Protocol:     service.AsyncImageProtocolSC,
+			Platform:     service.PlatformGemini,
+			Status:       service.AsyncImageTaskStatusFailed,
+			ErrorCode:    &code,
+			ErrorMessage: &message,
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	h.writeBBQuery(ctx, details, service.AsyncImageRuntimeConfig{})
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"status":"failed","task_id":"asyncimg_failed","fail_reason":"upstream image generation failed"}`, recorder.Body.String())
+}
+
 func TestWriteAsyncImageSubmitResponsesKeepDialectsSeparate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &DurableAsyncImageHandler{}
@@ -131,4 +154,18 @@ func TestWriteAsyncImageSubmitResponsesKeepDialectsSeparate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(scRecorder.Body.Bytes(), &sc))
 	require.Equal(t, float64(200), sc["code"])
 	require.NotContains(t, sc, "task_id")
+}
+
+func TestAsyncImageFailureMessageExecutionTimeout(t *testing.T) {
+	code := "execution_timeout"
+	message := "image generation timed out after 20m0s"
+	require.Equal(t, message, asyncImageFailureMessage(&service.AsyncImageTask{
+		Status:       service.AsyncImageTaskStatusFailed,
+		ErrorCode:    &code,
+		ErrorMessage: &message,
+	}))
+	require.Equal(t, "image generation timed out", asyncImageFailureMessage(&service.AsyncImageTask{
+		Status:    service.AsyncImageTaskStatusFailed,
+		ErrorCode: &code,
+	}))
 }

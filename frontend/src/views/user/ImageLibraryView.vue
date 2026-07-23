@@ -13,7 +13,7 @@
       </header>
 
       <div class="image-library-page__surface">
-        <ImageLibraryPanel @reuse="reuse" @view="view" />
+        <ImageLibraryPanel @reuse="reuse" />
       </div>
     </div>
   </AppLayout>
@@ -25,7 +25,6 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ImageLibraryPanel from '@/features/image-workflow/ImageLibraryPanel.vue'
-import { imageLibraryViewURL } from '@/api/imageLibrary'
 import type { ImageLibraryItem } from '@/features/image-workflow/types'
 
 const { t } = useI18n()
@@ -40,10 +39,6 @@ function reuse(item: ImageLibraryItem) {
       size: item.requested_size || undefined,
     },
   })
-}
-
-function view(item: ImageLibraryItem) {
-  window.open(imageLibraryViewURL(item), '_blank', 'noopener,noreferrer')
 }
 </script>
 
