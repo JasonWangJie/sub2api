@@ -34,7 +34,7 @@ func TestAsyncImageInvocationTimedOutUsesStartedAtWallClock(t *testing.T) {
 	require.True(t, asyncImageInvocationTimedOut(task, 20*time.Minute, now))
 }
 
-func TestApplyCapturedGeminiImageDimensionsUsesActualOutputForBilling(t *testing.T) {
+func TestApplyCapturedGeminiImageDimensionsUsesRequestedTierForBilling(t *testing.T) {
 	requested := "0.5K"
 	result := &service.ForwardResult{ImageCount: 1, ImageSize: service.ImageBillingSize2K}
 
@@ -43,7 +43,22 @@ func TestApplyCapturedGeminiImageDimensionsUsesActualOutputForBilling(t *testing
 	require.Equal(t, service.ImageBillingSize1K, result.ImageSize)
 	require.Equal(t, "0.5K", result.ImageInputSize)
 	require.Equal(t, "512x512", result.ImageOutputSize)
-	require.Equal(t, service.ImageSizeSourceOutput, result.ImageSizeSource)
+	require.Equal(t, service.ImageSizeSourceInput, result.ImageSizeSource)
+	require.Equal(t, map[string]int{service.ImageBillingSize1K: 1}, result.ImageSizeBreakdown)
+}
+
+func TestApplyCapturedOpenAIImageDimensionsUsesRequestedTierOverPixels(t *testing.T) {
+	requested := "1K"
+	result := &service.OpenAIForwardResult{ImageCount: 1, ImageSize: service.ImageBillingSize2K}
+
+	applyCapturedOpenAIImageDimensions(result, []asyncImageCapturedOutput{
+		{Width: 1536, Height: 1024},
+	}, &requested)
+
+	require.Equal(t, service.ImageBillingSize1K, result.ImageSize)
+	require.Equal(t, "1K", result.ImageInputSize)
+	require.Equal(t, "1536x1024", result.ImageOutputSize)
+	require.Equal(t, service.ImageSizeSourceInput, result.ImageSizeSource)
 	require.Equal(t, map[string]int{service.ImageBillingSize1K: 1}, result.ImageSizeBreakdown)
 }
 

@@ -104,6 +104,15 @@ func ResolveGeminiImageBillingSize(inputSize string, outputSizes []string) Image
 	return resolveImageBillingSize(inputSize, outputSizes, true)
 }
 
+func isExplicitImageBillingTier(size string) bool {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "0.5k", "1k", "2k", "4k":
+		return true
+	default:
+		return false
+	}
+}
+
 func resolveImageBillingSize(inputSize string, outputSizes []string, gemini bool) ImageBillingSizeResolution {
 	inputSize = strings.TrimSpace(inputSize)
 	outputSizes = compactTrimmedStrings(outputSizes)
@@ -112,8 +121,27 @@ func resolveImageBillingSize(inputSize string, outputSizes []string, gemini bool
 		classify = ClassifyGeminiImageBillingTier
 	}
 
-	breakdown := map[string]int{}
 	outputSize := firstDisplayImageOutputSize(outputSizes)
+
+	// Workbench / async clients select an explicit 1K/2K/4K (or 0.5K→1K) tariff.
+	// Aspect-ratio mapped WxH must not reclassify a requested 1K into 2K/4K.
+	if isExplicitImageBillingTier(inputSize) {
+		if tier, ok := classify(inputSize); ok {
+			breakdown := map[string]int{}
+			if n := len(outputSizes); n > 0 {
+				breakdown[tier] = n
+			}
+			return ImageBillingSizeResolution{
+				BillingSize: tier,
+				InputSize:   inputSize,
+				OutputSize:  outputSize,
+				Source:      ImageSizeSourceInput,
+				Breakdown:   normalizeImageSizeBreakdown(breakdown),
+			}
+		}
+	}
+
+	breakdown := map[string]int{}
 	outputTier := ""
 	for _, output := range outputSizes {
 		tier, ok := classify(output)
@@ -187,8 +215,9 @@ func ApplyForwardImageBillingResolution(result *ForwardResult) {
 	if len(outputSizes) == 0 && strings.TrimSpace(result.ImageOutputSize) != "" {
 		outputSizes = []string{result.ImageOutputSize}
 	}
-	// ForwardResult image accounting is Gemini-family (sync + async). Use
-	// short-edge tier mapping so non-square 1K/2K outputs are not overbilled.
+	// ForwardResult image accounting is Gemini-family (sync + async).
+	// Explicit 1K/2K/4K requests keep that tariff; WxH-only requests still use
+	// short-edge output classification.
 	resolved := ResolveGeminiImageBillingSize(inputSize, outputSizes)
 	applyImageBillingResolution(
 		&result.ImageSize,

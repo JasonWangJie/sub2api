@@ -48,9 +48,9 @@ func TestGeminiImageOutputCounterCollectsEveryPartAndRealDimensions(t *testing.T
 	result := &ForwardResult{ImageInputSize: "1K"}
 	applyGeminiImageOutputAccounting(result, counter)
 	require.Equal(t, 2, result.ImageCount)
-	require.Equal(t, "4K", result.ImageSize)
-	require.Equal(t, ImageSizeSourceOutput, result.ImageSizeSource)
-	require.Equal(t, map[string]int{"1K": 1, "4K": 1}, result.ImageSizeBreakdown)
+	require.Equal(t, "1K", result.ImageSize)
+	require.Equal(t, ImageSizeSourceInput, result.ImageSizeSource)
+	require.Equal(t, map[string]int{"1K": 2}, result.ImageSizeBreakdown)
 }
 
 func TestGeminiImageOutputCounterTreatsChangingStreamSlotAsOneImage(t *testing.T) {

@@ -67,14 +67,31 @@ func TestClassifyGeminiImageBillingTier(t *testing.T) {
 func TestResolveGeminiImageBillingSizeNonSquareTiers(t *testing.T) {
 	got := ResolveGeminiImageBillingSize("1K", []string{"1344x768"})
 	require.Equal(t, ImageBillingSize1K, got.BillingSize)
-	require.Equal(t, ImageSizeSourceOutput, got.Source)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
 	require.Equal(t, map[string]int{ImageBillingSize1K: 1}, got.Breakdown)
 
 	got = ResolveGeminiImageBillingSize("2K", []string{"2688x1536"})
 	require.Equal(t, ImageBillingSize2K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
 
 	got = ResolveGeminiImageBillingSize("4K", []string{"5376x3072"})
 	require.Equal(t, ImageBillingSize4K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
+}
+
+func TestResolveImageBillingSizeExplicitTierWinsOverOutputPixels(t *testing.T) {
+	// OpenAI 1K 16:9 maps to 1536x1024; long-edge classification would bump to 2K.
+	got := ResolveImageBillingSize("1K", []string{"1536x1024"})
+	require.Equal(t, ImageBillingSize1K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
+	require.Equal(t, map[string]int{ImageBillingSize1K: 1}, got.Breakdown)
+
+	got = ResolveImageBillingSize("2K", []string{"2048x1152"})
+	require.Equal(t, ImageBillingSize2K, got.BillingSize)
+
+	got = ResolveImageBillingSize("0.5K", []string{"512x512"})
+	require.Equal(t, ImageBillingSize1K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
 }
 
 func TestApplyForwardImageBillingResolutionUsesGeminiShortEdge(t *testing.T) {
@@ -85,7 +102,7 @@ func TestApplyForwardImageBillingResolutionUsesGeminiShortEdge(t *testing.T) {
 	}
 	ApplyForwardImageBillingResolution(result)
 	require.Equal(t, ImageBillingSize1K, result.ImageSize)
-	require.Equal(t, ImageSizeSourceOutput, result.ImageSizeSource)
+	require.Equal(t, ImageSizeSourceInput, result.ImageSizeSource)
 }
 
 func TestResolveImageBillingSize(t *testing.T) {
