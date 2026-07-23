@@ -294,6 +294,48 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			requestedModel: "gemini-3.1-pro-preview-customtools",
 			expected:       "gemini-3.1-pro-high",
 		},
+		{
+			name: "gemini-3-pro-image identity stays on pro-image",
+			modelMapping: map[string]any{
+				"gemini-3.1-flash-image": "gemini-3.1-flash-image",
+				"gemini-3-pro-image":     "gemini-3-pro-image",
+			},
+			requestedModel: "gemini-3-pro-image",
+			expected:       "gemini-3-pro-image",
+		},
+		{
+			name: "stale gemini-3-pro-image flash remap restored to pro-image",
+			modelMapping: map[string]any{
+				"gemini-3.1-flash-image": "gemini-3.1-flash-image",
+				"gemini-3-pro-image":     "gemini-3.1-flash-image",
+			},
+			requestedModel: "gemini-3-pro-image",
+			expected:       "gemini-3-pro-image",
+		},
+		{
+			name: "gemini-3-pro-image-preview lands on pro-image",
+			modelMapping: map[string]any{
+				"gemini-3-pro-image-preview": "gemini-3-pro-image",
+			},
+			requestedModel: "gemini-3-pro-image-preview",
+			expected:       "gemini-3-pro-image",
+		},
+		{
+			name: "stale preview-to-flash remap restored to pro-image",
+			modelMapping: map[string]any{
+				"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
+			},
+			requestedModel: "gemini-3-pro-image-preview",
+			expected:       "gemini-3-pro-image",
+		},
+		{
+			name: "custom non-legacy image mapping is preserved",
+			modelMapping: map[string]any{
+				"gemini-3-pro-image": "my-custom-image-proxy",
+			},
+			requestedModel: "gemini-3-pro-image",
+			expected:       "my-custom-image-proxy",
+		},
 	}
 
 	for _, tt := range tests {

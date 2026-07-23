@@ -609,6 +609,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 				"gemini-3.1-pro-low",
 			})
 			applyAntigravityGemini31ProAliases(result)
+			applyAntigravityGeminiImageAliases(result)
 		}
 		return result
 	}
@@ -718,6 +719,53 @@ func applyAntigravityGemini31ProAliases(mapping map[string]string) {
 			continue
 		}
 		mapping[alias.model] = target
+	}
+}
+
+// applyAntigravityGeminiImageAliases keeps Gemini Pro Image on itself.
+// Preview aliases land on GA gemini-3-pro-image. Do not rewrite Pro Image to
+// gemini-3.1-flash-image; they are separate GA models.
+func applyAntigravityGeminiImageAliases(mapping map[string]string) {
+	if mapping == nil {
+		return
+	}
+	const (
+		proImage     = "gemini-3-pro-image"
+		proPreview   = "gemini-3-pro-image-preview"
+		flashImage   = "gemini-3.1-flash-image"
+		flashPreview = "gemini-3.1-flash-image-preview"
+	)
+
+	ensureIdentity := func(model string) {
+		current, exists := mapping[model]
+		if !exists {
+			mapping[model] = model
+			return
+		}
+		current = strings.TrimSpace(current)
+		if current == "" ||
+			current == flashImage ||
+			current == flashPreview ||
+			current == proPreview ||
+			(strings.HasPrefix(current, "gemini-3-pro-image-") && current != proImage) {
+			mapping[model] = model
+		}
+	}
+
+	ensureIdentity(proImage)
+
+	current, exists := mapping[proPreview]
+	if !exists {
+		mapping[proPreview] = proImage
+		return
+	}
+	current = strings.TrimSpace(current)
+	if current == "" ||
+		current == proPreview ||
+		current == flashImage ||
+		current == flashPreview ||
+		strings.HasPrefix(current, "gemini-3-pro-image-") {
+		mapping[proPreview] = proImage
 	}
 }
 

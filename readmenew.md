@@ -204,3 +204,16 @@
 ```text
 这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/文档索引.md、当前状态与完成度.md、测试与验收记录.md 和 智能助手交接清单.md，再检查当前分支与脏工作树。Fork 自研 SQL 使用 NNN_ZJ_description.sql；182_ZJ 是初版图片广场，185_ZJ 是持久异步任务，186_ZJ 是统一图片对象/个人图库/审核广场，187_ZJ 是 SC 上传 PostgreSQL admission/幂等/恢复，188_ZJ 是本机延期投稿（审核通过后再同步 OSS），189_ZJ 是异步结果上传意图；上游 182_prompt、183、184 保持原名。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```
+
+
+### 启动方式：
+# 终端 1 — 后端（启动时自动跑 185/186/187；端口占用会先杀再启）
+cd d:\个人项目\Git仓库\sub2api\backend
+.\run-server.cmd
+# 或：powershell -File .\scripts\run-server.ps1
+# 默认 http://localhost:8080
+# 终端 2 — 前端
+cd d:\个人项目\Git仓库\sub2api\frontend
+pnpm install
+pnpm run dev
+# 默认 http://127.0.0.1:3000 ，/api 与 /v1 代理到 :8080

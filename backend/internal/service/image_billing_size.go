@@ -26,6 +26,18 @@ type ImageBillingSizeResolution struct {
 }
 
 func ClassifyImageBillingTier(size string) (string, bool) {
+	return classifyImageBillingTier(size, false)
+}
+
+// ClassifyGeminiImageBillingTier maps Gemini image sizes onto the shared
+// 1K/2K/4K tariff. Gemini tiers are defined by the short edge (~1024/2048/4096)
+// while aspect ratio stretches the long edge, so long-edge OpenAI rules must
+// not be reused or non-square 1K/2K outputs are overbilled.
+func ClassifyGeminiImageBillingTier(size string) (string, bool) {
+	return classifyImageBillingTier(size, true)
+}
+
+func classifyImageBillingTier(size string, useShortEdge bool) (string, bool) {
 	trimmed := strings.TrimSpace(size)
 	normalized := strings.ToLower(trimmed)
 	switch normalized {
@@ -52,14 +64,18 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	maxEdge := width
-	if height > maxEdge {
-		maxEdge = height
+	edge := width
+	if useShortEdge {
+		if height < edge {
+			edge = height
+		}
+	} else if height > edge {
+		edge = height
 	}
 	switch {
-	case maxEdge <= 1024:
+	case edge <= 1024:
 		return ImageBillingSize1K, true
-	case maxEdge <= 2048:
+	case edge <= 2048:
 		return ImageBillingSize2K, true
 	default:
 		return ImageBillingSize4K, true
@@ -73,15 +89,34 @@ func NormalizeImageBillingTierOrDefault(size string) string {
 	return ImageBillingSize2K
 }
 
+func NormalizeGeminiImageBillingTierOrDefault(size string) string {
+	if tier, ok := ClassifyGeminiImageBillingTier(size); ok {
+		return tier
+	}
+	return ImageBillingSize2K
+}
+
 func ResolveImageBillingSize(inputSize string, outputSizes []string) ImageBillingSizeResolution {
+	return resolveImageBillingSize(inputSize, outputSizes, false)
+}
+
+func ResolveGeminiImageBillingSize(inputSize string, outputSizes []string) ImageBillingSizeResolution {
+	return resolveImageBillingSize(inputSize, outputSizes, true)
+}
+
+func resolveImageBillingSize(inputSize string, outputSizes []string, gemini bool) ImageBillingSizeResolution {
 	inputSize = strings.TrimSpace(inputSize)
 	outputSizes = compactTrimmedStrings(outputSizes)
+	classify := ClassifyImageBillingTier
+	if gemini {
+		classify = ClassifyGeminiImageBillingTier
+	}
 
 	breakdown := map[string]int{}
 	outputSize := firstDisplayImageOutputSize(outputSizes)
 	outputTier := ""
 	for _, output := range outputSizes {
-		tier, ok := ClassifyImageBillingTier(output)
+		tier, ok := classify(output)
 		if !ok {
 			continue
 		}
@@ -100,7 +135,7 @@ func ResolveImageBillingSize(inputSize string, outputSizes []string) ImageBillin
 		}
 	}
 
-	if tier, ok := ClassifyImageBillingTier(inputSize); ok {
+	if tier, ok := classify(inputSize); ok {
 		return ImageBillingSizeResolution{
 			BillingSize: tier,
 			InputSize:   inputSize,
@@ -152,7 +187,9 @@ func ApplyForwardImageBillingResolution(result *ForwardResult) {
 	if len(outputSizes) == 0 && strings.TrimSpace(result.ImageOutputSize) != "" {
 		outputSizes = []string{result.ImageOutputSize}
 	}
-	resolved := ResolveImageBillingSize(inputSize, outputSizes)
+	// ForwardResult image accounting is Gemini-family (sync + async). Use
+	// short-edge tier mapping so non-square 1K/2K outputs are not overbilled.
+	resolved := ResolveGeminiImageBillingSize(inputSize, outputSizes)
 	applyImageBillingResolution(
 		&result.ImageSize,
 		&result.ImageInputSize,

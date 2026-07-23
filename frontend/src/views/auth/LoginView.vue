@@ -2,11 +2,12 @@
   <AuthLayout>
     <div class="space-y-6">
       <!-- Title -->
-      <div class="login-hero text-center">
-        <h1 class="login-hero-title text-2xl font-bold text-gray-900 dark:text-white">
+      <div class="auth-hero text-center">
+        <p class="auth-hero-code" aria-hidden="true">// session.resume</p>
+        <h1 class="auth-hero-title">
           {{ t('auth.welcomeBack') }}
         </h1>
-        <p class="login-hero-sub mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="auth-hero-sub">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
@@ -109,7 +110,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -145,11 +146,11 @@
 
         <div v-if="showOAuthLogin" class="space-y-3 pt-1">
           <div class="flex items-center gap-3">
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+            <div class="login-oauth-divider"></div>
             <span class="text-xs text-gray-500 dark:text-dark-400">
               {{ t('auth.oauthOrContinue') }}
             </span>
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+            <div class="login-oauth-divider"></div>
           </div>
 
           <EmailOAuthButtons
@@ -565,8 +566,10 @@ function handle2FACancel(): void {
 </script>
 
 <style scoped>
-.login-hero-title {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+.login-oauth-divider {
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
 .fade-enter-active,

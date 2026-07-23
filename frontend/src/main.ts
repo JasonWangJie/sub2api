@@ -24,10 +24,12 @@ function initIOSViewportZoomFix() {
 
 function initThemeClass() {
   const savedTheme = localStorage.getItem('theme')
-  const shouldUseDark =
-    savedTheme === 'dark' ||
-    (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  // 未选择过主题时默认夜间模式（与首页一致）
+  const shouldUseDark = savedTheme !== 'light'
   document.documentElement.classList.toggle('dark', shouldUseDark)
+  if (!savedTheme) {
+    localStorage.setItem('theme', 'dark')
+  }
 }
 
 async function bootstrap() {

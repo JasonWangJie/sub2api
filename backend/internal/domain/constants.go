@@ -116,9 +116,10 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	// Gemini 3.1 image preview 映射
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
-	"gemini-3-pro-image":         "gemini-3.1-flash-image",
-	"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
+	// Gemini 3 Pro Image：保持自身，不强制改写到 flash
+	"gemini-3-pro-image": "gemini-3-pro-image",
+	// Preview 已下线，落到 GA Pro Image
+	"gemini-3-pro-image-preview": "gemini-3-pro-image",
 	// 其他官方模型
 	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
 	"tab_flash_lite_preview": "tab_flash_lite_preview",

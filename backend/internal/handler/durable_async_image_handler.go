@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -916,6 +917,13 @@ func (h *DurableAsyncImageHandler) writeError(c *gin.Context, protocol string, e
 	message := strings.TrimSpace(infraerrors.Message(err))
 	if message == "" {
 		message = "asynchronous image request failed"
+	}
+	if status >= http.StatusInternalServerError {
+		attrs := []any{"path", c.FullPath(), "method", c.Request.Method, "status", status, "code", code, "error", err}
+		if cause := errors.Unwrap(err); cause != nil {
+			attrs = append(attrs, "cause", cause)
+		}
+		slog.Warn("async_image.request_failed", attrs...)
 	}
 	h.writeProtocolError(c, protocol, status, code, message)
 }

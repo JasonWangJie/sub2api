@@ -37,6 +37,57 @@ func TestClassifyImageBillingTier(t *testing.T) {
 	}
 }
 
+func TestClassifyGeminiImageBillingTier(t *testing.T) {
+	tests := []struct {
+		name     string
+		size     string
+		wantTier string
+		wantOK   bool
+	}{
+		{name: "square 1k", size: "1024x1024", wantTier: ImageBillingSize1K, wantOK: true},
+		{name: "gemini 1k 16:9", size: "1344x768", wantTier: ImageBillingSize1K, wantOK: true},
+		{name: "gemini 1k 9:16", size: "768x1344", wantTier: ImageBillingSize1K, wantOK: true},
+		{name: "gemini 1k 21:9", size: "1536x672", wantTier: ImageBillingSize1K, wantOK: true},
+		{name: "square 2k", size: "2048x2048", wantTier: ImageBillingSize2K, wantOK: true},
+		{name: "gemini 2k 16:9", size: "2688x1536", wantTier: ImageBillingSize2K, wantOK: true},
+		{name: "gemini 4k 16:9", size: "5376x3072", wantTier: ImageBillingSize4K, wantOK: true},
+		{name: "gemini 4k square", size: "4096x4096", wantTier: ImageBillingSize4K, wantOK: true},
+		{name: "tier string still honored", size: "1K", wantTier: ImageBillingSize1K, wantOK: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTier, gotOK := ClassifyGeminiImageBillingTier(tt.size)
+			require.Equal(t, tt.wantOK, gotOK)
+			require.Equal(t, tt.wantTier, gotTier)
+		})
+	}
+}
+
+func TestResolveGeminiImageBillingSizeNonSquareTiers(t *testing.T) {
+	got := ResolveGeminiImageBillingSize("1K", []string{"1344x768"})
+	require.Equal(t, ImageBillingSize1K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceOutput, got.Source)
+	require.Equal(t, map[string]int{ImageBillingSize1K: 1}, got.Breakdown)
+
+	got = ResolveGeminiImageBillingSize("2K", []string{"2688x1536"})
+	require.Equal(t, ImageBillingSize2K, got.BillingSize)
+
+	got = ResolveGeminiImageBillingSize("4K", []string{"5376x3072"})
+	require.Equal(t, ImageBillingSize4K, got.BillingSize)
+}
+
+func TestApplyForwardImageBillingResolutionUsesGeminiShortEdge(t *testing.T) {
+	result := &ForwardResult{
+		ImageCount:       1,
+		ImageInputSize:   "1K",
+		ImageOutputSizes: []string{"1344x768"},
+	}
+	ApplyForwardImageBillingResolution(result)
+	require.Equal(t, ImageBillingSize1K, result.ImageSize)
+	require.Equal(t, ImageSizeSourceOutput, result.ImageSizeSource)
+}
+
 func TestResolveImageBillingSize(t *testing.T) {
 	tests := []struct {
 		name          string

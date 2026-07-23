@@ -2,11 +2,12 @@
   <AuthLayout>
     <div class="space-y-6">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div class="auth-hero text-center">
+        <p class="auth-hero-code" aria-hidden="true">// credential.recovery</p>
+        <h2 class="auth-hero-title">
           {{ t('auth.forgotPasswordTitle') }}
         </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="auth-hero-sub">
           {{ t('auth.forgotPasswordHint') }}
         </p>
       </div>
@@ -85,7 +86,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -269,6 +270,42 @@ async function handleSubmit(): Promise<void> {
 </script>
 
 <style scoped>
+.auth-hero-code {
+  margin: 0 0 8px;
+  color: #067a6f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+:global(html.dark) .auth-hero-code {
+  color: #2fd0bc;
+}
+
+.auth-hero-title {
+  margin: 0;
+  color: #0d1b21;
+  font-family: 'Oxanium', 'Sora', sans-serif;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:global(html.dark) .auth-hero-title {
+  color: #e8f1f4;
+}
+
+.auth-hero-sub {
+  margin: 8px 0 0;
+  color: #5a6c73;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+:global(html.dark) .auth-hero-sub {
+  color: #90a2a9;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;

@@ -833,7 +833,7 @@ func (r *imageLibraryRepository) CreatePublication(ctx context.Context, in servi
 INSERT INTO image_plaza_publications (
  public_id,library_item_id,user_id,status,public_title,public_prompt,share_prompt,
  moderation_status,published_at,expires_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $4='published' THEN NOW() ELSE NULL END,$9)
+) VALUES ($1,$2,$3,$4::text,$5,$6,$7,$8,CASE WHEN $4::text='published' THEN NOW() ELSE NULL END,$9)
 RETURNING id`, "imgpub_"+uuid.NewString(), assetPK, in.UserID, initialStatus, in.PublicTitle, publicPrompt, in.SharePrompt, moderation, in.ExpiresAt).Scan(&id)
 	}
 	if err != nil {
@@ -1117,11 +1117,11 @@ func (r *imageLibraryRepository) TransitionPublication(ctx context.Context, admi
 		return nil, apperrors.Conflict("INVALID_PUBLICATION_TRANSITION", "publication status no longer permits this action")
 	}
 	_, err = tx.ExecContext(ctx, `
-UPDATE image_plaza_publications SET status=$2,moderation_status=$3,
+UPDATE image_plaza_publications SET status=$2::text,moderation_status=$3,
  reviewer_user_id=$4,review_reason=$5,reviewed_at=NOW(),
- published_at=CASE WHEN $2='published' THEN NOW() ELSE published_at END,
- hidden_at=CASE WHEN $2='admin_hidden' THEN NOW() ELSE NULL END,
- expires_at=CASE WHEN $2='published' THEN GREATEST(expires_at,$6) ELSE expires_at END,
+ published_at=CASE WHEN $2::text='published' THEN NOW() ELSE published_at END,
+ hidden_at=CASE WHEN $2::text='admin_hidden' THEN NOW() ELSE NULL END,
+ expires_at=CASE WHEN $2::text='published' THEN GREATEST(expires_at,$6) ELSE expires_at END,
  updated_at=NOW() WHERE id=$1`, publicationPK, toStatus, moderation, adminUserID,
 		nullIfEmpty(reason), retentionUntil)
 	if err != nil {
@@ -1131,7 +1131,7 @@ UPDATE image_plaza_publications SET status=$2,moderation_status=$3,
 	if toStatus == service.ImagePublicationPublished {
 		visibility = service.ImageLibraryVisibilityPublic
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE image_library_items SET visibility=$2,expires_at=CASE WHEN $2='public' THEN GREATEST(expires_at,$3) ELSE expires_at END,updated_at=NOW() WHERE id=$1`, assetID, visibility, retentionUntil)
+	_, err = tx.ExecContext(ctx, `UPDATE image_library_items SET visibility=$2::text,expires_at=CASE WHEN $2::text='public' THEN GREATEST(expires_at,$3) ELSE expires_at END,updated_at=NOW() WHERE id=$1`, assetID, visibility, retentionUntil)
 	if err != nil {
 		return nil, err
 	}
@@ -1734,8 +1734,8 @@ func (r *imageLibraryRepository) FinishMigration(ctx context.Context, key string
 		return apperrors.BadRequest("INVALID_MIGRATION_STATUS", "migration status must be succeeded or failed")
 	}
 	result, err := r.db.ExecContext(ctx, `
-UPDATE image_library_migration_state SET status=$3,last_error=$4,
- finished_at=CASE WHEN $3='succeeded' THEN NOW() ELSE finished_at END,updated_at=NOW()
+UPDATE image_library_migration_state SET status=$3::text,last_error=$4,
+ finished_at=CASE WHEN $3::text='succeeded' THEN NOW() ELSE finished_at END,updated_at=NOW()
 WHERE migration_key=$1 AND lease_version=$2 AND status='running'`, key, leaseVersion, status, nullIfEmpty(message))
 	return requireImageLibraryLease(result, err)
 }

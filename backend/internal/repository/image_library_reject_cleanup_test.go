@@ -23,10 +23,10 @@ func TestTransitionPublicationRejectDeletesRealtimeImportAndEnqueuesCleanup(t *t
 		WithArgs("imgpub_1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "library_item_id", "status"}).
 			AddRow(int64(9), int64(17), service.ImagePublicationPending))
-	mock.ExpectExec(`(?s)UPDATE image_plaza_publications SET status=\$2,moderation_status=\$3`).
+	mock.ExpectExec(`(?s)UPDATE image_plaza_publications SET status=\$2::text,moderation_status=\$3`).
 		WithArgs(int64(9), service.ImagePublicationRejected, "rejected", int64(1), "nsfw", retention).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE image_library_items SET visibility=\$2`).
+	mock.ExpectExec(`UPDATE image_library_items SET visibility=\$2::text`).
 		WithArgs(int64(17), service.ImageLibraryVisibilityPrivate, retention).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO image_library_events`).
@@ -78,10 +78,10 @@ func TestTransitionPublicationRejectKeepsAsyncTaskLibraryItem(t *testing.T) {
 		WithArgs("imgpub_2").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "library_item_id", "status"}).
 			AddRow(int64(10), int64(18), service.ImagePublicationPending))
-	mock.ExpectExec(`(?s)UPDATE image_plaza_publications SET status=\$2,moderation_status=\$3`).
+	mock.ExpectExec(`(?s)UPDATE image_plaza_publications SET status=\$2::text,moderation_status=\$3`).
 		WithArgs(int64(10), service.ImagePublicationRejected, "rejected", int64(1), "bad", retention).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE image_library_items SET visibility=\$2`).
+	mock.ExpectExec(`UPDATE image_library_items SET visibility=\$2::text`).
 		WithArgs(int64(18), service.ImageLibraryVisibilityPrivate, retention).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO image_library_events`).

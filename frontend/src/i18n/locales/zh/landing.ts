@@ -98,13 +98,20 @@ export default {
   home: {
     viewOnGithub: '在 GitHub 上查看',
     viewDocs: '查看文档',
-    docs: '文档',
+    docs: '使用手册',
     switchToLight: '切换到浅色模式',
     switchToDark: '切换到深色模式',
     dashboard: '控制台',
     login: '登录',
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
+    signalLive: '路由在线 · 实时调度',
+    openWorkbench: '打开图片工作台',
+    authBrandSub: 'API 网关',
+    authChannel: '认证通道',
+    authHome: '首页',
+    authSecureSession: '安全会话',
+    authPanelCode: '// 认证网关',
     // 新增：面向用户的价值主张
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
     heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
@@ -201,7 +208,9 @@ export default {
       button: '免费注册'
     },
     footer: {
-      allRightsReserved: '保留所有权利。'
+      allRightsReserved: '保留所有权利。',
+      channels: '快速入口',
+      tagline: '统一接入、智能调度、按量计费——把多模型能力收敛成一条稳定链路。'
     }
   },
 

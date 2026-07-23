@@ -98,13 +98,20 @@ export default {
   home: {
     viewOnGithub: 'View on GitHub',
     viewDocs: 'View Documentation',
-    docs: 'Docs',
+    docs: 'User Manual',
     switchToLight: 'Switch to Light Mode',
     switchToDark: 'Switch to Dark Mode',
     dashboard: 'Dashboard',
     login: 'Login',
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
+    signalLive: 'Routing Live · Realtime Dispatch',
+    openWorkbench: 'Open Image Workbench',
+    authBrandSub: 'API Gateway',
+    authChannel: 'Auth Channel',
+    authHome: 'Home',
+    authSecureSession: 'Secure Session',
+    authPanelCode: '// auth.gateway',
     // User-focused value proposition
     heroSubtitle: 'One Key, All AI Models',
     heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
@@ -201,7 +208,9 @@ export default {
       button: 'Sign Up Free'
     },
     footer: {
-      allRightsReserved: 'All rights reserved.'
+      allRightsReserved: 'All rights reserved.',
+      channels: 'Quick Links',
+      tagline: 'Unified ingress, smart routing, usage billing — one stable relay for every model.'
     }
   },
 

@@ -360,7 +360,7 @@ func TestClaimAsyncImageUploadCleanupIntentsUsesPutDeleteGrace(t *testing.T) {
 
 	now := time.Now().UTC()
 	staleBefore := now.Add(-30 * time.Minute)
-	mock.ExpectQuery("(?s)cleanup_delete_count=0.*last_deleted_at <= \\$1 - INTERVAL '10 minutes'.*status='failed'.*updated_at <= \\$1 - INTERVAL '10 minutes'.*status='reserved'.*lease_expires_at <= \\$2.*FOR UPDATE SKIP LOCKED").
+	mock.ExpectQuery("(?s)cleanup_delete_count=0.*last_deleted_at <= \\$1::timestamptz - INTERVAL '10 minutes'.*status='failed'.*updated_at <= \\$1::timestamptz - INTERVAL '10 minutes'.*status='reserved'.*lease_expires_at <= \\$2::timestamptz.*FOR UPDATE SKIP LOCKED").
 		WithArgs(now, staleBefore, 100).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"reservation_id", "intent_provider", "intent_bucket", "intent_object_key",
@@ -479,7 +479,7 @@ func TestDeleteExpiredAsyncImageUploadStateIsGlobalAndBounded(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	now := time.Now().UTC()
-	mock.ExpectQuery("(?s)stale_attempts.*attempted_at < \\$1 - INTERVAL '5 minutes'.*LIMIT \\$2.*stale_reservations.*intent_object_key IS NULL.*LIMIT \\$2").
+	mock.ExpectQuery("(?s)stale_attempts.*attempted_at < \\$1::timestamptz - INTERVAL '5 minutes'.*LIMIT \\$2.*stale_reservations.*intent_object_key IS NULL.*LIMIT \\$2").
 		WithArgs(now, 100).
 		WillReturnRows(sqlmock.NewRows([]string{"deleted"}).AddRow(int64(2)))
 	repo := NewAsyncImageTaskRepository(db).(*asyncImageTaskRepository)

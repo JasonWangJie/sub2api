@@ -40,7 +40,7 @@ func (r *asyncImageTaskRepository) AdmitAsyncImageUpload(ctx context.Context, pa
 	if _, err = tx.ExecContext(ctx, `
 WITH stale AS (
     SELECT id FROM async_image_upload_attempts
-    WHERE attempted_at < $1 - INTERVAL '5 minutes'
+    WHERE attempted_at < $1::timestamptz - INTERVAL '5 minutes'
     ORDER BY attempted_at,id LIMIT 200 FOR UPDATE SKIP LOCKED
 )
 DELETE FROM async_image_upload_attempts a USING stale
@@ -50,7 +50,7 @@ WHERE a.id=stale.id`, params.Now); err != nil {
 	var recentAttempts int
 	if err = tx.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM async_image_upload_attempts
-WHERE api_key_id=$1 AND attempted_at > $2 - INTERVAL '1 minute'`, params.APIKeyID, params.Now).Scan(&recentAttempts); err != nil {
+WHERE api_key_id=$1 AND attempted_at > $2::timestamptz - INTERVAL '1 minute'`, params.APIKeyID, params.Now).Scan(&recentAttempts); err != nil {
 		return nil, err
 	}
 	if recentAttempts >= params.UploadPerMinute {
@@ -102,8 +102,8 @@ WHERE api_key_id=$1 AND status='reserved' AND intent_object_key IS NULL
 WITH stale AS (
     SELECT id FROM async_image_upload_reservations
     WHERE cleanup_claimed_at IS NULL AND intent_object_key IS NULL AND (
-        (status='failed' AND updated_at < $1 - INTERVAL '24 hours')
-        OR (status='completed' AND input_object_id IS NULL AND idempotency_expires_at < $1)
+        (status='failed' AND updated_at < $1::timestamptz - INTERVAL '24 hours')
+        OR (status='completed' AND input_object_id IS NULL AND idempotency_expires_at < $1::timestamptz)
     )
     ORDER BY updated_at,id LIMIT 200 FOR UPDATE SKIP LOCKED
 )
@@ -115,7 +115,7 @@ WHERE r.id=stale.id`, params.Now); err != nil {
 	if err = tx.QueryRowContext(ctx, `
 UPDATE async_image_upload_attempts SET consumed_at=$4
 WHERE admission_id=$1 AND user_id=$2 AND api_key_id=$3
-  AND consumed_at IS NULL AND attempted_at > $4 - INTERVAL '5 minutes'
+  AND consumed_at IS NULL AND attempted_at > $4::timestamptz - INTERVAL '5 minutes'
 RETURNING admission_id`, params.AdmissionID, params.UserID, params.APIKeyID, params.Now).Scan(&admissionID); err == sql.ErrNoRows {
 		return nil, service.ErrAsyncImageUploadReservationInvalid
 	} else if err != nil {
@@ -339,7 +339,7 @@ UPDATE async_image_upload_reservations SET
     intent_provider=NULL,intent_bucket=NULL,intent_object_key=NULL,intent_content_type=NULL,
     intent_byte_size=NULL,intent_checksum=NULL,cleanup_claimed_at=NULL,
     cleanup_delete_count=0,last_deleted_at=NULL,
-    idempotency_expires_at=$3 + INTERVAL '24 hours'
+    idempotency_expires_at=$3::timestamptz + INTERVAL '24 hours'
 WHERE id=$1 AND status='reserved'`, reservation.ID, object.ID, params.ExpiresAt)
 	if err != nil {
 		return nil, err
@@ -445,7 +445,7 @@ func (r *asyncImageTaskRepository) DeleteExpiredAsyncImageUploadAdmissionState(c
 	err := r.sql.QueryRowContext(ctx, `
 WITH stale_attempts AS (
     SELECT id FROM async_image_upload_attempts
-    WHERE attempted_at < $1 - INTERVAL '5 minutes'
+    WHERE attempted_at < $1::timestamptz - INTERVAL '5 minutes'
     ORDER BY attempted_at,id LIMIT $2 FOR UPDATE SKIP LOCKED
 ), deleted_attempts AS (
     DELETE FROM async_image_upload_attempts a USING stale_attempts s
@@ -453,8 +453,8 @@ WITH stale_attempts AS (
 ), stale_reservations AS (
     SELECT id FROM async_image_upload_reservations
     WHERE cleanup_claimed_at IS NULL AND intent_object_key IS NULL AND (
-        (status='failed' AND updated_at < $1 - INTERVAL '24 hours')
-        OR (status='completed' AND input_object_id IS NULL AND idempotency_expires_at < $1)
+        (status='failed' AND updated_at < $1::timestamptz - INTERVAL '24 hours')
+        OR (status='completed' AND input_object_id IS NULL AND idempotency_expires_at < $1::timestamptz)
     )
     ORDER BY updated_at,id LIMIT $2 FOR UPDATE SKIP LOCKED
 ), deleted_reservations AS (
@@ -479,11 +479,11 @@ func (r *asyncImageTaskRepository) ClaimAsyncImageUploadCleanupIntents(ctx conte
 WITH candidates AS (
     SELECT id FROM async_image_upload_reservations
     WHERE intent_object_key IS NOT NULL
-      AND (cleanup_claimed_at IS NULL OR cleanup_claimed_at <= $2)
-      AND (cleanup_delete_count=0 OR last_deleted_at <= $1 - INTERVAL '10 minutes')
+      AND (cleanup_claimed_at IS NULL OR cleanup_claimed_at <= $2::timestamptz)
+      AND (cleanup_delete_count=0 OR last_deleted_at <= $1::timestamptz - INTERVAL '10 minutes')
       AND (
-          (status='failed' AND updated_at <= $1 - INTERVAL '10 minutes')
-          OR (status='reserved' AND lease_expires_at <= $2)
+          (status='failed' AND updated_at <= $1::timestamptz - INTERVAL '10 minutes')
+          OR (status='reserved' AND lease_expires_at <= $2::timestamptz)
       )
     ORDER BY updated_at,id LIMIT $3 FOR UPDATE SKIP LOCKED
 )
