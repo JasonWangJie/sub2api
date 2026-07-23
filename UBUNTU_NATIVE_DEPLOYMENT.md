@@ -18,6 +18,173 @@
 
 ---
 
+## 0. 新机器一键部署
+
+仓库提供了 [`deploy/ubuntu-native-deploy.sh`](deploy/ubuntu-native-deploy.sh)。它适合 Ubuntu 22.04/24.04 的 `amd64`、`arm64` 新机器，也可以在后续版本发布时重复执行。
+
+脚本自动完成：
+
+1. 检查 Ubuntu 版本、CPU 架构和 root 权限；
+2. 安装 Git、curl、编译器、Node.js 22、pnpm 10.34.5，以及 `backend/go.mod` 指定的 Go 版本；
+3. 拉取指定分支，或使用服务器上已经上传的源码；
+4. 构建前端，再用 `-tags embed` 构建包含前端和 SQL 迁移的 Go 二进制；
+5. 安装到 `/opt/sub2api/releases/<时间戳>`，并切换 `/opt/sub2api/current`；
+6. 创建 `sub2api` 系统用户，安装并启动 systemd 服务；
+7. 配置现有 Nginx，关闭流式响应缓冲，并执行 `nginx -t`；
+8. 等待服务启动和自动数据库迁移完成，最长等待 10 分钟。
+
+脚本**不会安装、初始化、停止或修改 PostgreSQL 和 Redis**，也不会创建 PostgreSQL 数据库。运行前必须保证这两个服务已经存在，而且应用服务器能够访问它们。Nginx 也按“服务器已经安装”处理；如果没有 Nginx，脚本会明确退出，可以在确认不需要反向代理时使用 `--skip-nginx`。
+
+### 0.1 所有参数
+
+```text
+--domain DOMAIN         Nginx 使用的域名；除非指定 --skip-nginx，否则必填
+--repo URL              要拉取的 Git 仓库；默认是当前定制仓库
+--branch NAME           分支或标签；默认 main
+--source-dir PATH       使用服务器上的现有源码，不再执行 git clone
+--config PATH           安装已有的生产 config.yaml，权限自动设置为 600
+--skip-nginx            不创建、不检查、不重载 Nginx 配置
+--enable-certbot        安装 Certbot，并申请和启用 HTTPS 证书
+--certbot-email EMAIL   Certbot 注册邮箱；启用 Certbot 时必填
+-h, --help              显示帮助
+```
+
+查看脚本帮助不会修改服务器：
+
+```bash
+bash deploy/ubuntu-native-deploy.sh --help
+```
+
+命令参数只放域名、仓库、分支和文件路径。不要把 PostgreSQL、Redis 密码或带访问令牌的仓库 URL 直接写进命令，避免进入 Shell 历史和进程参数。
+
+### 0.2 在新机器上取得脚本
+
+新机器先安装下载工具，并把脚本下载到临时目录：
+
+```bash
+sudo apt update
+sudo apt install -y curl ca-certificates
+curl -fsSL \
+  https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/ubuntu-native-deploy.sh \
+  -o /tmp/sub2api-deploy.sh
+less /tmp/sub2api-deploy.sh
+```
+
+建议先通过 `less` 检查将以 root 权限执行的内容，再运行。脚本默认拉取 `https://github.com/JasonWangJie/sub2api.git` 的 `main` 分支，也可以显式填写 `--repo` 和 `--branch`。
+
+如果是私有仓库，不要把 Git Token 拼进 `--repo`。应先用部署密钥或凭据助手把仓库克隆到服务器，再按照 0.5 节通过 `--source-dir` 部署。
+
+### 0.3 全新上线
+
+适用条件：PostgreSQL 和 Redis 已存在；目标 PostgreSQL 数据库是新建的空库；尚未创建 Sub2API 管理员。
+
+先确认：
+
+- 域名已经解析到这台服务器；
+- Nginx 已经安装；
+- PostgreSQL 中已经创建空数据库和有 DDL 权限的应用用户；
+- Redis 已经准备好专用实例或逻辑 DB；
+- 云安全组开放 `22`、`80`，准备直接签发 HTTPS 时还应开放 `443`；
+- 不向公网开放 `8080`、`5432`、`6379`。
+
+执行：
+
+```bash
+sudo bash /tmp/sub2api-deploy.sh \
+  --domain api.example.com \
+  --repo https://github.com/JasonWangJie/sub2api.git \
+  --branch main
+```
+
+把 `api.example.com` 替换成真实域名。脚本会启动首次 Setup 服务，但不会要求你在命令行输入数据库密码。完成后，在自己的电脑建立 SSH 隧道：
+
+```bash
+ssh -L 8080:127.0.0.1:8080 ubuntu@SERVER_IP
+```
+
+浏览器打开 `http://127.0.0.1:8080`，在 Setup 页面填写 PostgreSQL、Redis 和首个管理员信息。Setup 会生成 `/opt/sub2api/data/config.yaml`、`.installed`，执行全部数据库迁移，然后由 systemd 自动重启进入正式服务。
+
+### 0.4 接入已有线上数据库和 Redis
+
+已有线上数据时，必须继续使用原来的 `config.yaml`，以保留 PostgreSQL/Redis 连接信息、JWT Secret、TOTP Encryption Key 和其他业务密钥。不要重新进入 Setup，也不要只填写一个新的最小配置。
+
+先在原服务器或安全备份位置取得原配置，再上传到新服务器：
+
+```powershell
+scp F:\secure\sub2api-config.yaml ubuntu@SERVER_IP:/home/ubuntu/sub2api-config.yaml
+```
+
+上线前先对 PostgreSQL 做快照或 `pg_dump` 备份，然后执行：
+
+```bash
+sudo bash /tmp/sub2api-deploy.sh \
+  --domain api.example.com \
+  --repo https://github.com/JasonWangJie/sub2api.git \
+  --branch main \
+  --config /home/ubuntu/sub2api-config.yaml
+```
+
+脚本会把配置安装为 `/opt/sub2api/data/config.yaml`，属主为 `sub2api:sub2api`，权限为 `0600`。如果目标目录已有不同配置，会先在同一受保护目录中生成带 release 时间戳的备份。部署成功并确认配置可用后，删除上传到用户主目录的临时副本：
+
+```bash
+rm /home/ubuntu/sub2api-config.yaml
+```
+
+新二进制启动时会自动连接配置中的现有 PostgreSQL/Redis，并执行尚未运行的 SQL 迁移。脚本不会清空数据库或 Redis。新增表是否自动创建、迁移约束和回滚注意事项见第 16 节。
+
+### 0.5 使用已经上传的当前源码
+
+如果源码已经通过 Git 或压缩包放在服务器上，可以不让脚本重新拉取：
+
+```bash
+cd /home/ubuntu/sub2api
+sudo bash deploy/ubuntu-native-deploy.sh \
+  --domain api.example.com \
+  --source-dir /home/ubuntu/sub2api
+```
+
+`--source-dir` 必须指向同时包含 `frontend/` 和 `backend/` 的仓库根目录。构建会更新该目录下的 `frontend/node_modules`、`backend/internal/web/dist` 和 `backend/sub2api`；若不希望修改上传目录，应让脚本从 Git 仓库重新拉取。
+
+### 0.6 同时启用 HTTPS
+
+DNS 已经生效，且公网可访问 `80/443` 时，可以让脚本安装 Certbot 并签发证书：
+
+```bash
+sudo bash /tmp/sub2api-deploy.sh \
+  --domain api.example.com \
+  --enable-certbot \
+  --certbot-email admin@example.com
+```
+
+默认不运行 Certbot，避免在 DNS 尚未生效时反复申请证书。已有证书或复杂 Nginx 站点时，建议不加 `--enable-certbot`，部署完成后按第 12 节把反代配置合并到现有 HTTPS 站点。
+
+### 0.7 后续升级重复执行
+
+同一条命令可以用于升级。每次执行都会构建一个新的 release，保留 `/opt/sub2api/data`，切换 `current` 并重启服务：
+
+```bash
+sudo bash /tmp/sub2api-deploy.sh \
+  --domain api.example.com \
+  --repo https://github.com/JasonWangJie/sub2api.git \
+  --branch main
+```
+
+已经部署过的服务器不需要再次传 `--config`，脚本会原样保留数据目录。包含数据库迁移的版本升级前仍必须先备份 PostgreSQL。Nginx 站点文件如果已经存在，脚本会保留它，避免覆盖 Certbot 或人工修改；同时仍会运行配置检查并重载服务。
+
+常用验证和排查命令：
+
+```bash
+readlink -f /opt/sub2api/current
+sudo systemctl status sub2api --no-pager
+sudo journalctl -u sub2api -n 200 --no-pager
+curl -fsS http://127.0.0.1:8080/health
+sudo nginx -t
+```
+
+脚本失败时不会删除 `/opt/sub2api/data`。构建失败发生在切换 release 之前；服务启动或数据库迁移失败时，查看 `journalctl`，不要在未确认数据库兼容性前盲目切回旧二进制。
+
+---
+
 ## 1. 最终架构
 
 ```text
@@ -128,7 +295,7 @@ git status
 Ubuntu 执行：
 
 ```bash
-git clone --branch main YOUR_GIT_REPOSITORY_URL "$HOME/sub2api-src"
+git clone --branch main https://github.com/JasonWangJie/sub2api.git "$HOME/sub2api-src"
 export SOURCE_DIR="$HOME/sub2api-src"
 cd "$SOURCE_DIR"
 git rev-parse --short HEAD
@@ -192,24 +359,51 @@ sudo ln -sfn "/opt/go/${GO_VERSION}/bin/gofmt" /usr/local/bin/gofmt
 go version
 ```
 
-### 5.3 安装 Node.js 22 和 pnpm 9
+### 5.3 安装 Node.js 22 和 pnpm 10
 
 Node.js 只用于构建前端，不会作为生产服务常驻。
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
-sudo corepack enable
-corepack prepare pnpm@9.15.9 --activate
 node --version
+```
+
+使用 pnpm 官方安装脚本安装固定版本。固定版本可以避免不同发布日期的服务器自动取得不同主版本：
+
+```bash
+curl -fsSL https://get.pnpm.io/install.sh -o /tmp/install-pnpm.sh
+sudo env \
+  PNPM_VERSION=10.34.5 \
+  PNPM_HOME=/usr/local/share/pnpm \
+  SHELL=/bin/bash \
+  sh /tmp/install-pnpm.sh
+sudo ln -sfn /usr/local/share/pnpm/pnpm /usr/local/bin/pnpm
 pnpm --version
 ```
 
-如果发行包未提供 `corepack`，使用下面的备用方式：
+官方安装器会配置 pnpm 的目录；这里额外创建 `/usr/local/bin/pnpm` 软链接，因此当前 Shell 不需要再加载 `/root/.bashrc`。如果只按官方默认命令安装、没有创建软链接，则需要重新登录 Shell，或加载安装器输出中提示的环境文件：
 
 ```bash
-sudo npm install -g pnpm@9
+source /root/.bashrc
+# 或者 source /etc/profile
 ```
+
+pnpm 10.26+ 会默认阻止未审批的依赖构建脚本。当前仓库已经在 `frontend/pnpm-workspace.yaml` 中仅批准构建所需的两个包：
+
+```yaml
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+```
+
+安装依赖时还要明确启用脚本：
+
+```bash
+CI=true pnpm install --frozen-lockfile --ignore-scripts=false
+```
+
+如果使用的是尚未修复 `pnpm-workspace.yaml` 的旧源码，运行 `pnpm approve-builds`，在交互界面中只选择 `esbuild` 和 `vue-demi`，再重新安装。当前 pnpm 的 `approve-builds` 是交互式命令，不要写成 `pnpm approve-builds esbuild vue-demi`。
 
 ---
 
@@ -225,7 +419,7 @@ export SOURCE_DIR="$HOME/sub2api-src"
 
 ```bash
 cd "$SOURCE_DIR/frontend"
-pnpm install --frozen-lockfile
+CI=true pnpm install --frozen-lockfile --ignore-scripts=false
 pnpm run build
 
 cd "$SOURCE_DIR/backend"

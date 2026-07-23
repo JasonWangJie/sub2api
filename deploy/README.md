@@ -8,6 +8,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 |--------|----------|--------------|
 | **Docker Compose** | Quick setup, all-in-one | Not needed (auto-setup) |
 | **Apple container** | Native local stack on macOS 26 | Not needed (auto-setup) |
+| **Ubuntu source deployment** | Existing PostgreSQL, Redis, and Nginx | Web-based wizard or existing config |
 | **Binary Install** | Production servers, systemd | Web-based wizard |
 
 ## Files
@@ -21,6 +22,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
 | `.env.example` | Container environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
+| `ubuntu-native-deploy.sh` | One-click Ubuntu source build and systemd/Nginx deployment; does not install PostgreSQL or Redis |
 | `install.sh` | One-click binary installation script |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
