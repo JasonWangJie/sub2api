@@ -720,7 +720,7 @@ install_service() {
     print_info "$(msg 'installing_service')"
 
     # Create service file with configured host and port
-    # DATA_DIR points Setup Wizard / runtime config to /etc/sub2api/config.yaml
+    # DATA_DIR points Setup Wizard / runtime config to /opt/sub2api/config.yaml
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
@@ -745,11 +745,11 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/sub2api ${CONFIG_DIR}
+ReadWritePaths=/opt/sub2api
 
 # Environment - Server configuration
 Environment=GIN_MODE=release
-Environment=DATA_DIR=${CONFIG_DIR}
+Environment=DATA_DIR=${INSTALL_DIR}
 Environment=SERVER_HOST=${SERVER_HOST}
 Environment=SERVER_PORT=${SERVER_PORT}
 

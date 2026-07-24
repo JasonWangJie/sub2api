@@ -496,7 +496,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 
 #### Application Configuration
 
-The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
+The main config file is at `/opt/sub2api/config.yaml` (created by Setup Wizard; systemd `DATA_DIR=/opt/sub2api`).
 
 ### Prerequisites
 
@@ -511,10 +511,8 @@ The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
 /opt/sub2api/
 ├── sub2api              # Main binary
 ├── sub2api.backup       # Backup (after upgrade)
+├── config.yaml          # Configuration file
 └── data/                # Runtime data
-
-/etc/sub2api/
-└── config.yaml          # Configuration file
 ```
 
 ---
@@ -574,7 +572,7 @@ sudo systemctl status sub2api
 sudo journalctl -u sub2api -n 50
 
 # Check config file
-sudo cat /etc/sub2api/config.yaml
+sudo cat /opt/sub2api/config.yaml
 
 # Check PostgreSQL
 sudo systemctl status postgresql

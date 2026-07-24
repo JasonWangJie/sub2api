@@ -13,7 +13,7 @@ alwaysApply: true
 |---|---|
 | GitHub 仓库 | `JasonWangJie/sub2api` |
 | 安装目录 | `/opt/sub2api` |
-| 配置目录 | `/etc/sub2api`（`DATA_DIR=/etc/sub2api` → `config.yaml`） |
+| 配置目录 | `/opt/sub2api/config.yaml`（`DATA_DIR=/opt/sub2api`） |
 | 二进制 / 产物名 | `sub2api` / `sub2api_{version}_{os}_{arch}.tar.gz` |
 | 一键安装 | `curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/install.sh \| sudo bash` |
 | 一键升级 | `curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/upgrade.sh \| sudo bash` |
@@ -30,7 +30,7 @@ alwaysApply: true
 - 不要删除或重写：`deploy/install.sh`、`sub2api.service`、`config.example.yaml`、Release/GoReleaser 主流程
 - 不要改为要求用户 `git clone` + `go build` + `npm/pnpm install`
 - `upgrade.sh` 必须保留；升级须备份二进制与 `config.yaml` 后替换并 restart systemd
-- systemd 须含 `Environment=DATA_DIR=/etc/sub2api` 与 `ReadWritePaths` 含 `/etc/sub2api`
+- systemd 须含 `Environment=DATA_DIR=/opt/sub2api`（配置为 `/opt/sub2api/config.yaml`）
 
 ## Release / CI
 
@@ -61,6 +61,6 @@ alwaysApply: true
 
 ## 配置方向
 
-- 二进制发行路径：运行配置以 `/etc/sub2api/config.yaml` 为准
+- 二进制发行路径：运行配置以 `/opt/sub2api/config.yaml` 为准（`DATA_DIR=/opt/sub2api`）
 - Docker 路径可继续用 `.env`（与原作者一致）；不要为了统一配置而拆掉 Docker 部署
 - 逐步弱化 env 覆盖，但保持兼容，禁止一次性重写配置系统

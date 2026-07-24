@@ -21,12 +21,12 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/sub2api /etc/sub2api
+ReadWritePaths=/opt/sub2api
 
 # Environment - Server configuration
 # Modify these values to change listen address and port
 Environment=GIN_MODE=release
-Environment=DATA_DIR=/etc/sub2api
+Environment=DATA_DIR=/opt/sub2api
 Environment=SERVER_HOST=0.0.0.0
 Environment=SERVER_PORT=8080
 
