@@ -71,6 +71,11 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
+
+	// billingChargeMultiplierCache holds the system charge multiplier (default 1).
+	// Billing hot paths only atomic-Load this value; DB refresh is async.
+	billingChargeMultiplierCache atomic.Value // *cachedBillingChargeMultiplier
+	billingChargeMultiplierSF    singleflight.Group
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

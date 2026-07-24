@@ -341,6 +341,7 @@ const baseSettingsResponse = {
   totp_enabled: false,
   totp_encryption_key_configured: false,
   default_balance: 0,
+  billing_charge_multiplier: 1,
   default_concurrency: 1,
   default_subscriptions: [],
   site_name: "Sub2API",

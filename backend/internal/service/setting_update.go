@@ -79,6 +79,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := s.normalizeOpenAIAdvancedSchedulerOverrides(settings); err != nil {
 		return nil, err
 	}
+	// Zero is the Go struct default for omitted fields in partial UpdateSettings calls;
+	// treat it as the product default (1) rather than an invalid multiplier.
+	if settings.BillingChargeMultiplier == 0 {
+		settings.BillingChargeMultiplier = defaultBillingChargeMultiplier
+	}
+	if err := validateBillingChargeMultiplier(settings.BillingChargeMultiplier); err != nil {
+		return nil, err
+	}
 	settings.PaymentVisibleMethodAlipaySource = alipaySource
 	settings.PaymentVisibleMethodWxpaySource = wxpaySource
 	settings.WeChatConnectAppID = strings.TrimSpace(settings.WeChatConnectAppID)
@@ -291,6 +299,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
+	updates[SettingKeyBillingChargeMultiplier] = strconv.FormatFloat(settings.BillingChargeMultiplier, 'f', -1, 64)
 	settings.AffiliateRebateRate = clampAffiliateRebateRate(settings.AffiliateRebateRate)
 	updates[SettingKeyAffiliateRebateRate] = strconv.FormatFloat(settings.AffiliateRebateRate, 'f', 8, 64)
 	if settings.AffiliateRebateFreezeHours < 0 {
@@ -589,6 +598,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 			expiresAt: 0,
 		})
 	}
+	s.billingChargeMultiplierSF.Forget(billingChargeMultiplierRefreshKey)
+	s.storeBillingChargeMultiplierCache(settings.BillingChargeMultiplier)
 	if s.cfg != nil {
 		s.cfg.SetForwardedClientIPSettings(settings.APIKeyACLTrustForwardedIP, settings.ForwardedClientIPHeaders)
 	}
