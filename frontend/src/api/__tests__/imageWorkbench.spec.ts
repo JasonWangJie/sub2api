@@ -126,6 +126,13 @@ describe('image workbench async submissions', () => {
     await prepared.send()
 
     expect(calls[0].body).toBe(calls[1].body)
+    expect(JSON.parse(String(calls[0].body))).toMatchObject({
+      model: 'gemini-image',
+      prompt: 'night scene',
+      resolution: '2K',
+      size: '16:9',
+      image_urls: ['https://storage.example/input.png'],
+    })
     expect((calls[0].headers as Record<string, string>)['Idempotency-Key']).toBe('gemini-same-key')
   })
 })

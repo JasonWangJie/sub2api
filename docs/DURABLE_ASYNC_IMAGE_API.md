@@ -414,7 +414,7 @@ Idempotency-Key: sc-20260720-001
   "model": "gemini-3-pro-image-preview",
   "prompt": "现代客厅，北欧风，自然光",
   "resolution": "2K",
-  "aspect_ratio": "16:9"
+  "size": "16:9"
 }
 ```
 
@@ -422,17 +422,28 @@ Idempotency-Key: sc-20260720-001
 
 ```json
 {
-  "model": "gemini-3-pro-image-preview",
-  "prompt": "保留构图，把场景改成夜景",
   "image_urls": [
-    "https://storage.example.com/images/inputs/1/asyncimg_0123456789abcdef.png"
+    "https://getapib.org/image/9998215222749966-61ac6f26-55a3-4d4f-aa37-93461286910d-e7440568a6521799795c8e1feb93de35.jpg",
+    "https://getapib.org/image/9998215222677541-0a42ff34-e8c6-4086-a45e-3840b9e69377-d44cee78b0c0334f29f54d99e05d3945.jpg"
   ],
+  "model": "gemini-3-pro-image-preview",
+  "prompt": "去掉图1中所有的车，植物和铺地细节参考图2，地面阴影参考图2",
   "resolution": "4K",
-  "aspect_ratio": "auto"
+  "size": "3:2"
 }
 ```
 
-`model` 和 `prompt` 必填。`resolution` 与 `aspect_ratio` 的可选值、`0.5K` 限制以及 `auto` 规则与 BB Gemini 相同。
+`model` 和 `prompt` 必填。图生图时 `image_urls` 为参考图 HTTPS URL 数组（顺序对应提示词中的图1、图2…）。
+
+维度字段：
+
+| 字段 | 说明 |
+|---|---|
+| `resolution` | 清晰度：`1K` / `2K` / `4K`（以及受控的 `0.5K`） |
+| `size` | **推荐**：宽高比别名，如 `3:2`、`16:9`；若未传 `resolution`，也可写 `2K` 表示清晰度 |
+| `aspect_ratio` | 与 `size` 同义的比例字段；显式传入时优先于 `size` 的比例别名 |
+
+`0.5K` 限制以及 `auto`（仅图生图）规则与 BB Gemini 相同。
 
 成功受理返回 HTTP `200`，且响应体中的 `code` 也是数字 `200`：
 

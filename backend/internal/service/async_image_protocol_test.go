@@ -63,6 +63,40 @@ func TestParseSCGeminiImageRequestDimensions(t *testing.T) {
 	require.ErrorContains(t, err, "requires at least one reference image")
 }
 
+func TestParseSCGeminiImageRequestSizeAlias(t *testing.T) {
+	req, err := ParseSCGeminiImageRequest([]byte(`{
+        "image_urls":[
+          "https://images.example/ref1.jpg",
+          "https://images.example/ref2.jpg"
+        ],
+        "model":"gemini-3-pro-image-preview",
+        "prompt":"remove cars from image 1, ground details follow image 2",
+        "resolution":"4K",
+        "size":"3:2"
+      }`), "/v1/images/generations_sc")
+	require.NoError(t, err)
+	require.Equal(t, AsyncImageKindEdit, req.Kind)
+	require.Equal(t, "4K", req.ImageSize)
+	require.Equal(t, "3:2", req.AspectRatio)
+	require.Equal(t, 2, req.ReferenceCount())
+
+	tierAsSize, err := ParseSCGeminiImageRequest([]byte(`{
+        "model":"gemini-3-pro-image-preview",
+        "prompt":"quiet street",
+        "size":"2K"
+      }`), "")
+	require.NoError(t, err)
+	require.Equal(t, "2K", tierAsSize.ImageSize)
+	require.Empty(t, tierAsSize.AspectRatio)
+
+	// Explicit aspect_ratio wins over size ratio alias.
+	preferAspect, err := ParseSCGeminiImageRequest([]byte(`{
+        "model":"m","prompt":"p","aspect_ratio":"16:9","size":"3:2"
+      }`), "")
+	require.NoError(t, err)
+	require.Equal(t, "16:9", preferAspect.AspectRatio)
+}
+
 func TestAsyncImageReferenceDownloaderDataURI(t *testing.T) {
 	downloader := AsyncImageReferenceDownloader{MaxBytes: 1 << 20, MaxPixels: 100}
 	ref, err := downloader.Download(context.Background(), "data:image/png;base64,"+asyncImageOnePixelPNG)

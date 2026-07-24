@@ -109,40 +109,118 @@
             </span>
           </div>
 
-          <router-link
-            v-for="item in personalNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
+          <template v-for="item in personalNavItems" :key="item.path">
+            <template v-if="item.children?.length">
+              <button
+                type="button"
+                class="sidebar-link mb-1 w-full"
+                :class="{
+                  'sidebar-link-active': isGroupActive(item) && !isGroupExpanded(item),
+                  'sidebar-link-collapsed': sidebarCollapsed
+                }"
+                :title="sidebarCollapsed ? item.label : undefined"
+                @click="handleGroupClick(item)"
+              >
+                <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+                <span
+                  class="sidebar-label sidebar-label-flex"
+                  :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+                  :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+                >
+                  <span class="min-w-0 truncate">{{ item.label }}</span>
+                  <ChevronDownIcon
+                    class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
+                    :class="isGroupExpanded(item) ? 'rotate-180' : ''"
+                  />
+                </span>
+              </button>
+              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+                <router-link
+                  v-for="child in item.children"
+                  :key="child.path"
+                  :to="child.path"
+                  class="sidebar-link mb-0.5 py-1.5 text-sm"
+                  :class="{ 'sidebar-link-active': route.path === child.path }"
+                  @click="handleMenuItemClick(child.path)"
+                >
+                  <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
+                  <span>{{ child.label }}</span>
+                </router-link>
+              </div>
+            </template>
+            <router-link
+              v-else
+              :to="item.path"
+              class="sidebar-link mb-1"
+              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+              :title="sidebarCollapsed ? item.label : undefined"
+              :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+              @click="handleMenuItemClick(item.path)"
+            >
+              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            </router-link>
+          </template>
         </div>
       </template>
 
       <!-- Regular User View -->
       <template v-else-if="!appStore.backendModeEnabled">
         <div class="sidebar-section">
-          <router-link
-            v-for="item in userNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
+          <template v-for="item in userNavItems" :key="item.path">
+            <template v-if="item.children?.length">
+              <button
+                type="button"
+                class="sidebar-link mb-1 w-full"
+                :class="{
+                  'sidebar-link-active': isGroupActive(item) && !isGroupExpanded(item),
+                  'sidebar-link-collapsed': sidebarCollapsed
+                }"
+                :title="sidebarCollapsed ? item.label : undefined"
+                @click="handleGroupClick(item)"
+              >
+                <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+                <span
+                  class="sidebar-label sidebar-label-flex"
+                  :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+                  :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+                >
+                  <span class="min-w-0 truncate">{{ item.label }}</span>
+                  <ChevronDownIcon
+                    class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
+                    :class="isGroupExpanded(item) ? 'rotate-180' : ''"
+                  />
+                </span>
+              </button>
+              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+                <router-link
+                  v-for="child in item.children"
+                  :key="child.path"
+                  :to="child.path"
+                  class="sidebar-link mb-0.5 py-1.5 text-sm"
+                  :class="{ 'sidebar-link-active': route.path === child.path }"
+                  @click="handleMenuItemClick(child.path)"
+                >
+                  <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
+                  <span>{{ child.label }}</span>
+                </router-link>
+              </div>
+            </template>
+            <router-link
+              v-else
+              :to="item.path"
+              class="sidebar-link mb-1"
+              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+              :title="sidebarCollapsed ? item.label : undefined"
+              :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+              @click="handleMenuItemClick(item.path)"
+            >
+              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            </router-link>
+          </template>
         </div>
       </template>
     </nav>
@@ -412,6 +490,36 @@ const FolderIcon = {
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           d: 'M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z'
+        })
+      ]
+    )
+}
+
+const BookIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25'
+        })
+      ]
+    )
+}
+
+const DocumentIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z'
         })
       ]
     )
@@ -722,7 +830,7 @@ const flagBatchImageAccess = () => canUseBatchImage.value
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
 //
-// 条目顺序：密钥 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换/资料。
+// 条目顺序：密钥 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换 → 安装与教程 → 资料。
 // 可用渠道紧挨渠道状态之上，让用户"先看自己能用什么、再看对应状态"。
 function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
@@ -744,6 +852,21 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
+    {
+      path: '/guides',
+      label: t('nav.installAndGuides'),
+      icon: BookIcon,
+      expandOnly: true,
+      children: [
+        { path: '/guides/cc-switch', label: t('nav.guideCcSwitch'), icon: DocumentIcon },
+        { path: '/guides/drawing', label: t('nav.guideDrawing'), icon: DocumentIcon },
+        { path: '/guides/async-image-api', label: t('nav.guideAsyncImageApi'), icon: DocumentIcon },
+        { path: '/guides/claude-code', label: t('nav.guideClaudeCode'), icon: DocumentIcon },
+        { path: '/guides/codex', label: t('nav.guideCodex'), icon: DocumentIcon },
+        { path: '/guides/basics', label: t('nav.guideBasics'), icon: DocumentIcon },
+        { path: '/guides/docs', label: t('nav.guideDocs'), icon: DocumentIcon },
+      ],
+    },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
     ...customMenuItemsForUser.value.map((item): NavItem => ({
       path: `/custom/${item.id}`,

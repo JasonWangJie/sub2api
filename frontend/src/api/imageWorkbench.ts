@@ -63,6 +63,9 @@ export interface GeminiImageParams {
   model: string
   prompt: string
   resolution?: string
+  /** Preferred SC field for aspect ratio (e.g. "3:2"). */
+  size?: string
+  /** Alias mapped to size when size is empty. */
   aspect_ratio?: string
   references?: Array<{ mimeType: string; base64: string }>
 }
@@ -344,12 +347,14 @@ export function prepareGeminiAsyncSubmission(
   params: GeminiImageParams & { image_urls?: string[] },
   idempotencyKey: string,
 ): PreparedAsyncSubmission {
+  // SC dialect prefers size as the aspect-ratio field (e.g. "3:2"); aspect_ratio remains accepted by the API.
+  const size = params.size || params.aspect_ratio
   const body = JSON.stringify({
     model: params.model,
     prompt: params.prompt,
-    image_urls: params.image_urls || [],
-    resolution: params.resolution,
-    aspect_ratio: params.aspect_ratio,
+    ...(params.image_urls?.length ? { image_urls: params.image_urls } : {}),
+    ...(params.resolution ? { resolution: params.resolution } : {}),
+    ...(size ? { size } : {}),
   })
   return {
     idempotency_key: idempotencyKey,

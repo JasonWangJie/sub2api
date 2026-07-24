@@ -328,6 +328,87 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/guides',
+    redirect: '/guides/cc-switch'
+  },
+  {
+    path: '/guides/cc-switch',
+    name: 'GuideCcSwitch',
+    component: () => import('@/views/user/GuideCcSwitchView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'CC-Switch Setup',
+      titleKey: 'nav.guideCcSwitch'
+    }
+  },
+  {
+    path: '/guides/drawing',
+    name: 'GuideDrawing',
+    component: () => import('@/views/user/GuideDrawingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Drawing Guide',
+      titleKey: 'nav.guideDrawing'
+    }
+  },
+  {
+    path: '/guides/async-image-api',
+    name: 'GuideAsyncImageApi',
+    component: () => import('@/views/user/GuideAsyncImageApiView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Async Image API',
+      titleKey: 'nav.guideAsyncImageApi'
+    }
+  },
+  {
+    path: '/guides/claude-code',
+    name: 'GuideClaudeCode',
+    component: () => import('@/views/user/GuideClaudeCodeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Claude Code Guide',
+      titleKey: 'nav.guideClaudeCode'
+    }
+  },
+  {
+    path: '/guides/codex',
+    name: 'GuideCodex',
+    component: () => import('@/views/user/GuideCodexView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Codex Guide',
+      titleKey: 'nav.guideCodex'
+    }
+  },
+  {
+    path: '/guides/basics',
+    name: 'GuideBasics',
+    component: () => import('@/views/user/GuideBasicsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Beginner Basics',
+      titleKey: 'nav.guideBasics'
+    }
+  },
+  {
+    path: '/guides/docs',
+    name: 'GuideDocs',
+    component: () => import('@/views/user/GuideDocsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Documentation',
+      titleKey: 'nav.guideDocs'
+    }
+  },
+  {
     path: '/subscriptions',
     name: 'Subscriptions',
     component: () => import('@/views/user/SubscriptionsView.vue'),

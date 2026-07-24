@@ -207,6 +207,10 @@ type scImageRequest struct {
 	ImageURLs   []string `json:"image_urls"`
 	Resolution  string   `json:"resolution"`
 	AspectRatio string   `json:"aspect_ratio"`
+	// Size is a client-friendly alias:
+	// - ratio strings like "3:2" map to aspect_ratio
+	// - tier strings like "2K" map to resolution when resolution is empty
+	Size string `json:"size"`
 }
 
 // ParseSCGeminiImageRequest validates the SC image-generation dialect. SC is
@@ -234,7 +238,9 @@ func ParseSCGeminiImageRequest(body []byte, sourcePath string) (*AsyncImageNorma
 		parts = append(parts, AsyncImageInputPart{Type: "image_url", URL: value})
 	}
 	parts = append(parts, AsyncImageInputPart{Type: "text", Text: prompt})
-	size, ratio, err := normalizeAsyncGeminiDimensions(in.Resolution, in.AspectRatio, len(in.ImageURLs) > 0)
+
+	resolution, aspectRatio := resolveSCGeminiDimensionAliases(in.Resolution, in.AspectRatio, in.Size)
+	size, ratio, err := normalizeAsyncGeminiDimensions(resolution, aspectRatio, len(in.ImageURLs) > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -253,6 +259,27 @@ func ParseSCGeminiImageRequest(body []byte, sourcePath string) (*AsyncImageNorma
 		Parts:       parts,
 		SourcePath:  strings.TrimSpace(sourcePath),
 	}, nil
+}
+
+func resolveSCGeminiDimensionAliases(resolution, aspectRatio, size string) (string, string) {
+	resolution = strings.TrimSpace(resolution)
+	aspectRatio = strings.TrimSpace(aspectRatio)
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return resolution, aspectRatio
+	}
+	upper := strings.ToUpper(size)
+	switch upper {
+	case "0.5K", "1K", "2K", "4K":
+		if resolution == "" {
+			resolution = size
+		}
+	default:
+		if aspectRatio == "" {
+			aspectRatio = size
+		}
+	}
+	return resolution, aspectRatio
 }
 
 func normalizeAsyncGeminiDimensions(rawSize, rawRatio string, hasReference bool) (string, string, error) {
