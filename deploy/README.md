@@ -24,6 +24,8 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `DOCKER.md` | Docker Hub documentation |
 | `ubuntu-native-deploy.sh` | One-click Ubuntu source build and systemd/Nginx deployment; does not install PostgreSQL or Redis |
 | `install.sh` | One-click binary installation script |
+| `upgrade.sh` | One-click binary upgrade script (wraps `install.sh upgrade`) |
+| `FORK_RELEASE.md` | **Fork 发行版约定**（仓库身份、Release 资产、上游合并检查） |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
@@ -58,10 +60,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/docker-deploy.sh | bash
 
 # Or download first, then run
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
+curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -94,7 +96,7 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/Wei-Shaw/sub2api.git
+git clone https://github.com/JasonWangJie/sub2api.git
 cd sub2api/deploy
 
 # Configure environment
@@ -378,12 +380,18 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/install.sh | sudo bash
+```
+
+### One-Line Upgrade
+
+```bash
+curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/upgrade.sh | sudo bash
 ```
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/JasonWangJie/sub2api/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:
@@ -402,6 +410,8 @@ sudo ./install.sh
 
 # Upgrade
 sudo ./install.sh upgrade
+# Or:
+sudo ./upgrade.sh
 
 # Uninstall
 sudo ./install.sh uninstall

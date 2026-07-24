@@ -347,7 +347,7 @@ render_systemd_unit() {
   cat > "${WORK_DIR}/sub2api.service" <<'EOF'
 [Unit]
 Description=Sub2API API Gateway
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/JasonWangJie/sub2api
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0

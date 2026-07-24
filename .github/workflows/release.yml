@@ -1,5 +1,8 @@
 name: Release
 
+# FORK_IDENTITY: JasonWangJie/sub2api
+# 默认完整二进制 Release（install.sh 依赖）。合并 upstream 时保留本约定，勿恢复为可被 SIMPLE_RELEASE 变量静默跳过二进制的行为。
+
 on:
   push:
     tags:
@@ -11,15 +14,16 @@ on:
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        description: 'DANGER: only GHCR image, skips binaries required by install.sh'
         required: false
         type: boolean
         default: false
 
-# 环境变量：合并 workflow_dispatch 输入和 repository variable
-# tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
+# Fork 默认始终走完整 Release（二进制 + checksums），供 deploy/install.sh 下载。
+# 忽略仓库变量 SIMPLE_RELEASE，避免误配置导致 curl|bash 安装失败。
+# 仅当手动 workflow_dispatch 显式勾选 simple_release 时才使用简化配置。
 env:
-  SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  SIMPLE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.simple_release == 'true' }}
 
 permissions:
   contents: write
@@ -106,6 +110,20 @@ jobs:
           name: frontend-dist
           path: backend/internal/web/dist/
 
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME=${{ github.event.inputs.tag }}
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          VERSION=${TAG_NAME#v}
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release mode SIMPLE_RELEASE=${{ env.SIMPLE_RELEASE }}"
+          echo "Target assets for install.sh: sub2api_${VERSION}_linux_amd64.tar.gz sub2api_${VERSION}_linux_arm64.tar.gz checksums.txt"
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
@@ -125,10 +143,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
-        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -148,11 +164,7 @@ jobs:
       - name: Get tag message
         id: tag_message
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
+          TAG_NAME=${{ steps.version.outputs.tag }}
           echo "Processing tag: $TAG_NAME"
 
           # 获取完整的 tag message（跳过第一行标题）
@@ -185,12 +197,37 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
 
+      # install.sh 依赖这些资产；SIMPLE_RELEASE 模式会跳过，故仅在完整发布时校验
+      - name: Verify install.sh release assets
+        if: ${{ env.SIMPLE_RELEASE != 'true' }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          missing=0
+          for asset in \
+            "sub2api_${VERSION}_linux_amd64.tar.gz" \
+            "sub2api_${VERSION}_linux_arm64.tar.gz" \
+            "checksums.txt"
+          do
+            if [ ! -f "dist/${asset}" ]; then
+              echo "::error::Missing required release asset: dist/${asset}"
+              missing=1
+            else
+              echo "OK: dist/${asset}"
+              ls -lh "dist/${asset}"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Release assets incomplete. install.sh cannot download binaries."
+            echo "dist/ contents:"
+            ls -la dist/ || true
+            exit 1
+          fi
+          echo "All install.sh-required assets are present."
+
       # Update DockerHub description
       - name: Update DockerHub description
-        if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
+        if: ${{ env.SIMPLE_RELEASE != 'true' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
         uses: peter-evans/dockerhub-description@v5
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -198,7 +235,7 @@ jobs:
           short-description: "Sub2API - AI API Gateway Platform"
           readme-filepath: ./deploy/DOCKER.md
 
-      # Send Telegram notification
+      # Send Telegram notification (optional)
       - name: Send Telegram Notification
         if: ${{ env.SIMPLE_RELEASE != 'true' }}
         env:
@@ -213,12 +250,8 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          VERSION=${TAG_NAME#v}
+          TAG_NAME=${{ steps.version.outputs.tag }}
+          VERSION=${{ steps.version.outputs.version }}
           REPO="${{ github.repository }}"
           GHCR_IMAGE="ghcr.io/${REPO,,}"  # ${,,} converts to lowercase
 
@@ -240,6 +273,10 @@ jobs:
             MESSAGE+="${TAG_MESSAGE}"$'\n'$'\n'
           fi
 
+          MESSAGE+="💻 *一键安装:*"$'\n'
+          MESSAGE+="\`\`\`bash"$'\n'
+          MESSAGE+="curl -sSL https://raw.githubusercontent.com/${REPO}/main/deploy/install.sh | sudo bash"$'\n'
+          MESSAGE+="\`\`\`"$'\n'$'\n'
           MESSAGE+="🐳 *Docker 部署:*"$'\n'
           MESSAGE+="\`\`\`bash"$'\n'
           # 根据是否配置 DockerHub 动态生成

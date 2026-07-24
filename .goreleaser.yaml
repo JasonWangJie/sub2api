@@ -183,6 +183,16 @@ release:
 
     ## 📥 Installation
 
+    **One-line install (Linux):**
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}/main/deploy/install.sh | sudo bash
+    ```
+
+    **One-line upgrade (Linux):**
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}/main/deploy/upgrade.sh | sudo bash
+    ```
+
     **Docker:**
     ```bash
     {{ if ne .Env.DOCKERHUB_USERNAME "skip" -}}
@@ -194,13 +204,12 @@ release:
     docker pull ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/sub2api:{{ .Version }}
     ```
 
-    **One-line install (Linux):**
-    ```bash
-    curl -sSL https://raw.githubusercontent.com/{{ .Env.GITHUB_REPO_OWNER }}/{{ .Env.GITHUB_REPO_NAME }}/main/deploy/install.sh | sudo bash
-    ```
-
     **Manual download:**
     Download the appropriate archive for your platform from the assets below.
+    Required by `install.sh` on Linux servers:
+    - `sub2api_{{ .Version }}_linux_amd64.tar.gz`
+    - `sub2api_{{ .Version }}_linux_arm64.tar.gz`
+    - `checksums.txt`
 
     ## 📚 Documentation
 

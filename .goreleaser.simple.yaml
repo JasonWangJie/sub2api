@@ -1,4 +1,10 @@
 # 简化版 GoReleaser 配置 - 仅发布 x86_64 GHCR 镜像
+#
+# WARNING: 此配置不上传二进制包（archives 为空、skip_upload: true）。
+# deploy/install.sh 与 deploy/upgrade.sh 依赖 GitHub Release 中的
+#   sub2api_{version}_linux_{amd64|arm64}.tar.gz 与 checksums.txt
+# 因此 Fork 默认 Release 工作流不会使用本文件。
+# 仅在手动 workflow_dispatch 且显式勾选 simple_release 时启用。
 version: 2
 
 project_name: sub2api

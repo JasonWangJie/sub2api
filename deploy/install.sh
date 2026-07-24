@@ -2,7 +2,8 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | bash
+# FORK_IDENTITY: JasonWangJie/sub2api — 合并 upstream 时禁止改回 Wei-Shaw/sub2api
+# Usage: curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/install.sh | bash
 #
 
 set -e
@@ -31,7 +32,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+GITHUB_REPO="JasonWangJie/sub2api"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -715,10 +716,11 @@ install_service() {
     print_info "$(msg 'installing_service')"
 
     # Create service file with configured host and port
+    # DATA_DIR points Setup Wizard / runtime config to /etc/sub2api/config.yaml
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/JasonWangJie/sub2api
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 
@@ -739,10 +741,11 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/sub2api
+ReadWritePaths=/opt/sub2api ${CONFIG_DIR}
 
 # Environment - Server configuration
 Environment=GIN_MODE=release
+Environment=DATA_DIR=${CONFIG_DIR}
 Environment=SERVER_HOST=${SERVER_HOST}
 Environment=SERVER_PORT=${SERVER_PORT}
 
@@ -851,6 +854,25 @@ print_completion() {
     echo "=============================================="
 }
 
+# Backup config.yaml from known locations before binary replace
+backup_config() {
+    local stamp
+    stamp=$(date +%Y%m%d%H%M%S)
+    local candidates=(
+        "$CONFIG_DIR/config.yaml"
+        "$INSTALL_DIR/config.yaml"
+        "$INSTALL_DIR/data/config.yaml"
+    )
+    local src
+    for src in "${candidates[@]}"; do
+        if [ -f "$src" ]; then
+            local dest="${src}.backup.${stamp}"
+            cp "$src" "$dest"
+            print_info "$(msg 'backup_created'): $dest"
+        fi
+    done
+}
+
 # Upgrade function
 upgrade() {
     # Check if Sub2API is installed
@@ -872,9 +894,10 @@ upgrade() {
         systemctl stop sub2api
     fi
 
-    # Backup current binary
+    # Backup current binary and config
     cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
     print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
+    backup_config
 
     # Download and install new version
     get_latest_version
@@ -935,6 +958,7 @@ install_version() {
         cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"
         print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
     fi
+    backup_config
 
     # Set LATEST_VERSION to the target version for download_and_extract
     LATEST_VERSION="$target_version"
