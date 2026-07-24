@@ -348,7 +348,8 @@ function toggleMobileSidebar() {
   appStore.toggleMobileSidebar()
 }
 
-function toggleDropdown() {
+function toggleDropdown(event: MouseEvent) {
+  event.stopPropagation()
   dropdownOpen.value = !dropdownOpen.value
 }
 
@@ -396,7 +397,7 @@ onBeforeUnmount(() => {
 .app-header {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  overflow: visible;
   border-bottom: 1px solid rgba(186, 230, 253, 0.55);
   background:
     linear-gradient(180deg, rgba(224, 242, 254, 0.45), transparent 70%),
@@ -407,10 +408,10 @@ onBeforeUnmount(() => {
 
 .app-header__beam {
   position: absolute;
-  left: 6%;
-  right: 6%;
+  left: 0;
   bottom: -1px;
   z-index: 2;
+  width: min(220px, 28%);
   height: 2px;
   border-radius: 999px;
   background: linear-gradient(
@@ -420,12 +421,15 @@ onBeforeUnmount(() => {
     #38bdf8 42%,
     #e0f2fe 50%,
     #14b8a6 58%,
-    rgba(45, 212, 191, 0.2) 78%,
+    rgba(45, 212, 191, 0.2) 82%,
     transparent 100%
   );
-  background-size: 220% 100%;
-  animation: app-header-beam 4.8s linear infinite;
-  opacity: 0.9;
+  box-shadow:
+    0 0 8px rgba(56, 189, 248, 0.45),
+    0 0 16px rgba(20, 184, 166, 0.25);
+  animation: app-header-beam-sweep 3.6s ease-in-out infinite;
+  pointer-events: none;
+  will-change: left, transform;
 }
 
 .app-header__inner {
@@ -569,6 +573,7 @@ onBeforeUnmount(() => {
 }
 
 .app-header__dropdown {
+  z-index: 60;
   border-color: rgba(186, 230, 253, 0.65);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
 }
@@ -578,9 +583,16 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.45);
 }
 
-@keyframes app-header-beam {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 220% 50%; }
+@keyframes app-header-beam-sweep {
+  0%,
+  100% {
+    left: 0;
+    transform: translateX(0);
+  }
+  50% {
+    left: 100%;
+    transform: translateX(-100%);
+  }
 }
 
 @keyframes app-header-pulse {
@@ -625,11 +637,12 @@ onBeforeUnmount(() => {
     #38bdf8 42%,
     #7dd3fc 50%,
     #2dd4bf 58%,
-    rgba(45, 212, 191, 0.25) 78%,
+    rgba(45, 212, 191, 0.25) 82%,
     transparent 100%
   );
-  background-size: 220% 100%;
-  opacity: 1;
+  box-shadow:
+    0 0 10px rgba(56, 189, 248, 0.55),
+    0 0 18px rgba(45, 212, 191, 0.3);
 }
 
 .dark .app-header__title {
