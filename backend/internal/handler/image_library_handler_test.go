@@ -39,7 +39,13 @@ func (r *imageLibraryAdminHandlerRepo) TransitionPublication(_ context.Context, 
 
 func imageLibraryHandlerService(repo service.ImageLibraryRepository) *service.ImageLibraryService {
 	settings := service.NewImageStorageSettingService(nil, nil, nil, nil, config.ImageStorageConfig{})
-	return service.NewImageLibraryService(repo, settings)
+	durable := service.NewImageDurableStorageService(
+		config.ImageDurableStorageConfig{Backend: config.ImageDurableBackendLocal},
+		"./data",
+		nil,
+		settings,
+	)
+	return service.NewImageLibraryService(repo, settings, durable)
 }
 
 func TestWriteImageObjectAccessNegotiatesJSON(t *testing.T) {

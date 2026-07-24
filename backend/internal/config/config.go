@@ -98,6 +98,7 @@ type Config struct {
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	ImageDurableStorage     ImageDurableStorageConfig     `mapstructure:"image_durable_storage"`
 	AsyncImage              AsyncImageConfig              `mapstructure:"async_image"`
 }
 
@@ -254,7 +255,37 @@ const (
 	ImageStorageProviderQiniu    = "qiniu"
 	ImageStorageProviderAliyun   = "aliyun"
 	ImageStorageProviderTencent  = "tencent"
+	ImageStorageProviderLocal    = "local"
 )
+
+// ImageDurableStorageConfig controls where plaza/library durable bytes live
+// after a deferred submission sync (or ImportBytes). It is intentionally
+// separate from image_storage so async task buckets can use short lifecycle
+// rules without deleting plaza assets.
+type ImageDurableStorageConfig struct {
+	Backend string                           `mapstructure:"backend"` // local | oss
+	Local   ImageDurableLocalStorageConfig   `mapstructure:"local"`
+	OSS     ImageStorageConfig               `mapstructure:"oss"`
+}
+
+type ImageDurableLocalStorageConfig struct {
+	// DataDir is the root for durable library files. Empty falls back to
+	// {pricing.data_dir}/image_durable.
+	DataDir string `mapstructure:"data_dir"`
+}
+
+const (
+	ImageDurableBackendLocal = "local"
+	ImageDurableBackendOSS   = "oss"
+)
+
+func (c *ImageDurableStorageConfig) NormalizedBackend() string {
+	backend := strings.ToLower(strings.TrimSpace(c.Backend))
+	if backend == "" {
+		return ImageDurableBackendLocal
+	}
+	return backend
+}
 
 // AsyncImageConfig is the file/environment fallback for the durable async
 // image runtime. A database-backed admin setting takes precedence once saved.
@@ -2098,6 +2129,22 @@ func setDefaults() {
 	viper.SetDefault("image_storage.access_key_id", "")
 	viper.SetDefault("image_storage.secret_access_key", "")
 	viper.SetDefault("image_storage.public_base_url", "")
+
+	// Durable plaza/library storage (separate from ephemeral async image_storage).
+	viper.SetDefault("image_durable_storage.backend", "local")
+	viper.SetDefault("image_durable_storage.local.data_dir", "")
+	viper.SetDefault("image_durable_storage.oss.enabled", false)
+	viper.SetDefault("image_durable_storage.oss.provider", ImageStorageProviderCustomS3)
+	viper.SetDefault("image_durable_storage.oss.region", "auto")
+	viper.SetDefault("image_durable_storage.oss.prefix", "library/")
+	viper.SetDefault("image_durable_storage.oss.force_path_style", false)
+	viper.SetDefault("image_durable_storage.oss.presign_expiry_hours", 168)
+	viper.SetDefault("image_durable_storage.oss.max_download_bytes", 33554432)
+	viper.SetDefault("image_durable_storage.oss.endpoint", "")
+	viper.SetDefault("image_durable_storage.oss.bucket", "")
+	viper.SetDefault("image_durable_storage.oss.access_key_id", "")
+	viper.SetDefault("image_durable_storage.oss.secret_access_key", "")
+	viper.SetDefault("image_durable_storage.oss.public_base_url", "")
 
 	// Durable asynchronous image task runtime. The admin setting can override
 	// this fallback at runtime without restarting the service.

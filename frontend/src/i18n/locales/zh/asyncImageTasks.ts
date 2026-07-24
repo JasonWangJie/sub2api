@@ -7,7 +7,7 @@ export default {
     summary: {
       active: '进行中 {count}',
       completed: '本页已完成 {count}',
-      attention: '需处理 {count}',
+      attention: '失败数 {count}',
     },
     filters: {
       search: '任务、模型、密钥或用户',

@@ -329,14 +329,6 @@
                   >
                     {{ t('imageWorkflow.workbench.syncToPlaza') }}
                   </button>
-                  <button
-                    v-else-if="!result.localOnly && result.archiveStatus === 'failed'"
-                    type="button"
-                    class="text-link"
-                    @click="retryArchive(result)"
-                  >
-                    {{ t('imageWorkflow.workbench.retryArchive') }}
-                  </button>
                   <button type="button" class="result-icon-button" :title="t('imageWorkbench.view')" :aria-label="t('imageWorkbench.view')" @click="openResultLightbox(result.url, form.prompt)">
                     <Icon name="eye" size="sm" />
                   </button>
@@ -369,18 +361,13 @@ import Icon from '@/components/icons/Icon.vue'
 import ImageLibraryPanel from '@/features/image-workflow/ImageLibraryPanel.vue'
 import { keysAPI } from '@/api'
 import * as imageAPI from '@/api/imageWorkbench'
-import { archiveAsyncTask, createPlazaSubmissionRequest, importImageFile, importImageURL, listMyPlazaSubmissionRequests, syncPlazaSubmissionRequest } from '@/api/imageLibrary'
+import { createPlazaSubmissionRequest, listMyPlazaSubmissionRequests, syncPlazaSubmissionRequest } from '@/api/imageLibrary'
 import {
-  getPlazaSubmissionBlob,
-  removePlazaSubmissionBlob,
-  savePlazaSubmissionBlob,
-  bindPlazaSubmissionRequestId,
-} from '@/features/image-workflow/submissionBlobStore'
-import {
-  removePendingImageArchive,
-  savePendingImageArchive,
-  type PendingImageArchive,
-} from '@/features/image-workflow/archiveRecovery'
+  bindPersonalGalleryRequestId,
+  getPersonalGalleryItem,
+  removePersonalGalleryItem,
+  savePersonalGalleryItem,
+} from '@/features/image-workflow/personalGalleryStore'
 import { deriveWorkbenchAccess, sameCapabilitySnapshot } from '@/features/image-workflow/policy'
 import type { ImageLibraryItem, ImageWorkbenchCapabilities } from '@/features/image-workflow/types'
 import type { ApiKey } from '@/types'
@@ -407,7 +394,6 @@ interface WorkbenchResult {
   taskId?: string
   resultIndex?: number
   libraryItem?: ImageLibraryItem
-  recovery?: PendingImageArchive
 }
 
 interface AsyncTaskState {
@@ -810,7 +796,7 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
 
   if (!response.data?.length) throw new Error(t('imageWorkbench.emptyResult'))
   const operationKey = imageAPI.createImageIdempotencyKey()
-  // Realtime images stay browser-local (data URL / memory). OSS upload happens only after审核通过后同步.
+  // Realtime images stay in the browser personal gallery. Durable upload happens only after审核通过后同步.
   const nextResults: WorkbenchResult[] = []
   for (const [index, item] of response.data.entries()) {
     const url = imageAPI.resultToDataUrl(item, item.output_format || form.format || 'png')
@@ -825,7 +811,7 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
     }
     if (url.startsWith('data:')) {
       const file = dataURLToFile(url, `result.${form.format || 'png'}`)
-      await savePlazaSubmissionBlob({
+      await savePersonalGalleryItem({
         id: archiveKey,
         userId: Number(authStore.user?.id || 0),
         title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
@@ -833,6 +819,15 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
         fileName: file.name,
         contentType: file.type || 'image/png',
         previewUrl: url,
+        platform: capabilities.value?.platform,
+        model: form.model,
+        prompt: form.prompt.trim(),
+        requestedSize: selectedCapabilityOption(sizeOptions.value, form.size),
+        aspectRatio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+        quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
+        outputFormat: selectedCapabilityOption(formatOptions.value, form.format),
+        apiKeyId: selectedKey.value?.id,
+        groupId: selectedKey.value?.group_id,
         metadata: {
           api_key_id: selectedKey.value?.id,
           group_id: selectedKey.value?.group_id,
@@ -845,6 +840,7 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
     nextResults.push(result)
   }
   results.value = nextResults
+  void libraryPanel.value?.refresh()
   appStore.showSuccess(t('imageWorkbench.generateSuccess'))
 }
 
@@ -967,29 +963,16 @@ async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
       asyncTask.active = false
       asyncTask.progress = 100
       const operationKey = imageAPI.createImageIdempotencyKey()
+      // Async results are session preview only — never written to the personal gallery.
       results.value = state.images.map((image, index) => ({
         id: randomID('result'),
         url: image.url,
-        archiveStatus: 'archiving',
+        archiveStatus: 'local',
         archiveKey: `${operationKey}-${index}`,
         taskId: asyncTask.taskId,
         resultIndex: index,
+        localOnly: false,
       }))
-      try {
-        const archived = await archiveAsyncTask(trackedTaskId, state.images.map((_, index) => index))
-        if (asyncTask.taskId !== trackedTaskId) return
-        results.value.forEach((result, index) => {
-          result.archiveStatus = 'archived'
-          result.libraryItem = archived[index]
-        })
-        await libraryPanel.value?.refresh()
-      } catch (cause: any) {
-        if (asyncTask.taskId !== trackedTaskId) return
-        results.value.forEach((result) => {
-          result.archiveStatus = 'failed'
-          result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
-        })
-      }
       appStore.showSuccess(t('imageWorkflow.workbench.taskCompleted'))
       return
     }
@@ -1009,7 +992,7 @@ async function pollTask(key: ApiKey, current: ImageWorkbenchCapabilities) {
 
 async function publishLocalResult(result: WorkbenchResult) {
   if (!result.localOnly || !capabilities.value || !selectedKey.value) return
-  if (!result.url.startsWith('data:') && !(await getPlazaSubmissionBlob(result.archiveKey))) {
+  if (!result.url.startsWith('data:') && !(await getPersonalGalleryItem(result.archiveKey))) {
     appStore.showError(t('imageWorkflow.workbench.localResultUnavailable'))
     return
   }
@@ -1018,10 +1001,10 @@ async function publishLocalResult(result: WorkbenchResult) {
   result.archiveStatus = 'publishing'
   result.archiveError = ''
   try {
-    let blob = await getPlazaSubmissionBlob(result.archiveKey)
+    let blob = await getPersonalGalleryItem(result.archiveKey)
     if (!blob && result.url.startsWith('data:')) {
       const file = dataURLToFile(result.url, `result.${form.format || 'png'}`)
-      blob = await savePlazaSubmissionBlob({
+      blob = await savePersonalGalleryItem({
         id: result.archiveKey,
         userId: Number(authStore.user?.id || 0),
         title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
@@ -1029,6 +1012,11 @@ async function publishLocalResult(result: WorkbenchResult) {
         fileName: file.name,
         contentType: file.type || 'image/png',
         previewUrl: result.url,
+        platform: capabilities.value.platform,
+        model: form.model,
+        prompt: form.prompt.trim(),
+        apiKeyId: selectedKey.value.id,
+        groupId: selectedKey.value.group_id,
       })
     }
     if (!blob) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
@@ -1055,8 +1043,7 @@ async function publishLocalResult(result: WorkbenchResult) {
     result.submissionRequestId = item.id
     result.archiveStatus = item.status === 'approved_pending_sync' ? 'approved_pending_sync' : 'pending_review'
     appStore.showSuccess(t('imageWorkflow.library.submitted'))
-    // Bind requestId in the background — do not block the success toast on IndexedDB.
-    void bindPlazaSubmissionRequestId(result.archiveKey, item.id).catch(() => undefined)
+    void bindPersonalGalleryRequestId(result.archiveKey, item.id).catch(() => undefined)
     void libraryPanel.value?.refresh()
   } catch (cause: any) {
     result.archiveStatus = 'failed'
@@ -1075,7 +1062,7 @@ async function syncApprovedResult(result: WorkbenchResult) {
   result.archiveStatus = 'syncing'
   result.archiveError = ''
   try {
-    const blob = await getPlazaSubmissionBlob(result.archiveKey)
+    const blob = await getPersonalGalleryItem(result.archiveKey)
     if (!blob?.file) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
     const file = blob.file instanceof File
       ? blob.file
@@ -1084,7 +1071,7 @@ async function syncApprovedResult(result: WorkbenchResult) {
     result.libraryItem = synced.library_item
     result.archiveStatus = 'archived'
     result.localOnly = false
-    await removePlazaSubmissionBlob(result.archiveKey).catch(() => undefined)
+    await removePersonalGalleryItem(result.archiveKey).catch(() => undefined)
     appStore.showSuccess(t('imageWorkflow.workbench.syncSuccess'))
     await libraryPanel.value?.refresh()
   } catch (cause: any) {
@@ -1092,105 +1079,6 @@ async function syncApprovedResult(result: WorkbenchResult) {
     const message = cause?.message || t('imageWorkflow.workbench.syncFailed')
     result.archiveError = message
     appStore.showError(message)
-  }
-}
-
-async function archiveResult(result: WorkbenchResult, current = capabilities.value) {
-  if (!current || !selectedKey.value) return
-  result.archiveStatus = 'archiving'
-  result.archiveError = ''
-  const metadata = {
-    api_key_id: selectedKey.value.id,
-    group_id: selectedKey.value.group_id,
-    platform: current.platform,
-    execution_mode: current.execution_mode,
-    source: 'realtime_import',
-    model: form.model,
-    prompt: form.prompt.trim(),
-    title: truncateTitle(form.prompt),
-    requested_size: selectedCapabilityOption(sizeOptions.value, form.size),
-    aspect_ratio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
-    quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
-    output_format: selectedCapabilityOption(formatOptions.value, form.format),
-    visibility: 'private',
-  }
-  const file = result.url.startsWith('data:')
-    ? dataURLToFile(result.url, `result.${form.format || 'image'}`)
-    : undefined
-  result.recovery = buildRealtimeRecovery(result, metadata, file)
-  if (result.recovery) await savePendingImageArchive(result.recovery).catch(() => undefined)
-  try {
-    result.libraryItem = file
-      ? await importImageFile(file, metadata, result.archiveKey)
-      : await importImageURL(result.url, metadata, result.archiveKey)
-    result.archiveStatus = 'archived'
-    result.recovery = undefined
-    await removePendingImageArchive(result.archiveKey).catch(() => undefined)
-    await libraryPanel.value?.refresh()
-  } catch (cause: any) {
-    result.archiveStatus = 'failed'
-    result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
-    if (result.recovery) {
-      result.recovery = { ...result.recovery, errorMessage: result.archiveError }
-      await savePendingImageArchive(result.recovery).catch(() => undefined)
-    }
-  }
-}
-
-async function retryArchive(result: WorkbenchResult) {
-  if (!result.recovery && !result.taskId) {
-    await archiveResult(result)
-    return
-  }
-  result.archiveStatus = 'archiving'
-  try {
-    if (result.recovery?.kind === 'file') {
-      if (!result.recovery.file) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      const file = result.recovery.file instanceof File
-        ? result.recovery.file
-        : new File([result.recovery.file], result.recovery.fileName || 'recovered-image', { type: result.recovery.file.type })
-      result.libraryItem = await importImageFile(file, result.recovery.metadata || {}, result.recovery.id)
-    } else if (result.recovery?.kind === 'url') {
-      if (!result.recovery.remoteUrl) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      result.libraryItem = await importImageURL(result.recovery.remoteUrl, result.recovery.metadata || {}, result.recovery.id)
-    } else {
-      const taskId = result.recovery?.taskId || result.taskId
-      const resultIndex = result.recovery?.resultIndex ?? result.resultIndex
-      if (!taskId) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      const archived = await archiveAsyncTask(taskId, resultIndex == null ? undefined : [resultIndex])
-      result.libraryItem = archived[0]
-    }
-    result.archiveStatus = 'archived'
-    result.archiveError = ''
-    result.recovery = undefined
-    await removePendingImageArchive(result.archiveKey).catch(() => undefined)
-    await libraryPanel.value?.refresh()
-  } catch (cause: any) {
-    result.archiveStatus = 'failed'
-    result.archiveError = cause?.message || t('imageWorkflow.library.archiveFailed')
-    if (result.recovery) {
-      result.recovery = { ...result.recovery, errorMessage: result.archiveError }
-      await savePendingImageArchive(result.recovery).catch(() => undefined)
-    }
-  }
-}
-
-function buildRealtimeRecovery(result: WorkbenchResult, metadata: Record<string, unknown>, file?: File): PendingImageArchive | undefined {
-  const userId = Number(authStore.user?.id || 0)
-  if (userId <= 0) return undefined
-  return {
-    id: result.archiveKey,
-    userId,
-    kind: file ? 'file' : 'url',
-    title: String(metadata.title || t('imageWorkflow.library.untitled')),
-    file,
-    fileName: file?.name,
-    remoteUrl: file ? undefined : result.url,
-    previewUrl: file ? undefined : result.url,
-    metadata,
-    errorMessage: result.archiveError,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
   }
 }
 
@@ -1361,7 +1249,7 @@ async function restoreDeferredSubmissions() {
         existing.localOnly = true
         continue
       }
-      const blob = await getPlazaSubmissionBlob(req.client_blob_key)
+      const blob = await getPersonalGalleryItem(req.client_blob_key)
       let url = blob?.previewUrl || ''
       if (!url && blob?.file) url = URL.createObjectURL(blob.file)
       if (!url) continue

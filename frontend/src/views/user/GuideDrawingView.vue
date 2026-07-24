@@ -18,7 +18,7 @@
               <router-link to="/keys" class="btn btn-secondary">
                 {{ t('guides.drawing.viewKeys') }}
               </router-link>
-              <router-link to="/async-image-tasks" class="btn btn-secondary">
+              <router-link to="/async-image-tasks" class="btn btn-warning font-semibold">
                 {{ t('guides.drawing.viewAsyncTasks') }}
               </router-link>
             </div>
@@ -30,7 +30,16 @@
               class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
             >
               <p class="text-xs text-gray-500 dark:text-dark-300">{{ item.label }}</p>
-              <p class="mt-2 text-lg font-bold text-gray-950 dark:text-white">{{ item.value }}</p>
+              <p
+                v-if="item.highlight"
+                class="mt-2 text-lg font-bold text-gray-950 dark:text-white"
+              >
+                {{ item.prefix }}
+                <span class="text-amber-600 dark:text-amber-400">{{ item.highlight }}</span>
+              </p>
+              <p v-else class="mt-2 text-lg font-bold text-gray-950 dark:text-white">
+                {{ item.value }}
+              </p>
             </div>
           </div>
         </div>
@@ -86,7 +95,8 @@
           </span>
           <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">
-              {{ t('guides.drawing.section2Title') }}
+              {{ t('guides.drawing.section2TitlePrefix') }}
+              <span class="text-amber-600 dark:text-amber-400">{{ t('guides.drawing.section2TitleAsync') }}</span>
             </h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">
               {{ t('guides.drawing.section2Desc') }}
@@ -99,16 +109,20 @@
             <h3 class="font-semibold text-gray-950 dark:text-white">{{ t('guides.drawing.syncTitle') }}</h3>
             <p class="mt-2 text-sm text-gray-500 dark:text-dark-300">{{ t('guides.drawing.syncDesc') }}</p>
           </div>
-          <div class="rounded-lg border border-primary-200 bg-primary-50/60 p-5 dark:border-primary-800 dark:bg-primary-900/20">
-            <h3 class="font-semibold text-gray-950 dark:text-white">{{ t('guides.drawing.asyncTitle') }}</h3>
+          <div
+            class="rounded-lg border-2 border-amber-400 bg-gradient-to-br from-amber-50 via-amber-50/80 to-orange-50/60 p-5 shadow-md shadow-amber-500/20 dark:border-amber-500 dark:from-amber-950/50 dark:via-amber-900/30 dark:to-orange-950/20 dark:shadow-amber-500/15"
+          >
+            <h3 class="font-semibold text-amber-700 dark:text-amber-300">
+              {{ t('guides.drawing.asyncTitle') }}
+            </h3>
             <p class="mt-2 text-sm text-gray-600 dark:text-dark-200">{{ t('guides.drawing.asyncDesc') }}</p>
-            <p class="mt-3 text-sm font-medium text-primary-700 dark:text-primary-300">
+            <p class="mt-3 text-sm font-medium text-amber-800 dark:text-amber-200">
               {{ t('guides.drawing.asyncNote') }}
             </p>
-            <div class="mt-4 rounded-lg border border-primary-200/80 bg-white/70 p-4 dark:border-primary-800/60 dark:bg-dark-900/40">
+            <div class="mt-4 rounded-lg border border-amber-300/80 bg-white/80 p-4 dark:border-amber-700/60 dark:bg-dark-900/40">
               <h4 class="font-semibold text-gray-950 dark:text-white">{{ t('guides.drawing.asyncApiTitle') }}</h4>
               <p class="mt-2 text-sm text-gray-600 dark:text-dark-200">{{ t('guides.drawing.asyncApiDesc') }}</p>
-              <router-link to="/guides/async-image-api" class="btn btn-primary mt-3">
+              <router-link to="/guides/async-image-api" class="btn btn-warning mt-3 font-semibold">
                 {{ t('guides.drawing.openAsyncApi') }}
               </router-link>
             </div>
@@ -169,7 +183,12 @@ const metaItems = computed(() => [
   { label: t('guides.drawing.metaModel'), value: t('guides.drawing.metaModelValue') },
   { label: t('guides.drawing.metaRef'), value: t('guides.drawing.metaRefValue') },
   { label: t('guides.drawing.metaFormat'), value: t('guides.drawing.metaFormatValue') },
-  { label: t('guides.drawing.metaMode'), value: t('guides.drawing.metaModeValue') },
+  {
+    label: t('guides.drawing.metaMode'),
+    value: t('guides.drawing.metaModeValue'),
+    prefix: t('guides.drawing.metaModePrefix'),
+    highlight: t('guides.drawing.metaModeAsync'),
+  },
 ])
 
 const features = computed(() => [

@@ -1276,6 +1276,63 @@ image_storage:
   max_download_bytes: 33554432
 
 # =============================================================================
+# Durable Plaza / Library Storage (投稿与广场持久化，与异步桶分离)
+# =============================================================================
+# 用途：实时生图「投稿审核通过后用户同步上传」以及 ImportBytes 写入的持久化字节。
+# 个人图库（工作台侧栏 /image-library）只在浏览器 IndexedDB，不经过本段。
+#
+# 为什么要和上面的 image_storage 分开：
+# - image_storage 服务异步任务结果 / SC 参考图，生产上常给桶配生命周期（例如 1 天后删）。
+# - 本段服务广场与投稿资产，需要长期保留；若共用同一桶会随异步生命周期被误删。
+#
+# 修改后需重启服务生效（首期以 config.yaml 为准，不走后台热更新）。
+image_durable_storage:
+  # 持久化后端：local | oss
+  # - local：写本机磁盘（默认，自托管最简单，无需第二套 OSS 凭证）
+  # - oss：写下方 oss 段配置的独立 S3 兼容桶（不得回退到 image_storage）
+  backend: "local"
+
+  # backend=local 时生效
+  local:
+    # 本地根目录。对象相对路径形如 library/{userId}/{YYYY/MM/DD}/{uuid}.png
+    # 留空则使用 {pricing.data_dir}/image_durable（发行版常见为 /opt/sub2api/data/image_durable）
+    # 请确保该目录对运行用户可写，并纳入备份策略。
+    data_dir: ""
+
+  # backend=oss 时生效；与 image_storage 字段含义类似，但是独立身份，勿填异步任务那个桶。
+  oss:
+    # 是否启用本段 OSS（backend=oss 时应为 true，且凭证齐全；否则写入会失败）
+    enabled: false
+    # 存储厂商：custom_s3 / qiniu / aliyun / tencent。
+    # custom_s3 兼容 AWS S3、Cloudflare R2、MinIO 及其他 S3 兼容服务。
+    provider: "custom_s3"
+    # S3 兼容端点。qiniu / aliyun / tencent 留空时会按 region 生成厂商端点；
+    # custom_s3 请按服务商填写（AWS 官方可留空，R2 填账号专属端点）。
+    endpoint: ""
+    # 区域。qiniu / aliyun / tencent 必填且不能为 auto；custom_s3 / R2 可用 auto。
+    region: "auto"
+    # 投稿/广场专用桶名。必须与 image_storage.bucket 分开（可同账号不同桶）。
+    # 不要给此桶配置「短时间自动删除」生命周期，否则广场图会丢。
+    bucket: ""
+    # 对象存储访问凭证。生产建议用环境变量注入，避免把密钥写进配置仓库：
+    # IMAGE_DURABLE_STORAGE_OSS_ACCESS_KEY_ID / IMAGE_DURABLE_STORAGE_OSS_SECRET_ACCESS_KEY
+    # （若未单独设 durable 环境变量，也可按部署方式在本文件填写，勿提交到公开 Git）
+    access_key_id: ""
+    secret_access_key: ""
+    # 对象 key 前缀；投稿资产会在此前缀下按日期分区保存（如 library/…）。
+    prefix: "library/"
+    # MinIO / 需要路径风格（path-style）访问的桶设为 true
+    force_path_style: false
+    # 公开桶或 CDN 根地址；填写后按 public_base_url/object_key 返回公开直链。
+    # 留空时查看接口动态生成 presigned 临时链接。此项不是 API 服务地址。
+    public_base_url: ""
+    # public_base_url 为空时的默认签名时长（小时）。投稿/广场资产建议长于异步任务
+    # （默认 168 = 7 天）；实际站内图库签名还可受 image_library 运行参数影响。
+    presign_expiry_hours: 168
+    # 从外部 URL 导入图片时的单图下载字节上限（默认 32 MiB）。
+    max_download_bytes: 33554432
+
+# =============================================================================
 # Durable Async Image Runtime (持久化异步生图运行参数)
 # =============================================================================
 # 后台保存的异步生图设置优先于本段；所有字段也可用 ASYNC_IMAGE_* 环境变量覆盖。

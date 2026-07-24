@@ -388,10 +388,15 @@ type ImageLibraryService struct {
 	repo            ImageLibraryRepository
 	submissions     ImagePlazaSubmissionRepository
 	storageSettings *ImageStorageSettingService
+	durableStorage  *ImageDurableStorageService
 }
 
-func NewImageLibraryService(repo ImageLibraryRepository, storageSettings *ImageStorageSettingService) *ImageLibraryService {
-	svc := &ImageLibraryService{repo: repo, storageSettings: storageSettings}
+func NewImageLibraryService(
+	repo ImageLibraryRepository,
+	storageSettings *ImageStorageSettingService,
+	durableStorage *ImageDurableStorageService,
+) *ImageLibraryService {
+	svc := &ImageLibraryService{repo: repo, storageSettings: storageSettings, durableStorage: durableStorage}
 	if submissions, ok := repo.(ImagePlazaSubmissionRepository); ok {
 		svc.submissions = submissions
 	}
@@ -484,14 +489,10 @@ func (s *ImageLibraryService) importValidated(
 		return item, true, nil
 	}
 
-	storage, enabled, err := s.storageSettings.DurableStorage(ctx)
+	storage, err := s.writeStorage(ctx)
 	if err != nil {
 		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
 		return nil, false, err
-	}
-	if !enabled || storage == nil {
-		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
-		return nil, false, apperrors.ServiceUnavailable("IMAGE_STORAGE_DISABLED", "image storage is not configured")
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(in.GenerationMode))
@@ -680,6 +681,25 @@ func (s *ImageLibraryService) GetForUser(ctx context.Context, userID int64, asse
 	return item, nil
 }
 
+func (s *ImageLibraryService) OpenPublishedObject(ctx context.Context, publicationID string) (ObjectAccess, io.ReadCloser, string, error) {
+	ref, err := s.repo.GetPublishedObject(ctx, publicationID)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	access, err := s.signObject(ctx, *ref)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	if IsLocalObjectAccess(access) {
+		reader, contentType, readErr := s.ReadObject(ctx, *ref)
+		if readErr != nil {
+			return ObjectAccess{}, nil, "", readErr
+		}
+		return access, reader, contentType, nil
+	}
+	return access, nil, "", nil
+}
+
 func (s *ImageLibraryService) ResolveUserObject(ctx context.Context, userID int64, assetID string) (ObjectAccess, error) {
 	_, ref, err := s.repo.GetForUser(ctx, userID, assetID)
 	if err != nil {
@@ -717,18 +737,102 @@ func (s *ImageLibraryService) Policy(ctx context.Context) (ImageLibraryRuntimeCo
 }
 
 func (s *ImageLibraryService) signObject(ctx context.Context, ref ObjectRef) (ObjectAccess, error) {
-	storage, enabled, err := s.storageSettings.DurableStorage(ctx)
+	storage, err := s.storageForObject(ctx, ref)
 	if err != nil {
 		return ObjectAccess{}, err
-	}
-	if !enabled || storage == nil {
-		return ObjectAccess{}, apperrors.ServiceUnavailable("IMAGE_STORAGE_DISABLED", "image storage is not configured")
 	}
 	policy, err := s.storageSettings.LibraryRuntimeConfig(ctx)
 	if err != nil {
 		return ObjectAccess{}, err
 	}
 	return storage.SignURL(ctx, ref, time.Duration(policy.SignedURLExpirySecs)*time.Second)
+}
+
+func (s *ImageLibraryService) writeStorage(ctx context.Context) (DurableImageStorage, error) {
+	if s == nil || s.durableStorage == nil {
+		return nil, apperrors.ServiceUnavailable("IMAGE_DURABLE_STORAGE_DISABLED", "durable image storage is not configured")
+	}
+	return s.durableStorage.WriteStorage(ctx)
+}
+
+func (s *ImageLibraryService) storageForObject(ctx context.Context, ref ObjectRef) (DurableImageStorage, error) {
+	if s == nil || s.durableStorage == nil {
+		return nil, apperrors.ServiceUnavailable("IMAGE_DURABLE_STORAGE_DISABLED", "durable image storage is not configured")
+	}
+	return s.durableStorage.StorageForObject(ctx, ref)
+}
+
+func (s *ImageLibraryService) ReadObject(ctx context.Context, ref ObjectRef) (io.ReadCloser, string, error) {
+	storage, err := s.storageForObject(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	reader, err := storage.Read(ctx, ref)
+	if err != nil {
+		return nil, "", apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "failed to read image object").WithCause(err)
+	}
+	contentType := strings.TrimSpace(ref.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return reader, contentType, nil
+}
+
+func (s *ImageLibraryService) OpenUserObject(ctx context.Context, userID int64, assetID string) (ObjectAccess, io.ReadCloser, string, error) {
+	_, ref, err := s.repo.GetForUser(ctx, userID, assetID)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	access, err := s.signObject(ctx, *ref)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	if IsLocalObjectAccess(access) {
+		reader, contentType, readErr := s.ReadObject(ctx, *ref)
+		if readErr != nil {
+			return ObjectAccess{}, nil, "", readErr
+		}
+		return access, reader, contentType, nil
+	}
+	return access, nil, "", nil
+}
+
+func (s *ImageLibraryService) OpenAdminObject(ctx context.Context, assetID string) (ObjectAccess, io.ReadCloser, string, error) {
+	ref, err := s.repo.GetObjectAdmin(ctx, assetID)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	access, err := s.signObject(ctx, *ref)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	if IsLocalObjectAccess(access) {
+		reader, contentType, readErr := s.ReadObject(ctx, *ref)
+		if readErr != nil {
+			return ObjectAccess{}, nil, "", readErr
+		}
+		return access, reader, contentType, nil
+	}
+	return access, nil, "", nil
+}
+
+func (s *ImageLibraryService) OpenAdminPublicationObject(ctx context.Context, publicID string) (ObjectAccess, io.ReadCloser, string, error) {
+	ref, err := s.repo.GetPublicationObjectAdmin(ctx, publicID)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	access, err := s.signObject(ctx, *ref)
+	if err != nil {
+		return ObjectAccess{}, nil, "", err
+	}
+	if IsLocalObjectAccess(access) {
+		reader, contentType, readErr := s.ReadObject(ctx, *ref)
+		if readErr != nil {
+			return ObjectAccess{}, nil, "", readErr
+		}
+		return access, reader, contentType, nil
+	}
+	return access, nil, "", nil
 }
 
 func (s *ImageLibraryService) Update(ctx context.Context, in UpdateImageLibraryItemParams) (*ImageLibraryItem, error) {

@@ -2,7 +2,13 @@
   <section class="library-panel" :class="{ 'library-panel--compact': compact }" aria-labelledby="image-library-heading">
     <header class="library-panel__header">
       <div class="min-w-0">
-        <h2 id="image-library-heading" class="library-panel__title">{{ t('imageWorkflow.library.title') }}</h2>
+        <div class="library-panel__title-row">
+          <h2 id="image-library-heading" class="library-panel__title">{{ t('imageWorkflow.library.title') }}</h2>
+          <span v-if="!compact" class="library-storage-chip" :title="t('imageWorkflow.library.storageLead')">
+            <Icon name="database" size="xs" />
+            {{ t('imageWorkflow.library.storageBadge') }}
+          </span>
+        </div>
         <p v-if="!compact" class="library-panel__description">{{ t('imageWorkflow.library.description') }}</p>
       </div>
       <div class="flex items-center gap-2">
@@ -15,61 +21,36 @@
       </div>
     </header>
 
-    <div v-if="!compact" class="library-filters" role="group" :aria-label="t('imageWorkflow.library.filters')">
-      <button
-        v-for="option in filterOptions"
-        :key="option.value"
-        type="button"
-        class="library-filter"
-        :class="{ 'is-active': filter === option.value }"
-        @click="setFilter(option.value)"
-      >
-        {{ option.label }}
-      </button>
-    </div>
-
-    <section v-if="!compact && recoveries.length" class="library-recovery" aria-labelledby="image-library-recovery-heading">
-      <div class="library-recovery__heading">
-        <span class="library-recovery__icon"><Icon name="exclamationTriangle" size="sm" /></span>
-        <div class="min-w-0">
-          <h3 id="image-library-recovery-heading">
-            {{ t('imageWorkflow.library.recoveryTitle', { count: recoveries.length }) }}
-          </h3>
-          <p>{{ t('imageWorkflow.library.recoveryLocalHint') }}</p>
-        </div>
-      </div>
-      <div class="library-recovery__list">
-        <article v-for="recovery in visibleRecoveries" :key="recovery.id" class="library-recovery__item">
-          <span class="library-recovery__preview">
-            <img v-if="recoveryPreviewURLs[recovery.id]" :src="recoveryPreviewURLs[recovery.id]" :alt="recovery.title" />
-            <Icon v-else name="inbox" size="sm" />
+    <aside
+      class="library-storage"
+      :class="{ 'library-storage--compact': compact }"
+      :aria-label="t('imageWorkflow.library.storageTitle')"
+    >
+      <template v-if="compact">
+        <p class="library-storage__compact-line" :title="compactStorageHint">
+          <Icon name="database" size="xs" />
+          <span>{{ t('imageWorkflow.library.storageCompact') }}</span>
+        </p>
+      </template>
+      <template v-else>
+        <div class="library-storage__glow" aria-hidden="true"></div>
+        <div class="library-storage__head">
+          <span class="library-storage__mark" aria-hidden="true">
+            <Icon name="infoCircle" size="sm" />
           </span>
-          <div class="min-w-0 flex-1">
-            <strong :title="recovery.title">{{ recovery.title || t('imageWorkflow.library.untitled') }}</strong>
-            <small>{{ recovery.errorMessage || t('imageWorkflow.library.archiveFailed') }}</small>
+          <div class="min-w-0">
+            <h3 id="library-storage-heading" class="library-storage__title">{{ t('imageWorkflow.library.storageTitle') }}</h3>
+            <p class="library-storage__lead">{{ t('imageWorkflow.library.storageLead') }}</p>
           </div>
-          <button
-            type="button"
-            class="library-recovery__retry"
-            :disabled="recoveryBusyId === recovery.id"
-            @click="retryRecovery(recovery)"
-          >
-            <Icon name="refresh" size="xs" :class="recoveryBusyId === recovery.id && 'animate-spin'" />
-            {{ t('imageWorkflow.library.retryArchive') }}
-          </button>
-          <button
-            type="button"
-            class="library-action"
-            :disabled="recoveryBusyId === recovery.id"
-            :title="t('imageWorkflow.library.discardRecovery')"
-            :aria-label="t('imageWorkflow.library.discardRecovery')"
-            @click="discardRecovery(recovery.id)"
-          >
-            <Icon name="x" size="sm" />
-          </button>
-        </article>
-      </div>
-    </section>
+        </div>
+        <ul class="library-storage__rules" aria-labelledby="library-storage-heading">
+          <li v-for="rule in storageRules" :key="rule.key" class="library-storage__rule" :class="`is-${rule.tone}`">
+            <Icon :name="rule.icon" size="xs" />
+            <span>{{ rule.label }}</span>
+          </li>
+        </ul>
+      </template>
+    </aside>
 
     <section v-if="submissions.length" class="library-recovery" aria-labelledby="image-library-submission-heading">
       <div class="library-recovery__heading">
@@ -130,13 +111,13 @@
     </div>
 
     <div v-else class="library-grid" :class="{ 'library-grid--compact': compact }">
-      <article v-for="item in items" :key="item.id" class="library-item">
+      <article v-for="item in visibleItems" :key="item.id" class="library-item">
         <button type="button" class="library-item__media" @click="openLightbox(item)">
           <LazyImage
             class="library-item__lazy"
-            :src="thumbnailSrc(item) || undefined"
+            :src="previewURLs[item.id] || undefined"
             :alt="item.title || t('imageWorkflow.library.untitled')"
-            :load="() => ensureResolved(item)"
+            :load="() => ensurePreview(item)"
             @error="markBroken(item.id)"
           >
             <template #error>
@@ -149,28 +130,28 @@
               <span class="library-item__broken"><span class="library-spinner" aria-hidden="true"></span></span>
             </template>
           </LazyImage>
-          <span class="library-item__mode" :class="`is-${item.execution_mode}`">
-            <Icon :name="item.execution_mode === 'async' ? 'clock' : 'bolt'" size="xs" />
-            {{ modeLabel(item.execution_mode) }}
+          <span class="library-item__mode is-realtime">
+            <Icon name="bolt" size="xs" />
+            {{ t('imageWorkflow.mode.realtime') }}
           </span>
         </button>
         <div class="library-item__body">
           <div class="library-item__title-row">
-            <div v-if="editingId === String(item.id)" class="library-title-editor">
+            <div v-if="editingId === item.id" class="library-title-editor">
               <input
                 v-model="editingTitle"
                 type="text"
                 maxlength="200"
                 class="input"
                 :aria-label="t('imageWorkflow.library.privateTitle')"
-                :disabled="busyId === String(item.id)"
+                :disabled="busyId === item.id"
                 @keydown.enter.prevent="saveTitle(item)"
                 @keydown.esc.prevent="cancelTitleEdit"
               />
-              <button type="button" class="library-action" :disabled="busyId === String(item.id)" :title="t('common.save')" :aria-label="t('common.save')" @click="saveTitle(item)">
+              <button type="button" class="library-action" :disabled="busyId === item.id" :title="t('common.save')" :aria-label="t('common.save')" @click="saveTitle(item)">
                 <Icon name="check" size="xs" />
               </button>
-              <button type="button" class="library-action" :disabled="busyId === String(item.id)" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="cancelTitleEdit">
+              <button type="button" class="library-action" :disabled="busyId === item.id" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="cancelTitleEdit">
                 <Icon name="x" size="xs" />
               </button>
             </div>
@@ -180,59 +161,50 @@
                 <Icon name="edit" size="xs" />
               </button>
             </template>
-            <span class="library-status" :class="statusClass(item.publication_status)">
-              {{ publicationLabel(item.publication_status) }}
+            <span class="library-status" :class="statusClass(submissionStatusFor(item))">
+              {{ publicationLabel(submissionStatusFor(item)) }}
             </span>
           </div>
-          <p class="library-item__meta">{{ item.platform }} · {{ item.model || '—' }}</p>
+          <p class="library-item__meta">{{ item.platform || '—' }} · {{ item.model || '—' }}</p>
           <p v-if="!compact && item.prompt" class="library-item__prompt">{{ item.prompt }}</p>
-          <p v-if="isArchiveFailed(item)" class="library-item__error" role="alert">
-            {{ item.error_message || t('imageWorkflow.library.archiveFailed') }}
-          </p>
           <div class="library-item__actions">
-            <button type="button" class="library-action" :title="t('imageWorkflow.library.reuse')" :aria-label="t('imageWorkflow.library.reuse')" @click="emit('reuse', item)">
+            <button type="button" class="library-action" :title="t('imageWorkflow.library.reuse')" :aria-label="t('imageWorkflow.library.reuse')" @click="emitReuse(item)">
               <Icon name="refresh" size="sm" />
             </button>
-            <a class="library-action" :href="fullImageSrc(item) || '#'" target="_blank" rel="noopener" :title="t('imageWorkbench.download')" :aria-label="t('imageWorkbench.download')">
+            <a
+              class="library-action"
+              :href="previewURLs[item.id] || '#'"
+              :download="item.fileName || 'image.png'"
+              :title="t('imageWorkbench.download')"
+              :aria-label="t('imageWorkbench.download')"
+            >
               <Icon name="download" size="sm" />
             </a>
             <button
               v-if="canPublish(item)"
               type="button"
               class="library-text-action"
-              :disabled="busyId === String(item.id)"
+              :disabled="busyId === item.id"
               @click="publish(item)"
             >
               {{ t('imageWorkflow.library.submitReview') }}
             </button>
             <button
-              v-else-if="canWithdraw(item)"
+              v-else-if="canSync(item)"
               type="button"
               class="library-text-action"
-              :disabled="busyId === String(item.id)"
-              @click="withdraw(item)"
+              :disabled="busyId === item.id"
+              @click="syncItem(item)"
             >
-              {{ t('imageWorkflow.library.withdraw') }}
+              {{ t('imageWorkflow.workbench.syncToPlaza') }}
             </button>
-            <button type="button" class="library-action is-danger" :disabled="busyId === String(item.id)" :title="t('common.delete')" :aria-label="t('common.delete')" @click="remove(item)">
+            <button type="button" class="library-action is-danger" :disabled="busyId === item.id" :title="t('common.delete')" :aria-label="t('common.delete')" @click="remove(item)">
               <Icon name="trash" size="sm" />
             </button>
           </div>
         </div>
       </article>
     </div>
-
-    <button
-      v-if="nextCursor && !compact"
-      ref="loadMoreSentinel"
-      type="button"
-      class="library-load-more"
-      :disabled="loadingMore"
-      @click="loadMore"
-    >
-      <span v-if="loadingMore" class="library-spinner" aria-hidden="true"></span>
-      {{ t('imageWorkflow.library.loadMore') }}
-    </button>
 
     <ImageLightbox
       :src="lightboxSrc"
@@ -243,40 +215,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import LazyImage from '@/components/common/LazyImage.vue'
-import { useInView } from '@/composables/useInView'
 import { useAppStore, useAuthStore } from '@/stores'
 import {
-  archiveAsyncTask,
-  deleteImageLibraryItem,
-  importImageFile,
-  importImageURL,
-  listImageLibrary,
+  createPlazaSubmissionRequest,
   listMyPlazaSubmissionRequests,
-  publishImageLibraryItem,
-  resolveImageLibraryViewURL,
   syncPlazaSubmissionRequest,
-  updateImageLibraryItem,
-  withdrawImageLibraryItem,
   withdrawPlazaSubmissionRequest,
 } from '@/api/imageLibrary'
 import {
-  listPendingImageArchives,
-  onPendingImageArchivesChanged,
-  removePendingImageArchive,
-  savePendingImageArchive,
-  type PendingImageArchive,
-} from './archiveRecovery'
-import {
-  getPlazaSubmissionBlob,
-  removePlazaSubmissionBlob,
-} from './submissionBlobStore'
+  bindPersonalGalleryRequestId,
+  getPersonalGalleryItem,
+  listPersonalGalleryItems,
+  onPersonalGalleryChanged,
+  removePersonalGalleryItem,
+  updatePersonalGalleryItem,
+  type PersonalGalleryRecord,
+} from './personalGalleryStore'
 import type { ImageLibraryItem, ImagePlazaSubmissionRequest, ImagePublicationStatus } from './types'
-import { buildOssThumbnailUrl } from '@/utils/ossThumbnail'
 
 const props = withDefaults(defineProps<{ compact?: boolean; limit?: number }>(), {
   compact: false,
@@ -291,54 +251,112 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const loading = ref(false)
-const loadingMore = ref(false)
 const error = ref('')
-const items = ref<ImageLibraryItem[]>([])
-const nextCursor = ref<string | null>(null)
-const filter = ref('all')
+const items = ref<PersonalGalleryRecord[]>([])
 const busyId = ref('')
 const brokenImages = ref(new Set<string>())
-const resolvedImages = ref<Record<string, string>>({})
+const previewURLs = ref<Record<string, string>>({})
 const lightboxSrc = ref('')
 const lightboxAlt = ref('')
-const recoveries = ref<PendingImageArchive[]>([])
-const recoveryPreviewURLs = ref<Record<string, string>>({})
-const recoveryBusyId = ref('')
 const submissions = ref<ImagePlazaSubmissionRequest[]>([])
 const submissionPreviewURLs = ref<Record<string, string>>({})
 const submissionBusyId = ref('')
 const editingId = ref('')
 const editingTitle = ref('')
-const resolveInflight = new Map<string, Promise<string>>()
-const { target: loadMoreSentinel, inView: loadMoreInView } = useInView({ rootMargin: '320px 0px', once: false })
-let stopRecoveryListener: (() => void) | null = null
+let stopGalleryListener: (() => void) | null = null
 
-const filterOptions = computed(() => [
-  { value: 'all', label: t('common.all') },
-  { value: 'private', label: t('imageWorkflow.library.private') },
-  { value: 'pending_review', label: t('imageWorkflow.library.pendingReview') },
-  { value: 'published', label: t('imageWorkflow.library.published') },
-])
-const visibleRecoveries = computed(() => props.compact ? recoveries.value.slice(0, 3) : recoveries.value)
 const visibleSubmissions = computed(() => props.compact ? submissions.value.slice(0, 3) : submissions.value)
+const visibleItems = computed(() => props.compact ? items.value.slice(0, props.limit) : items.value)
+const storageRules = computed(() => [
+  { key: 'local', icon: 'database' as const, tone: 'teal', label: t('imageWorkflow.library.storageRules.local') },
+  { key: 'realtime', icon: 'bolt' as const, tone: 'teal', label: t('imageWorkflow.library.storageRules.realtime') },
+  { key: 'retention', icon: 'clock' as const, tone: 'amber', label: t('imageWorkflow.library.storageRules.retention') },
+  { key: 'asyncSkip', icon: 'x' as const, tone: 'slate', label: t('imageWorkflow.library.storageRules.asyncSkip') },
+  { key: 'device', icon: 'exclamationTriangle' as const, tone: 'amber', label: t('imageWorkflow.library.storageRules.device') },
+])
+const compactStorageHint = computed(() => [
+  t('imageWorkflow.library.storageRules.local'),
+  t('imageWorkflow.library.storageRules.realtime'),
+  t('imageWorkflow.library.storageRules.retention'),
+  t('imageWorkflow.library.storageRules.asyncSkip'),
+  t('imageWorkflow.library.storageRules.device'),
+].join(' · '))
 
-function queryForFilter(cursor?: string) {
-  const params: Record<string, string | number> = { limit: props.limit }
-  if (cursor) params.cursor = cursor
-  if (filter.value === 'private') params.visibility = 'private'
-  if (filter.value === 'pending_review' || filter.value === 'published') {
-    params.publication_status = filter.value
+function toLibraryItem(record: PersonalGalleryRecord): ImageLibraryItem {
+  const status = submissionStatusFor(record)
+  return {
+    id: record.id,
+    asset_id: record.id,
+    source: 'realtime_import',
+    platform: record.platform || '',
+    execution_mode: 'realtime',
+    model: record.model || '',
+    title: record.title,
+    prompt: record.prompt || null,
+    requested_size: record.requestedSize || null,
+    aspect_ratio: record.aspectRatio || null,
+    quality: record.quality || null,
+    output_format: record.outputFormat || null,
+    byte_size: record.byteSize,
+    visibility: 'private',
+    archive_status: 'local',
+    publication_status: status,
+    view_url: previewURLs.value[record.id] || '',
+    preview_url: previewURLs.value[record.id] || null,
+    created_at: new Date(record.createdAt).toISOString(),
+    expires_at: new Date(record.expiresAt).toISOString(),
   }
-  return params
+}
+
+function submissionFor(item: PersonalGalleryRecord): ImagePlazaSubmissionRequest | undefined {
+  if (item.requestId) {
+    const byId = submissions.value.find((entry) => entry.id === item.requestId)
+    if (byId) return byId
+  }
+  return submissions.value.find((entry) => entry.client_blob_key === item.id)
+}
+
+function submissionStatusFor(item: PersonalGalleryRecord): ImagePublicationStatus | null {
+  const submission = submissionFor(item)
+  if (!submission) return null
+  if (submission.status === 'pending_review') return 'pending_review'
+  if (submission.status === 'approved_pending_sync') return 'pending_review'
+  if (submission.status === 'synced') return 'published'
+  if (submission.status === 'rejected') return 'rejected'
+  if (submission.status === 'withdrawn') return 'withdrawn'
+  return null
+}
+
+function revokeObjectURLs(urls: Record<string, string>) {
+  Object.values(urls).forEach((url) => {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+  })
+}
+
+async function refreshPreviews(records: PersonalGalleryRecord[]) {
+  const previous = previewURLs.value
+  const next: Record<string, string> = {}
+  for (const item of records) {
+    if (previous[item.id]) {
+      next[item.id] = previous[item.id]
+      continue
+    }
+    if (item.previewUrl) next[item.id] = item.previewUrl
+    else if (item.file) next[item.id] = URL.createObjectURL(item.file)
+  }
+  Object.entries(previous).forEach(([id, url]) => {
+    if (!next[id] && url.startsWith('blob:')) URL.revokeObjectURL(url)
+  })
+  previewURLs.value = next
 }
 
 async function refresh() {
   loading.value = true
   error.value = ''
   try {
-    const page = await listImageLibrary(queryForFilter())
-    items.value = page.items
-    nextCursor.value = page.next_cursor
+    const userId = Number(authStore.user?.id || 0)
+    items.value = await listPersonalGalleryItems(userId)
+    await refreshPreviews(items.value)
     await refreshSubmissions()
   } catch (cause: any) {
     error.value = cause?.message || t('imageWorkflow.library.loadFailed')
@@ -356,36 +374,120 @@ async function refreshSubmissions() {
     submissions.value = [...approved.items, ...pending.items]
     const nextPreviews: Record<string, string> = {}
     for (const item of submissions.value) {
-      const blob = await getPlazaSubmissionBlob(item.client_blob_key)
-      if (blob?.previewUrl) nextPreviews[item.id] = blob.previewUrl
-      else if (blob?.file) nextPreviews[item.id] = URL.createObjectURL(blob.file)
+      const local = await getPersonalGalleryItem(item.client_blob_key)
+      if (local?.previewUrl) nextPreviews[item.id] = local.previewUrl
+      else if (local?.file) nextPreviews[item.id] = URL.createObjectURL(local.file)
+      else if (previewURLs.value[item.client_blob_key]) nextPreviews[item.id] = previewURLs.value[item.client_blob_key]
     }
-    Object.values(submissionPreviewURLs.value).forEach((url) => {
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-    })
+    revokeObjectURLs(submissionPreviewURLs.value)
     submissionPreviewURLs.value = nextPreviews
   } catch {
     submissions.value = []
   }
 }
 
+async function ensurePreview(item: PersonalGalleryRecord): Promise<string> {
+  if (brokenImages.value.has(item.id)) throw new Error('image unavailable')
+  if (previewURLs.value[item.id]) return previewURLs.value[item.id]
+  const fresh = await getPersonalGalleryItem(item.id)
+  if (!fresh?.file) {
+    markBroken(item.id)
+    throw new Error('image unavailable')
+  }
+  const url = fresh.previewUrl || URL.createObjectURL(fresh.file)
+  previewURLs.value = { ...previewURLs.value, [item.id]: url }
+  return url
+}
+
+function markBroken(id: string) {
+  brokenImages.value = new Set([...brokenImages.value, id])
+}
+
+async function openLightbox(item: PersonalGalleryRecord) {
+  try {
+    const url = await ensurePreview(item)
+    lightboxSrc.value = url
+    lightboxAlt.value = item.title || t('imageWorkflow.library.untitled')
+    emit('view', toLibraryItem(item))
+  } catch {
+    // ignore
+  }
+}
+
+function emitReuse(item: PersonalGalleryRecord) {
+  emit('reuse', toLibraryItem(item))
+}
+
+function canPublish(item: PersonalGalleryRecord) {
+  const status = submissionFor(item)?.status
+  return !status || status === 'rejected' || status === 'withdrawn'
+}
+
+function canSync(item: PersonalGalleryRecord) {
+  return submissionFor(item)?.status === 'approved_pending_sync'
+}
+
+async function publish(item: PersonalGalleryRecord) {
+  if (!window.confirm(t('imageWorkflow.library.publishConfirm'))) return
+  busyId.value = item.id
+  try {
+    const sharePrompt = !props.compact && Boolean(item.prompt) && window.confirm(t('imageWorkflow.library.sharePromptConfirm'))
+    const record = await getPersonalGalleryItem(item.id)
+    if (!record?.file) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
+    const created = await createPlazaSubmissionRequest({
+      title: record.title,
+      private_prompt: record.prompt,
+      public_title: record.title,
+      share_prompt: sharePrompt,
+      public_prompt: sharePrompt ? record.prompt || undefined : undefined,
+      api_key_id: record.apiKeyId,
+      group_id: record.groupId ?? undefined,
+      platform: record.platform || 'openai',
+      generation_mode: 'realtime',
+      source_type: 'realtime_import',
+      model: record.model || '',
+      requested_size: record.requestedSize,
+      aspect_ratio: record.aspectRatio,
+      quality: record.quality,
+      content_type: record.contentType,
+      byte_size: record.byteSize,
+      checksum_sha256: record.checksumSha256,
+      client_blob_key: record.id,
+    }, record.id)
+    await bindPersonalGalleryRequestId(record.id, created.id)
+    appStore.showSuccess(t('imageWorkflow.library.submitted'))
+    await refresh()
+  } catch (cause: any) {
+    appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
+  } finally {
+    busyId.value = ''
+  }
+}
+
+async function syncItem(item: PersonalGalleryRecord) {
+  const submission = submissionFor(item)
+  if (!submission) return
+  await syncSubmission(submission)
+}
+
 async function syncSubmission(submission: ImagePlazaSubmissionRequest) {
   if (!window.confirm(t('imageWorkflow.workbench.syncConfirm'))) return
   submissionBusyId.value = submission.id
+  busyId.value = submission.client_blob_key
   try {
-    const blob = await getPlazaSubmissionBlob(submission.client_blob_key)
+    const blob = await getPersonalGalleryItem(submission.client_blob_key)
     if (!blob?.file) throw new Error(t('imageWorkflow.workbench.localResultUnavailable'))
     const file = blob.file instanceof File
       ? blob.file
       : new File([blob.file], blob.fileName || 'sync-image.png', { type: blob.contentType || blob.file.type })
     await syncPlazaSubmissionRequest(submission.id, file, file.name)
-    await removePlazaSubmissionBlob(submission.client_blob_key).catch(() => undefined)
     appStore.showSuccess(t('imageWorkflow.workbench.syncSuccess'))
     await refresh()
   } catch (cause: any) {
     appStore.showError(cause?.message || t('imageWorkflow.workbench.syncFailed'))
   } finally {
     submissionBusyId.value = ''
+    busyId.value = ''
   }
 }
 
@@ -403,76 +505,17 @@ async function withdrawSubmission(submission: ImagePlazaSubmissionRequest) {
   }
 }
 
-async function loadMore() {
-  if (!nextCursor.value || loadingMore.value) return
-  loadingMore.value = true
-  try {
-    const page = await listImageLibrary(queryForFilter(nextCursor.value))
-    const known = new Set(items.value.map((item) => String(item.id)))
-    items.value.push(...page.items.filter((item) => !known.has(String(item.id))))
-    nextCursor.value = page.next_cursor
-  } catch (cause: any) {
-    appStore.showError(cause?.message || t('imageWorkflow.library.loadFailed'))
-  } finally {
-    loadingMore.value = false
-    await nextTick()
-    if (loadMoreInView.value && nextCursor.value) void loadMore()
-  }
-}
-
-function setFilter(value: string) {
-  if (filter.value === value) return
-  filter.value = value
-  void refresh()
-}
-
-function canPublish(item: ImageLibraryItem) {
-  return !item.publication_status || ['rejected', 'withdrawn', 'expired'].includes(item.publication_status)
-}
-
-function canWithdraw(item: ImageLibraryItem) {
-  return ['pending_review', 'published', 'admin_hidden'].includes(String(item.publication_status || ''))
-}
-
-async function publish(item: ImageLibraryItem) {
-  if (!window.confirm(t('imageWorkflow.library.publishConfirm'))) return
-  busyId.value = String(item.id)
-  try {
-    const sharePrompt = !props.compact && Boolean(item.prompt) && window.confirm(t('imageWorkflow.library.sharePromptConfirm'))
-    await publishImageLibraryItem(item.id, {
-      title: item.title,
-      share_prompt: sharePrompt,
-      public_prompt: sharePrompt ? item.prompt || undefined : undefined,
-    })
-    appStore.showSuccess(t('imageWorkflow.library.submitted'))
-    await refresh()
-  } catch (cause: any) {
-    appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
-  } finally {
-    busyId.value = ''
-  }
-}
-
-async function withdraw(item: ImageLibraryItem) {
-  if (!window.confirm(t('imageWorkflow.library.withdrawConfirm'))) return
-  busyId.value = String(item.id)
-  try {
-    await withdrawImageLibraryItem(item.id)
-    appStore.showSuccess(t('imageWorkflow.library.withdrawn'))
-    await refresh()
-  } catch (cause: any) {
-    appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
-  } finally {
-    busyId.value = ''
-  }
-}
-
-async function remove(item: ImageLibraryItem) {
+async function remove(item: PersonalGalleryRecord) {
   if (!window.confirm(t('imageWorkflow.library.deleteConfirm'))) return
-  busyId.value = String(item.id)
+  busyId.value = item.id
   try {
-    await deleteImageLibraryItem(item.id)
+    await removePersonalGalleryItem(item.id)
     items.value = items.value.filter((candidate) => candidate.id !== item.id)
+    const url = previewURLs.value[item.id]
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+    const next = { ...previewURLs.value }
+    delete next[item.id]
+    previewURLs.value = next
     appStore.showSuccess(t('common.deleted'))
   } catch (cause: any) {
     appStore.showError(cause?.message || t('imageWorkflow.library.actionFailed'))
@@ -481,8 +524,8 @@ async function remove(item: ImageLibraryItem) {
   }
 }
 
-function startTitleEdit(item: ImageLibraryItem) {
-  editingId.value = String(item.id)
+function startTitleEdit(item: PersonalGalleryRecord) {
+  editingId.value = item.id
   editingTitle.value = item.title || ''
 }
 
@@ -491,14 +534,15 @@ function cancelTitleEdit() {
   editingTitle.value = ''
 }
 
-async function saveTitle(item: ImageLibraryItem) {
-  const id = String(item.id)
+async function saveTitle(item: PersonalGalleryRecord) {
   if (busyId.value) return
-  busyId.value = id
+  busyId.value = item.id
   try {
-    const updated = await updateImageLibraryItem(item.id, { title: editingTitle.value.trim() })
-    const index = items.value.findIndex((candidate) => String(candidate.id) === id)
-    if (index >= 0) items.value[index] = { ...items.value[index], ...updated }
+    const updated = await updatePersonalGalleryItem(item.id, { title: editingTitle.value.trim() })
+    if (updated) {
+      const index = items.value.findIndex((candidate) => candidate.id === item.id)
+      if (index >= 0) items.value[index] = updated
+    }
     cancelTitleEdit()
     appStore.showSuccess(t('imageWorkflow.library.titleUpdated'))
   } catch (cause: any) {
@@ -506,127 +550,6 @@ async function saveTitle(item: ImageLibraryItem) {
   } finally {
     busyId.value = ''
   }
-}
-
-async function loadRecoveries() {
-  const userId = Number(authStore.user?.id || 0)
-  const previousURLs = recoveryPreviewURLs.value
-  const nextURLs: Record<string, string> = {}
-  try {
-    const records = await listPendingImageArchives(userId)
-    // Async task archives are durable server-side; never surface them as local archive recovery.
-    const taskRecords = records.filter((item) => item.kind === 'task')
-    await Promise.allSettled(taskRecords.map((item) => removePendingImageArchive(item.id)))
-    recoveries.value = records.filter((item) => item.kind !== 'task')
-    for (const item of recoveries.value) {
-      if (item.file) nextURLs[item.id] = URL.createObjectURL(item.file)
-      else if (item.previewUrl || item.remoteUrl) nextURLs[item.id] = item.previewUrl || item.remoteUrl || ''
-    }
-    recoveryPreviewURLs.value = nextURLs
-  } catch {
-    recoveries.value = []
-  } finally {
-    Object.values(previousURLs).forEach((url) => {
-      if (url.startsWith('blob:') && !Object.values(nextURLs).includes(url)) URL.revokeObjectURL(url)
-    })
-  }
-}
-
-async function retryRecovery(recovery: PendingImageArchive) {
-  recoveryBusyId.value = recovery.id
-  try {
-    if (recovery.kind === 'task') {
-      if (!recovery.taskId) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      await archiveAsyncTask(recovery.taskId, recovery.resultIndex == null ? undefined : [recovery.resultIndex])
-    } else if (recovery.kind === 'file') {
-      if (!recovery.file) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      const file = recovery.file instanceof File
-        ? recovery.file
-        : new File([recovery.file], recovery.fileName || 'recovered-image', { type: recovery.file.type })
-      await importImageFile(file, recovery.metadata || {}, recovery.id)
-    } else {
-      if (!recovery.remoteUrl) throw new Error(t('imageWorkflow.library.recoveryUnavailable'))
-      await importImageURL(recovery.remoteUrl, recovery.metadata || {}, recovery.id)
-    }
-    await removePendingImageArchive(recovery.id)
-    await refresh()
-    appStore.showSuccess(t('imageWorkflow.library.archiveRecovered'))
-  } catch (cause: any) {
-    const errorMessage = cause?.message || t('imageWorkflow.library.archiveFailed')
-    await savePendingImageArchive({ ...recovery, errorMessage }).catch(() => undefined)
-    appStore.showError(errorMessage)
-  } finally {
-    recoveryBusyId.value = ''
-  }
-}
-
-async function discardRecovery(id: string) {
-  if (!window.confirm(t('imageWorkflow.library.discardRecoveryConfirm'))) return
-  await removePendingImageArchive(id).catch(() => undefined)
-}
-
-function markBroken(id: string | number) {
-  brokenImages.value = new Set([...brokenImages.value, String(id)])
-}
-
-async function ensureResolved(item: ImageLibraryItem): Promise<string> {
-  const id = String(item.id)
-  if (brokenImages.value.has(id)) throw new Error('image unavailable')
-  const width = props.compact ? 320 : 480
-  if (resolvedImages.value[id]) {
-    return buildOssThumbnailUrl(resolvedImages.value[id], { width })
-  }
-
-  const provisional = String(item.preview_url || item.view_url || '').trim()
-  let request = resolveInflight.get(id)
-  if (!request) {
-    request = (async () => {
-      const access = await resolveImageLibraryViewURL(item.id)
-      resolvedImages.value = { ...resolvedImages.value, [id]: access.url }
-      return buildOssThumbnailUrl(access.url, { width })
-    })()
-      .catch((cause) => {
-        if (!provisional) {
-          markBroken(id)
-          throw cause
-        }
-        return buildOssThumbnailUrl(provisional, { width })
-      })
-      .finally(() => {
-        resolveInflight.delete(id)
-      })
-    resolveInflight.set(id, request)
-  }
-
-  // Prefer a first paint from list URLs; signed resolve upgrades via src watch.
-  if (provisional) return buildOssThumbnailUrl(provisional, { width })
-  return request
-}
-
-function fullImageSrc(item: ImageLibraryItem): string {
-  return resolvedImages.value[String(item.id)] || item.preview_url || item.view_url || ''
-}
-
-function thumbnailSrc(item: ImageLibraryItem): string {
-  if (brokenImages.value.has(String(item.id))) return ''
-  const full = fullImageSrc(item)
-  return full ? buildOssThumbnailUrl(full, { width: props.compact ? 320 : 480 }) : ''
-}
-
-async function openLightbox(item: ImageLibraryItem) {
-  try {
-    await ensureResolved(item)
-  } catch {
-    return
-  }
-  const full = fullImageSrc(item)
-  if (!full) return
-  lightboxSrc.value = full
-  lightboxAlt.value = item.title || t('imageWorkflow.library.untitled')
-}
-
-function modeLabel(mode: string) {
-  return mode === 'async' ? t('imageWorkflow.mode.async') : t('imageWorkflow.mode.realtime')
 }
 
 function publicationLabel(status?: ImagePublicationStatus | null) {
@@ -641,23 +564,17 @@ function statusClass(status?: ImagePublicationStatus | null) {
   return 'is-private'
 }
 
-function isArchiveFailed(item: ImageLibraryItem) {
-  return item.archive_status === 'failed' || item.archive_status === 'archive_failed'
-}
-
 onMounted(() => {
-  stopRecoveryListener = onPendingImageArchivesChanged(() => { void loadRecoveries() })
-  void Promise.all([refresh(), loadRecoveries()])
+  stopGalleryListener = onPersonalGalleryChanged(() => { void refresh() })
+  void refresh()
 })
-watch(loadMoreInView, (visible) => {
-  if (visible && nextCursor.value && !loadingMore.value && !loading.value) void loadMore()
-})
+
 onUnmounted(() => {
-  stopRecoveryListener?.()
-  Object.values(recoveryPreviewURLs.value).forEach((url) => {
-    if (url.startsWith('blob:')) URL.revokeObjectURL(url)
-  })
+  stopGalleryListener?.()
+  revokeObjectURLs(previewURLs.value)
+  revokeObjectURLs(submissionPreviewURLs.value)
 })
+
 defineExpose({ refresh })
 </script>
 
@@ -671,7 +588,15 @@ defineExpose({ refresh })
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.library-panel__title-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .library-panel__title {
@@ -684,6 +609,214 @@ defineExpose({ refresh })
 .dark .library-panel__title { color: #f3f4f6; }
 .library-panel__description { margin-top: 0.2rem; color: #6b7280; font-size: 0.8rem; }
 .dark .library-panel__description { color: #9ca3af; }
+
+.library-storage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid rgba(13, 148, 136, 0.35);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(240, 253, 250, 0.95), rgba(204, 251, 241, 0.55));
+  color: #0f766e;
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.dark .library-storage-chip {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: linear-gradient(135deg, rgba(19, 78, 74, 0.55), rgba(13, 148, 136, 0.18));
+  color: #5eead4;
+  box-shadow: none;
+}
+
+.library-storage {
+  --storage-ink: #134e4a;
+  --storage-muted: #0f766e;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0.9rem;
+  padding: 0.75rem 0.8rem 0.7rem;
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(240, 253, 250, 0.92) 0%, rgba(255, 255, 255, 0.88) 48%, rgba(236, 254, 255, 0.9) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 8px 24px -18px rgba(15, 118, 110, 0.45);
+  animation: library-storage-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dark .library-storage {
+  --storage-ink: #ccfbf1;
+  --storage-muted: #99f6e4;
+  border-color: rgba(45, 212, 191, 0.22);
+  background:
+    linear-gradient(145deg, rgba(17, 24, 39, 0.92) 0%, rgba(19, 78, 74, 0.28) 55%, rgba(17, 24, 39, 0.95) 100%);
+  box-shadow: 0 10px 28px -20px rgba(0, 0, 0, 0.65);
+}
+
+.library-storage__glow {
+  position: absolute;
+  inset: auto -20% -55% auto;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.28), transparent 68%);
+  pointer-events: none;
+}
+
+.dark .library-storage__glow {
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
+}
+
+.library-storage__head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.library-storage__mark {
+  display: grid;
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: linear-gradient(160deg, #ccfbf1, #99f6e4);
+  color: #0f766e;
+  box-shadow: 0 4px 10px -6px rgba(15, 118, 110, 0.55);
+}
+
+.dark .library-storage__mark {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: linear-gradient(160deg, rgba(13, 148, 136, 0.45), rgba(15, 118, 110, 0.2));
+  color: #5eead4;
+  box-shadow: none;
+}
+
+.library-storage__title {
+  color: var(--storage-ink);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.library-storage__lead {
+  margin-top: 0.18rem;
+  color: var(--storage-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.dark .library-storage__lead { color: #99f6e4; opacity: 0.88; }
+
+.library-storage__rules {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.library-storage__rule {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.64rem;
+  font-weight: 650;
+  line-height: 1.2;
+  animation: library-rule-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.library-storage__rule:nth-child(1) { animation-delay: 40ms; }
+.library-storage__rule:nth-child(2) { animation-delay: 80ms; }
+.library-storage__rule:nth-child(3) { animation-delay: 120ms; }
+.library-storage__rule:nth-child(4) { animation-delay: 160ms; }
+.library-storage__rule:nth-child(5) { animation-delay: 200ms; }
+
+.library-storage__rule.is-teal {
+  border-color: rgba(13, 148, 136, 0.22);
+  background: rgba(240, 253, 250, 0.95);
+  color: #0f766e;
+}
+.library-storage__rule.is-amber {
+  border-color: rgba(217, 119, 6, 0.24);
+  background: rgba(255, 251, 235, 0.95);
+  color: #b45309;
+}
+.library-storage__rule.is-slate {
+  border-color: rgba(100, 116, 139, 0.24);
+  background: rgba(248, 250, 252, 0.95);
+  color: #475569;
+}
+
+.dark .library-storage__rule.is-teal {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(13, 148, 136, 0.16);
+  color: #5eead4;
+}
+.dark .library-storage__rule.is-amber {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: rgba(146, 64, 14, 0.22);
+  color: #fcd34d;
+}
+.dark .library-storage__rule.is-slate {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(30, 41, 59, 0.7);
+  color: #cbd5e1;
+}
+
+.library-storage--compact {
+  margin-bottom: 0.65rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+}
+
+.library-storage__compact-line {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--storage-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.library-storage__compact-line span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .library-storage__compact-line { color: #99f6e4; }
+
+@keyframes library-storage-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes library-rule-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-storage,
+  .library-storage__rule { animation: none; }
+}
 
 .library-icon-button,
 .library-action {
@@ -703,20 +836,6 @@ defineExpose({ refresh })
 .library-icon-button:hover,
 .library-action:hover { border-color: #0d9488; color: #0f766e; }
 .library-action.is-danger:hover { border-color: #dc2626; color: #dc2626; }
-
-.library-filters { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1rem; }
-.library-filter {
-  min-height: 2rem;
-  padding: 0.35rem 0.7rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #4b5563;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-.dark .library-filter { border-color: #374151; color: #d1d5db; }
-.library-filter.is-active { border-color: #0f766e; background: #f0fdfa; color: #0f766e; }
-.dark .library-filter.is-active { background: rgba(13, 148, 136, 0.14); color: #5eead4; }
 
 .library-recovery { margin-bottom: 1rem; padding: 0.7rem; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; }
 .dark .library-recovery { border-color: #92400e; background: rgba(120, 53, 15, 0.14); }
@@ -743,8 +862,6 @@ defineExpose({ refresh })
 .library-recovery__retry { display: inline-flex; min-height: 2rem; flex: 0 0 auto; align-items: center; gap: 0.3rem; padding: 0.3rem 0.55rem; border: 1px solid #f59e0b; border-radius: 5px; color: #92400e; font-size: 0.66rem; font-weight: 700; }
 .dark .library-recovery__retry { color: #fcd34d; }
 .library-recovery__retry:disabled { cursor: wait; opacity: 0.6; }
-.library-recovery__more { display: block; padding-top: 0.45rem; color: #92400e; font-size: 0.68rem; font-weight: 700; text-align: center; }
-.dark .library-recovery__more { color: #fbbf24; }
 
 .library-empty {
   display: flex;
@@ -775,7 +892,6 @@ defineExpose({ refresh })
 .library-item__media:focus-visible { outline: 2px solid #0d9488; outline-offset: -2px; }
 .library-item__broken { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem; color: #9ca3af; font-size: 0.72rem; }
 .library-item__mode { position: absolute; left: 0.45rem; bottom: 0.45rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.4rem; border-radius: 4px; background: rgba(17, 24, 39, 0.84); color: #f9fafb; font-size: 0.65rem; font-weight: 700; }
-.library-item__mode.is-async { background: rgba(146, 64, 14, 0.9); }
 .library-item__body { padding: 0.65rem; }
 .library-item__title-row { display: flex; min-width: 0; align-items: flex-start; gap: 0.35rem; }
 .library-item__title { min-width: 0; overflow: hidden; color: #111827; font-size: 0.8rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -790,7 +906,6 @@ defineExpose({ refresh })
 .library-title-editor .library-action { width: 1.75rem; height: 1.75rem; }
 .library-item__meta { margin-top: 0.25rem; overflow: hidden; color: #6b7280; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
 .library-item__prompt { margin-top: 0.45rem; display: -webkit-box; overflow: hidden; color: #6b7280; font-size: 0.72rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.library-item__error { margin-top: 0.4rem; color: #b91c1c; font-size: 0.7rem; }
 .library-item__actions { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.65rem; }
 .library-text-action { min-width: 0; flex: 1; overflow: hidden; padding: 0.35rem 0.5rem; border: 1px solid #99f6e4; border-radius: 6px; color: #0f766e; font-size: 0.7rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .dark .library-text-action { border-color: rgba(45, 212, 191, 0.4); color: #5eead4; }
@@ -799,8 +914,6 @@ defineExpose({ refresh })
 .library-status.is-published { background: #dcfce7; color: #166534; }
 .library-status.is-pending { background: #fef3c7; color: #92400e; }
 .library-status.is-blocked { background: #fee2e2; color: #991b1b; }
-.library-load-more { display: flex; width: 100%; min-height: 2.5rem; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1rem; border: 1px solid #d1d5db; border-radius: 6px; color: #4b5563; font-size: 0.8rem; font-weight: 700; }
-.dark .library-load-more { border-color: #374151; color: #d1d5db; }
 
 @keyframes library-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .library-spinner { animation: none; } }

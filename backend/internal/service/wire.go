@@ -575,6 +575,22 @@ func ProvideBackupService(
 	return svc
 }
 
+func ProvideImageDurableStorageService(
+	factory ImageStorageFactory,
+	async *ImageStorageSettingService,
+	cfg *config.Config,
+) *ImageDurableStorageService {
+	return NewImageDurableStorageService(cfg.ImageDurableStorage, cfg.Pricing.DataDir, factory, async)
+}
+
+func ProvideImageLibraryService(
+	repo ImageLibraryRepository,
+	storageSettings *ImageStorageSettingService,
+	durableStorage *ImageDurableStorageService,
+) *ImageLibraryService {
+	return NewImageLibraryService(repo, storageSettings, durableStorage)
+}
+
 // ProvideOpsService constructs OpsService and wires the SettingService-backed quota
 // auto-pause cache sink. Mirrors the SetCleanupReloader pattern: OpsService doesn't
 // hold a *SettingService reference, but wire injects a tiny callback so writes to
@@ -703,7 +719,8 @@ var ProviderSet = wire.NewSet(
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewImagePlazaService,
-	NewImageLibraryService,
+	ProvideImageDurableStorageService,
+	ProvideImageLibraryService,
 	ProvideImageLibraryMaintenanceService,
 	ProvideImageWorkbenchService,
 	NewAdminService,

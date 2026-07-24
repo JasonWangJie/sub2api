@@ -2,48 +2,34 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const mocks = vi.hoisted(() => ({
-  listImageLibrary: vi.fn(),
-  resolveImageLibraryViewURL: vi.fn(),
-  updateImageLibraryItem: vi.fn(),
-  archiveAsyncTask: vi.fn(),
-  importImageFile: vi.fn(),
-  importImageURL: vi.fn(),
-  deleteImageLibraryItem: vi.fn(),
-  publishImageLibraryItem: vi.fn(),
-  withdrawImageLibraryItem: vi.fn(),
-  listPendingImageArchives: vi.fn(),
-  removePendingImageArchive: vi.fn(),
-  savePendingImageArchive: vi.fn(),
-  onPendingImageArchivesChanged: vi.fn(),
+  listPersonalGalleryItems: vi.fn(),
+  getPersonalGalleryItem: vi.fn(),
+  updatePersonalGalleryItem: vi.fn(),
+  removePersonalGalleryItem: vi.fn(),
+  bindPersonalGalleryRequestId: vi.fn(),
+  onPersonalGalleryChanged: vi.fn(),
+  listMyPlazaSubmissionRequests: vi.fn(),
+  createPlazaSubmissionRequest: vi.fn(),
+  syncPlazaSubmissionRequest: vi.fn(),
+  withdrawPlazaSubmissionRequest: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
 }))
 
 vi.mock('@/api/imageLibrary', () => ({
-  archiveAsyncTask: mocks.archiveAsyncTask,
-  deleteImageLibraryItem: mocks.deleteImageLibraryItem,
-  importImageFile: mocks.importImageFile,
-  importImageURL: mocks.importImageURL,
-  listImageLibrary: mocks.listImageLibrary,
-  listMyPlazaSubmissionRequests: vi.fn(async () => ({ items: [] })),
-  publishImageLibraryItem: mocks.publishImageLibraryItem,
-  resolveImageLibraryViewURL: mocks.resolveImageLibraryViewURL,
-  syncPlazaSubmissionRequest: vi.fn(),
-  updateImageLibraryItem: mocks.updateImageLibraryItem,
-  withdrawImageLibraryItem: mocks.withdrawImageLibraryItem,
-  withdrawPlazaSubmissionRequest: vi.fn(),
+  createPlazaSubmissionRequest: mocks.createPlazaSubmissionRequest,
+  listMyPlazaSubmissionRequests: mocks.listMyPlazaSubmissionRequests,
+  syncPlazaSubmissionRequest: mocks.syncPlazaSubmissionRequest,
+  withdrawPlazaSubmissionRequest: mocks.withdrawPlazaSubmissionRequest,
 }))
 
-vi.mock('../submissionBlobStore', () => ({
-  getPlazaSubmissionBlob: vi.fn(async () => null),
-  removePlazaSubmissionBlob: vi.fn(),
-}))
-
-vi.mock('../archiveRecovery', () => ({
-  listPendingImageArchives: mocks.listPendingImageArchives,
-  removePendingImageArchive: mocks.removePendingImageArchive,
-  savePendingImageArchive: mocks.savePendingImageArchive,
-  onPendingImageArchivesChanged: mocks.onPendingImageArchivesChanged,
+vi.mock('../personalGalleryStore', () => ({
+  listPersonalGalleryItems: mocks.listPersonalGalleryItems,
+  getPersonalGalleryItem: mocks.getPersonalGalleryItem,
+  updatePersonalGalleryItem: mocks.updatePersonalGalleryItem,
+  removePersonalGalleryItem: mocks.removePersonalGalleryItem,
+  bindPersonalGalleryRequestId: mocks.bindPersonalGalleryRequestId,
+  onPersonalGalleryChanged: mocks.onPersonalGalleryChanged,
 }))
 
 vi.mock('@/stores', () => ({
@@ -60,15 +46,17 @@ import ImageLibraryPanel from '../ImageLibraryPanel.vue'
 
 const item = {
   id: 'img_1',
-  source: 'realtime_import',
-  platform: 'openai',
-  execution_mode: 'realtime',
-  model: 'gpt-image-1',
+  userId: 19,
   title: 'Old private title',
-  visibility: 'private',
-  archive_status: 'ready',
-  view_url: '/view/img_1',
-  created_at: '2026-07-21T00:00:00Z',
+  file: new Blob(['png'], { type: 'image/png' }),
+  contentType: 'image/png',
+  byteSize: 3,
+  checksumSha256: 'abc',
+  platform: 'openai',
+  model: 'gpt-image-1',
+  prompt: 'a cat',
+  createdAt: Date.now(),
+  expiresAt: Date.now() + 60_000,
 }
 
 function mountPanel() {
@@ -77,6 +65,8 @@ function mountPanel() {
       stubs: {
         Icon: { template: '<span />' },
         RouterLink: { template: '<a><slot /></a>' },
+        LazyImage: { template: '<div class="library-item__lazy"><slot /><slot name="placeholder" /></div>' },
+        ImageLightbox: { template: '<div />' },
       },
     },
   })
@@ -85,15 +75,14 @@ function mountPanel() {
 describe('ImageLibraryPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.listImageLibrary.mockResolvedValue({ items: [{ ...item }], next_cursor: null })
-    mocks.resolveImageLibraryViewURL.mockResolvedValue({ url: 'https://cdn.example/img_1.png' })
-    mocks.listPendingImageArchives.mockResolvedValue([])
-    mocks.onPendingImageArchivesChanged.mockReturnValue(vi.fn())
-    mocks.removePendingImageArchive.mockResolvedValue(undefined)
+    mocks.listPersonalGalleryItems.mockResolvedValue([{ ...item }])
+    mocks.getPersonalGalleryItem.mockResolvedValue({ ...item })
+    mocks.listMyPlazaSubmissionRequests.mockResolvedValue({ items: [] })
+    mocks.onPersonalGalleryChanged.mockReturnValue(vi.fn())
   })
 
-  it('updates the private title without changing publication metadata', async () => {
-    mocks.updateImageLibraryItem.mockResolvedValue({ ...item, title: 'New private title' })
+  it('updates the private title in the local gallery', async () => {
+    mocks.updatePersonalGalleryItem.mockResolvedValue({ ...item, title: 'New private title' })
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -103,39 +92,16 @@ describe('ImageLibraryPanel', () => {
     await input.trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    expect(mocks.updateImageLibraryItem).toHaveBeenCalledWith('img_1', { title: 'New private title' })
+    expect(mocks.updatePersonalGalleryItem).toHaveBeenCalledWith('img_1', { title: 'New private title' })
     expect(wrapper.text()).toContain('New private title')
     expect(mocks.showSuccess).toHaveBeenCalledWith('imageWorkflow.library.titleUpdated')
     wrapper.unmount()
   })
 
-  it('removes obsolete local task recovery because durable outbox owns async archival', async () => {
-    mocks.listPendingImageArchives.mockResolvedValue([{
-      id: 'archive_1',
-      userId: 19,
-      kind: 'task',
-      title: 'Recovered task image',
-      taskId: 'asyncimg_123',
-      resultIndex: 2,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 60_000,
-      errorMessage: 'storage temporarily unavailable',
-    }])
+  it('loads local personal gallery items instead of the server library', async () => {
     const wrapper = mountPanel()
     await flushPromises()
-
-    expect(wrapper.find('.library-recovery__retry').exists()).toBe(false)
-    expect(mocks.archiveAsyncTask).not.toHaveBeenCalled()
-    expect(mocks.importImageFile).not.toHaveBeenCalled()
-    expect(mocks.importImageURL).not.toHaveBeenCalled()
-    expect(mocks.removePendingImageArchive).toHaveBeenCalledWith('archive_1')
-    wrapper.unmount()
-  })
-
-  it('does not eagerly resolve every library image URL on refresh', async () => {
-    const wrapper = mountPanel()
-    await flushPromises()
-    expect(mocks.resolveImageLibraryViewURL).not.toHaveBeenCalled()
+    expect(mocks.listPersonalGalleryItems).toHaveBeenCalledWith(19)
     expect(wrapper.find('.library-item__lazy').exists()).toBe(true)
     wrapper.unmount()
   })

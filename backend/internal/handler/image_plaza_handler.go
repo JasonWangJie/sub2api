@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type imagePlazaLibrary interface {
 	ImportBytes(ctx context.Context, userID int64, in service.ImageLibraryImportInput) (*service.ImageLibraryItem, bool, error)
 	Publish(ctx context.Context, in service.CreateImagePublicationParams) (*service.ImagePublication, error)
 	ResolvePublishedObject(ctx context.Context, publicationID string) (service.ObjectAccess, error)
+	OpenPublishedObject(ctx context.Context, publicationID string) (service.ObjectAccess, io.ReadCloser, string, error)
 	DeleteLegacyPlazaIdentifier(ctx context.Context, userID int64, identifier string) (bool, error)
 }
 
@@ -213,9 +215,14 @@ func (h *ImagePlazaHandler) Content(c *gin.Context) {
 			response.ErrorFrom(c, service.ErrImagePublicationNotFound)
 			return
 		}
-		access, err := h.library.ResolvePublishedObject(c.Request.Context(), publicID)
+		access, reader, contentType, err := h.library.OpenPublishedObject(c.Request.Context(), publicID)
 		if err != nil {
 			response.ErrorFrom(c, err)
+			return
+		}
+		if reader != nil {
+			defer reader.Close()
+			writeImageObjectStream(c, reader, contentType)
 			return
 		}
 		redirectToImageObject(c, access)

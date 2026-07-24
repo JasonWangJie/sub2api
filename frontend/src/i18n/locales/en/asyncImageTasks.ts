@@ -7,7 +7,7 @@ export default {
     summary: {
       active: '{count} active',
       completed: '{count} completed on this page',
-      attention: '{count} need attention',
+      attention: '{count} failed',
     },
     filters: {
       search: 'Task, model, key, or user',

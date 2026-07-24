@@ -86,14 +86,35 @@ func (s *imageLibraryFlowStorage) Delete(context.Context, ObjectRef) error {
 	return nil
 }
 
-func imageLibraryFlowSettings(storage DurableImageStorage) *ImageStorageSettingService {
-	return NewImageStorageSettingService(nil, nil, nil, func(context.Context, *config.ImageStorageConfig) (ImageStorage, error) {
+func imageLibraryFlowService(repo ImageLibraryRepository, storage DurableImageStorage) *ImageLibraryService {
+	settings, durable := imageLibraryFlowSettings(storage)
+	return NewImageLibraryService(repo, settings, durable)
+}
+
+func imageLibraryFlowSettings(storage DurableImageStorage) (*ImageStorageSettingService, *ImageDurableStorageService) {
+	settings := NewImageStorageSettingService(nil, nil, nil, func(context.Context, *config.ImageStorageConfig) (ImageStorage, error) {
 		return storage, nil
 	}, config.ImageStorageConfig{
 		Enabled: true, Provider: ImageStorageProviderCustomS3,
 		Endpoint: "https://s3.example.test", Region: "auto", Bucket: "images",
 		AccessKeyID: "access", SecretAccessKey: "secret", Prefix: "images/",
 	})
+	durable := NewImageDurableStorageService(
+		config.ImageDurableStorageConfig{
+			Backend: config.ImageDurableBackendOSS,
+			OSS: config.ImageStorageConfig{
+				Enabled: true, Provider: ImageStorageProviderCustomS3,
+				Endpoint: "https://s3.example.test", Region: "auto", Bucket: "library-durable",
+				AccessKeyID: "access", SecretAccessKey: "secret", Prefix: "library/",
+			},
+		},
+		"./data",
+		func(context.Context, *config.ImageStorageConfig) (ImageStorage, error) {
+			return storage, nil
+		},
+		settings,
+	)
+	return settings, durable
 }
 
 func TestImageLibraryImportBytesRejectsPreflightBeforeObjectWrite(t *testing.T) {
@@ -105,7 +126,7 @@ func TestImageLibraryImportBytesRejectsPreflightBeforeObjectWrite(t *testing.T) 
 			return nil, false, infraerrors.Conflict("IMAGE_LIBRARY_BYTE_QUOTA", "quota exceeded")
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 	invalidImage := []byte(`<svg><script>alert(1)</script></svg>`)
 
 	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
@@ -131,7 +152,7 @@ func TestImageLibraryImportBytesRecordsOnlyOneAttempt(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_imported"}, false, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 	imageData := testPNG(t)
 
 	_, reused, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
@@ -159,7 +180,7 @@ func TestImageLibraryImportBytesReleasesIdempotentAttemptAfterValidationFailure(
 			return nil, false, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
 		ImageData: []byte(`<script>alert(1)</script>`), DeclaredMIME: "image/png",
@@ -178,7 +199,7 @@ func TestImageLibraryImportURLRejectsPreflightBeforeParsingOrDownload(t *testing
 			return nil, false, infraerrors.TooManyRequests("IMAGE_LIBRARY_RATE_LIMIT", "limited")
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	_, _, err := svc.ImportURL(context.Background(), 42, "not-a-valid-image-url", ImageLibraryImportInput{})
 	require.Equal(t, "IMAGE_LIBRARY_RATE_LIMIT", infraerrors.Reason(err))
@@ -197,7 +218,7 @@ func TestImageLibraryImportURLRecordsOnlyOneAttempt(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_imported"}, false, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 	dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNG(t))
 
 	_, reused, err := svc.ImportURL(context.Background(), 42, dataURI, ImageLibraryImportInput{IdempotencyKey: "url-import-42"})
@@ -219,7 +240,7 @@ func TestImageLibraryIdempotentReplaySkipsObjectWrite(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_existing"}, true, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	item, reused, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
 		ImageData: []byte(`<svg><script>alert(1)</script></svg>`), DeclaredMIME: "image/svg+xml", IdempotencyKey: "same-request",
@@ -244,7 +265,7 @@ func TestImageLibraryLegacyImportBypassesInteractiveLimits(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_legacy"}, false, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	item, reused, err := svc.importLegacyBytes(context.Background(), 42, ImageLibraryImportInput{
 		SourceType: "legacy_plaza", GenerationMode: "import",
@@ -275,7 +296,7 @@ func TestImageLibraryFromTaskReplaySkipsHistoricalObjectRead(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_archived"}, nil, true, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	item, reused, err := svc.FromTask(context.Background(), 42, "asyncimg_task", 0, "")
 	require.NoError(t, err)
@@ -304,7 +325,7 @@ func TestImageLibraryFromTaskQuarantinesInvalidHistoricalResult(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	_, _, err := svc.FromTask(context.Background(), 42, "asyncimg_task", 0, "")
 	require.Equal(t, "ASYNC_IMAGE_RESULT_QUARANTINED", infraerrors.Reason(err))
@@ -330,7 +351,7 @@ func TestImageLibraryFromTaskPersistsStrictlyValidatedMetadata(t *testing.T) {
 			return &ImageLibraryItem{AssetID: "img_validated"}, false, nil
 		},
 	}
-	svc := NewImageLibraryService(repo, imageLibraryFlowSettings(storage))
+	svc := imageLibraryFlowService(repo, storage)
 
 	item, reused, err := svc.FromTask(context.Background(), 42, "asyncimg_task", 0, "")
 	require.NoError(t, err)

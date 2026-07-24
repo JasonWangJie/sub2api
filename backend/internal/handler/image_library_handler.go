@@ -258,9 +258,14 @@ func (h *ImageLibraryHandler) View(c *gin.Context) {
 	if !ok {
 		return
 	}
-	access, err := h.svc.ResolveUserObject(c.Request.Context(), subject.UserID, id)
+	access, reader, contentType, err := h.svc.OpenUserObject(c.Request.Context(), subject.UserID, id)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if reader != nil {
+		defer reader.Close()
+		writeImageObjectStream(c, reader, contentType)
 		return
 	}
 	writeImageObjectAccess(c, access)
@@ -505,9 +510,14 @@ func (h *ImageLibraryHandler) AdminView(c *gin.Context) {
 	if !ok {
 		return
 	}
-	access, err := h.svc.ResolveAdminObject(c.Request.Context(), id)
+	access, reader, contentType, err := h.svc.OpenAdminObject(c.Request.Context(), id)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if reader != nil {
+		defer reader.Close()
+		writeImageObjectStream(c, reader, contentType)
 		return
 	}
 	writeImageObjectAccess(c, access)
@@ -540,9 +550,14 @@ func (h *ImageLibraryHandler) AdminViewPublication(c *gin.Context) {
 	if !ok {
 		return
 	}
-	access, err := h.svc.ResolveAdminPublicationObject(c.Request.Context(), id)
+	access, reader, contentType, err := h.svc.OpenAdminPublicationObject(c.Request.Context(), id)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if reader != nil {
+		defer reader.Close()
+		writeImageObjectStream(c, reader, contentType)
 		return
 	}
 	writeImageObjectAccess(c, access)
@@ -871,4 +886,19 @@ func writeImageObjectAccess(c *gin.Context, access service.ObjectAccess) {
 		return
 	}
 	redirectToImageObject(c, access)
+}
+
+func writeImageObjectStream(c *gin.Context, reader io.Reader, contentType string) {
+	if strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/json") {
+		// Local objects have no public CDN URL; return the same view endpoint for JSON clients.
+		response.Success(c, gin.H{"url": c.Request.URL.Path})
+		return
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
 }

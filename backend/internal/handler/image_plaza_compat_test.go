@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,6 +56,10 @@ func (s *imagePlazaLibraryStub) Publish(context.Context, service.CreateImagePubl
 
 func (s *imagePlazaLibraryStub) ResolvePublishedObject(context.Context, string) (service.ObjectAccess, error) {
 	return service.ObjectAccess{}, service.ErrImagePublicationNotFound
+}
+
+func (s *imagePlazaLibraryStub) OpenPublishedObject(context.Context, string) (service.ObjectAccess, io.ReadCloser, string, error) {
+	return service.ObjectAccess{}, nil, "", service.ErrImagePublicationNotFound
 }
 
 func (s *imagePlazaLibraryStub) DeleteLegacyPlazaIdentifier(_ context.Context, userID int64, identifier string) (bool, error) {

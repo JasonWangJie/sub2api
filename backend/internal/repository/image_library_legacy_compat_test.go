@@ -74,7 +74,7 @@ func TestDeleteLegacyPlazaIdentifierFallsBackOnlyForUnmigratedNumericID(t *testi
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectRollback()
 
-	library := service.NewImageLibraryService(NewImageLibraryRepository(db), nil)
+	library := service.NewImageLibraryService(NewImageLibraryRepository(db), nil, nil)
 	handled, err := library.DeleteLegacyPlazaIdentifier(context.Background(), 42, "7")
 	require.NoError(t, err)
 	require.False(t, handled)

@@ -240,14 +240,11 @@ func (s *ImageLibraryMaintenanceService) deleteObjects(ctx context.Context, jobI
 	if len(objects) == 0 {
 		return nil
 	}
-	storage, enabled, err := s.library.storageSettings.DurableStorage(ctx)
-	if err != nil {
-		return err
-	}
-	if !enabled || storage == nil {
-		return errors.New("image storage is unavailable")
-	}
 	for _, ref := range objects {
+		storage, err := s.library.storageForObject(ctx, ref)
+		if err != nil {
+			return err
+		}
 		if err := storage.Delete(ctx, ref); err != nil {
 			return fmt.Errorf("delete image object %s: %w", ref.ObjectKey, err)
 		}
