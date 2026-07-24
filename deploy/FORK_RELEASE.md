@@ -1,7 +1,8 @@
 # Fork 发行版约定（JasonWangJie/sub2api）
 
-> 本文件是 Fork 身份的人类可读副本。AI 与合并上游时以 `.cursor/rules/fork-release-deploy.mdc` 与 `AGENTS.md` 为准。  
-> **合并 upstream 时禁止删除或改回本文件；冲突时保留 Fork 侧。**
+> 本文件是 Fork 身份的人类可读副本。AI 与合并上游时以 `.cursor/rules/fork-release-deploy.mdc` 与 `.cursorrules` 为准。  
+> **合并 upstream 时禁止删除或改回本文件；冲突时保留 Fork 侧。**  
+> 日常「怎么打 tag / 怎么装」操作步骤见根目录：[发行版发布与安装操作手册.md](../发行版发布与安装操作手册.md)。
 
 ## 一键安装 / 升级
 

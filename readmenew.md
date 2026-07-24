@@ -187,6 +187,7 @@
 | [wiki-new/图片广场审核与迁移.md](wiki-new/图片广场审核与迁移.md) | 审核广场、举报、安全迁移和维护 Worker |
 | [wiki-new/本地开发运行手册.md](wiki-new/本地开发运行手册.md) | 本地前后端运行、Docker 联调和常见故障 |
 | [wiki-new/生产部署升级与回滚手册.md](wiki-new/生产部署升级与回滚手册.md) | Fork 生产部署、HTTPS、OSS、备份、升级与回滚 |
+| [发行版发布与安装操作手册.md](发行版发布与安装操作手册.md) | **版本号、打 tag 发 Release、一键安装/升级** |
 | [deploy/FORK_RELEASE.md](deploy/FORK_RELEASE.md) | Fork 发行版一键安装/升级与上游合并保护 |
 | [wiki-new/服务器数据库快速迁移手册.md](wiki-new/服务器数据库快速迁移手册.md) | 旧备份预热、停写后最终数据追平、账务校验与服务器切换 |
 | [wiki-new/智能助手交接清单.md](wiki-new/智能助手交接清单.md) | 新电脑或新 AI 的接手步骤 |
