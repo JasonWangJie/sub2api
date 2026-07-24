@@ -152,7 +152,7 @@ declare -A MSG_ZH=(
     ["cmd_uninstall"]="卸载 Sub2API"
     ["cmd_install_version"]="安装/回退到指定版本"
     ["cmd_list_versions"]="列出可用版本"
-    ["opt_version"]="指定要安装的版本号 (例如: v1.0.0)"
+    ["opt_version"]="指定要安装的版本号 (例如: v1.0.0 或 v0.1.162.1)"
 
     # Server configuration
     ["server_config_title"]="服务器配置"
@@ -277,7 +277,7 @@ declare -A MSG_EN=(
     ["cmd_uninstall"]="Remove Sub2API"
     ["cmd_install_version"]="Install/rollback to a specific version"
     ["cmd_list_versions"]="List available versions"
-    ["opt_version"]="Specify version to install (e.g., v1.0.0)"
+    ["opt_version"]="Specify version to install (e.g. v1.0.0 or v0.1.162.1)"
 
     # Server configuration
     ["server_config_title"]="Server Configuration"
@@ -604,11 +604,15 @@ validate_version() {
     echo "$version"
 }
 
+# Version string extracted from `sub2api --version` / compared by upgrade.
+# Supports upstream x.y.z and Fork x.y.z.n (e.g. 0.1.162.1).
+VERSION_GREP_RE='v?[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?'
+
 # Get current installed version
 get_current_version() {
     if [ -f "$INSTALL_DIR/sub2api" ]; then
-        # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
+        # Prefer longest match so 0.1.162.1 is not truncated to 0.1.162
+        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE "$VERSION_GREP_RE" | head -1 || echo "unknown"
     else
         echo "not_installed"
     fi
@@ -885,7 +889,7 @@ upgrade() {
     print_info "$(msg 'upgrading')"
 
     # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE "$VERSION_GREP_RE" | head -1 || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
     # Stop service

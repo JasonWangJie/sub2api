@@ -19,7 +19,9 @@ alwaysApply: true
 | 一键升级 | `curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/upgrade.sh \| sudo bash` |
 | 操作手册 | 根目录 `发行版发布与安装操作手册.md`（版本号规则、打 tag、安装） |
 
-版本号：源码见 `backend/cmd/server/VERSION`；发版以 Git tag `v*` 为准。合并上游后若对方有版本号则跟对方，否则自行定义。
+版本号：源码见 `backend/cmd/server/VERSION`；发版以 Git tag `v*` 为准。
+支持三段（跟上游，如 `v0.1.162`）与四段（Fork 中途更新，如 `v0.1.162.1`）。
+合并上游后若对方有版本号则跟对方三段号；中途自研用四段递增。操作见根目录 `发行版发布与安装操作手册.md`。
 
 禁止把上述地址改回 `Wei-Shaw/sub2api`（定价源等上游第三方 URL 除外）。
 

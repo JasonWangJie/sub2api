@@ -19,6 +19,7 @@ curl -sSL https://raw.githubusercontent.com/JasonWangJie/sub2api/main/deploy/upg
 | 安装目录 | `/opt/sub2api` |
 | 配置 | `/etc/sub2api/config.yaml`（systemd `DATA_DIR=/etc/sub2api`） |
 | Release 资产 | `sub2api_{version}_linux_{amd64\|arm64}.tar.gz` + `checksums.txt` |
+| 版本号 | 三段跟上游（`v0.1.162`）；Fork 中途更新用四段（`v0.1.162.1`） |
 
 ## 设计原则
 
