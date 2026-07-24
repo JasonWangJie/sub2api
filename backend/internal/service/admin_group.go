@@ -262,6 +262,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 
 	group := &Group{
 		Name:                            input.Name,
+		Section:                         normalizeGroupSection(input.Section),
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
@@ -435,6 +436,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 
 	if input.Name != "" {
 		group.Name = input.Name
+	}
+	if input.Section != nil {
+		group.Section = normalizeGroupSection(*input.Section)
 	}
 	if input.Description != nil {
 		group.Description = *input.Description

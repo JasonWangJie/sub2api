@@ -58,6 +58,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
+		SetSection(groupIn.Section).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
@@ -226,6 +227,7 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
+		SetSection(groupIn.Section).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
@@ -572,7 +574,14 @@ func groupListOrder(params pagination.PaginationParams) []func(*entsql.Selector)
 func (r *groupRepository) ListActive(ctx context.Context) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
 		Where(group.StatusEQ(service.StatusActive)).
-		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
+		Order(
+			func(s *entsql.Selector) {
+				s.OrderExpr(entsql.Expr("CASE WHEN NULLIF(BTRIM(section), '') IS NULL THEN 1 ELSE 0 END ASC"))
+			},
+			dbent.Asc(group.FieldSection),
+			dbent.Asc(group.FieldSortOrder),
+			dbent.Asc(group.FieldID),
+		).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -645,7 +654,14 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
 		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(platform)).
-		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
+		Order(
+			func(s *entsql.Selector) {
+				s.OrderExpr(entsql.Expr("CASE WHEN NULLIF(BTRIM(section), '') IS NULL THEN 1 ELSE 0 END ASC"))
+			},
+			dbent.Asc(group.FieldSection),
+			dbent.Asc(group.FieldSortOrder),
+			dbent.Asc(group.FieldID),
+		).
 		All(ctx)
 	if err != nil {
 		return nil, err

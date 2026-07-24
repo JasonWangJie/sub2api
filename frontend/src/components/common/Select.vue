@@ -50,7 +50,7 @@
           v-if="isOpen"
           ref="dropdownRef"
           class="select-dropdown-portal"
-          :class="[instanceId]"
+          :class="[instanceId, portalClass]"
           :style="dropdownStyle"
           role="listbox"
           @click.stop
@@ -121,6 +121,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { filterSectionedGroupOptions } from '@/utils/groupSectionOptions'
 
 const { t } = useI18n()
 
@@ -148,6 +149,8 @@ interface Props {
   creatable?: boolean
   creatablePrefix?: string
   clearable?: boolean
+  /** Extra class on the teleported dropdown portal (e.g. theme variants). */
+  portalClass?: string
 }
 
 interface Emits {
@@ -163,7 +166,8 @@ const props = withDefaults(defineProps<Props>(), {
   creatablePrefix: '',
   clearable: false,
   valueKey: 'value',
-  labelKey: 'label'
+  labelKey: 'label',
+  portalClass: ''
 })
 
 const emit = defineEmits<Emits>()
@@ -261,13 +265,18 @@ const filteredOptions = computed(() => {
   let opts = props.options as any[]
   if (isSearchable.value && searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    opts = opts.filter((opt) => {
-      // Match label
-      if (getOptionLabel(opt).toLowerCase().includes(query)) return true
-      // Also match description if present
-      if (opt.description && String(opt.description).toLowerCase().includes(query)) return true
-      return false
-    })
+    const hasGroupHeaders = opts.some((opt) => opt && opt.kind === 'group')
+    if (hasGroupHeaders) {
+      opts = filterSectionedGroupOptions(opts, searchQuery.value)
+    } else {
+      opts = opts.filter((opt) => {
+        // Match label
+        if (getOptionLabel(opt).toLowerCase().includes(query)) return true
+        // Also match description if present
+        if (opt.description && String(opt.description).toLowerCase().includes(query)) return true
+        return false
+      })
+    }
     // In creatable mode, always prepend a fuzzy search option
     if (props.creatable && searchQuery.value.trim()) {
       const trimmed = searchQuery.value.trim()
@@ -551,6 +560,95 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-option-group:hover {
   @apply bg-gray-50 dark:bg-dark-900;
+}
+
+/* Tech-blue group section theme (API key picker) */
+.select-dropdown-portal.select-portal--tech {
+  border: 1px solid rgb(14 165 233 / 0.22);
+  background:
+    linear-gradient(180deg, rgb(240 249 255 / 0.96), rgb(255 255 255 / 0.98)),
+    radial-gradient(120% 80% at 0% 0%, rgb(56 189 248 / 0.12), transparent 55%);
+  box-shadow:
+    0 18px 40px -18px rgb(2 132 199 / 0.35),
+    0 0 0 1px rgb(14 165 233 / 0.08);
+}
+
+.dark .select-dropdown-portal.select-portal--tech {
+  border-color: rgb(34 211 238 / 0.18);
+  background:
+    linear-gradient(180deg, rgb(8 47 73 / 0.92), rgb(15 23 42 / 0.96)),
+    radial-gradient(120% 80% at 0% 0%, rgb(14 165 233 / 0.18), transparent 55%);
+  box-shadow:
+    0 22px 48px -20px rgb(0 0 0 / 0.65),
+    0 0 0 1px rgb(34 211 238 / 0.1);
+}
+
+.select-dropdown-portal.select-portal--tech .select-search {
+  @apply border-sky-100/80 dark:border-cyan-900/40;
+  background: linear-gradient(90deg, rgb(224 242 254 / 0.55), transparent);
+}
+
+.dark .select-dropdown-portal.select-portal--tech .select-search {
+  background: linear-gradient(90deg, rgb(8 47 73 / 0.55), transparent);
+}
+
+.select-dropdown-portal.select-portal--tech .select-search-input {
+  @apply border-sky-200/80 bg-white/80 focus:border-sky-400 focus:ring-sky-300/40;
+  @apply dark:border-cyan-800/50 dark:bg-slate-950/40 dark:focus:border-cyan-400 dark:focus:ring-cyan-500/30;
+}
+
+.select-dropdown-portal.select-portal--tech .select-option {
+  @apply rounded-md mx-1 my-0.5 px-3;
+  border: 1px solid transparent;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.select-dropdown-portal.select-portal--tech .select-option:not(.select-option-group):hover {
+  background: rgb(224 242 254 / 0.72);
+  border-color: rgb(125 211 252 / 0.45);
+}
+
+.dark .select-dropdown-portal.select-portal--tech .select-option:not(.select-option-group):hover {
+  background: rgb(12 74 110 / 0.35);
+  border-color: rgb(34 211 238 / 0.28);
+}
+
+.select-dropdown-portal.select-portal--tech .select-option-selected {
+  background: linear-gradient(90deg, rgb(186 230 253 / 0.75), rgb(224 242 254 / 0.4));
+  border-color: rgb(14 165 233 / 0.4);
+  @apply text-sky-800 dark:text-cyan-100;
+}
+
+.dark .select-dropdown-portal.select-portal--tech .select-option-selected {
+  background: linear-gradient(90deg, rgb(8 47 73 / 0.85), rgb(14 116 144 / 0.25));
+  border-color: rgb(34 211 238 / 0.35);
+}
+
+.select-dropdown-portal.select-portal--tech .select-option-group {
+  margin: 0.35rem 0.25rem 0.15rem;
+  padding: 0.4rem 0.75rem 0.4rem 0.85rem;
+  border-radius: 0.4rem;
+  border-left: 2px solid rgb(14 165 233);
+  background: linear-gradient(90deg, rgb(224 242 254 / 0.85), rgb(240 249 255 / 0.35));
+  color: rgb(3 105 161);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dark .select-dropdown-portal.select-portal--tech .select-option-group {
+  border-left-color: rgb(34 211 238);
+  background: linear-gradient(90deg, rgb(8 47 73 / 0.75), rgb(15 23 42 / 0.2));
+  color: rgb(103 232 249);
+}
+
+.select-dropdown-portal.select-portal--tech .select-option-group:hover {
+  background: linear-gradient(90deg, rgb(224 242 254 / 0.85), rgb(240 249 255 / 0.35));
+}
+
+.dark .select-dropdown-portal.select-portal--tech .select-option-group:hover {
+  background: linear-gradient(90deg, rgb(8 47 73 / 0.75), rgb(15 23 42 / 0.2));
 }
 
 .select-dropdown-portal .select-option-label {

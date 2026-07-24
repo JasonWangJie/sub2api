@@ -77,6 +77,20 @@ func (_c *GroupCreate) SetName(v string) *GroupCreate {
 	return _c
 }
 
+// SetSection sets the "section" field.
+func (_c *GroupCreate) SetSection(v string) *GroupCreate {
+	_c.mutation.SetSection(v)
+	return _c
+}
+
+// SetNillableSection sets the "section" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableSection(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetSection(*v)
+	}
+	return _c
+}
+
 // SetDescription sets the "description" field.
 func (_c *GroupCreate) SetDescription(v string) *GroupCreate {
 	_c.mutation.SetDescription(v)
@@ -846,6 +860,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Section(); !ok {
+		v := group.DefaultSection
+		_c.mutation.SetSection(v)
+	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
@@ -987,6 +1005,14 @@ func (_c *GroupCreate) check() error {
 	if v, ok := _c.mutation.Name(); ok {
 		if err := group.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Section(); !ok {
+		return &ValidationError{Name: "section", err: errors.New(`ent: missing required field "Group.section"`)}
+	}
+	if v, ok := _c.mutation.Section(); ok {
+		if err := group.SectionValidator(v); err != nil {
+			return &ValidationError{Name: "section", err: fmt.Errorf(`ent: validator failed for field "Group.section": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
@@ -1159,6 +1185,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.Section(); ok {
+		_spec.SetField(group.FieldSection, field.TypeString, value)
+		_node.Section = value
 	}
 	if value, ok := _c.mutation.Description(); ok {
 		_spec.SetField(group.FieldDescription, field.TypeString, value)
@@ -1539,6 +1569,18 @@ func (u *GroupUpsert) SetName(v string) *GroupUpsert {
 // UpdateName sets the "name" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateName() *GroupUpsert {
 	u.SetExcluded(group.FieldName)
+	return u
+}
+
+// SetSection sets the "section" field.
+func (u *GroupUpsert) SetSection(v string) *GroupUpsert {
+	u.Set(group.FieldSection, v)
+	return u
+}
+
+// UpdateSection sets the "section" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateSection() *GroupUpsert {
+	u.SetExcluded(group.FieldSection)
 	return u
 }
 
@@ -2386,6 +2428,20 @@ func (u *GroupUpsertOne) SetName(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateName() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateName()
+	})
+}
+
+// SetSection sets the "section" field.
+func (u *GroupUpsertOne) SetSection(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSection(v)
+	})
+}
+
+// UpdateSection sets the "section" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateSection() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSection()
 	})
 }
 
@@ -3524,6 +3580,20 @@ func (u *GroupUpsertBulk) SetName(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateName() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateName()
+	})
+}
+
+// SetSection sets the "section" field.
+func (u *GroupUpsertBulk) SetSection(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSection(v)
+	})
+}
+
+// UpdateSection sets the "section" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateSection() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSection()
 	})
 }
 

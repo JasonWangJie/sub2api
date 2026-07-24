@@ -468,10 +468,11 @@
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
-            :options="groupOptions"
+            :options="groupOptions as any"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
+            portal-class="select-portal--tech"
             data-tour="key-form-group"
           >
             <template #selected="{ option }">
@@ -490,7 +491,15 @@
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
+              <span
+                v-if="(option as unknown as GroupOption).kind === 'group'"
+                class="select-option-label"
+              >
+                {{ (option as unknown as GroupOption).label }}
+              </span>
               <GroupOptionItem
+                v-else
+                variant="tech"
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
@@ -1050,7 +1059,7 @@
       <div
         v-if="groupSelectorKeyId !== null && dropdownPosition"
         ref="dropdownRef"
-        class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max max-w-[calc(100vw-16px)] overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 duration-200 sm:min-w-[380px] dark:bg-dark-800 dark:ring-white/10"
+        class="keys-group-picker animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max max-w-[calc(100vw-16px)] overflow-hidden duration-200 sm:min-w-[400px]"
         style="pointer-events: auto !important;"
         :style="{
           top: dropdownPosition.top !== undefined ? dropdownPosition.top + 'px' : undefined,
@@ -1059,55 +1068,62 @@
         }"
       >
         <!-- Search box -->
-        <div class="border-b border-gray-100 p-2 dark:border-dark-700">
+        <div class="keys-group-picker__search">
           <div class="relative">
-            <svg class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <svg class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-500/70 dark:text-cyan-300/70" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               v-model="groupSearchQuery"
               type="text"
-              class="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-primary-300 focus:ring-1 focus:ring-primary-300 dark:border-dark-600 dark:bg-dark-700 dark:text-white dark:placeholder-gray-500 dark:focus:border-primary-600 dark:focus:ring-primary-600"
+              class="keys-group-picker__input"
               :placeholder="t('keys.searchGroup')"
               @click.stop
             />
           </div>
         </div>
         <!-- Group list -->
-        <div class="max-h-80 overflow-y-auto p-1.5">
-          <button
-            v-for="option in filteredGroupOptions"
-            :key="option.value ?? 'null'"
-            @click="changeGroup(selectedKeyForGroup!, option.value)"
-            :class="[
-              'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
-              'border-b border-gray-100 last:border-0 dark:border-dark-700',
-              selectedKeyForGroup?.group_id === option.value ||
-              (!selectedKeyForGroup?.group_id && option.value === null)
-                ? 'bg-primary-50 dark:bg-primary-900/20'
-                : 'hover:bg-gray-100 dark:hover:bg-dark-700'
-            ]"
-            :title="option.description || undefined"
-          >
-            <GroupOptionItem
-              :name="option.label"
-              :platform="option.platform"
-              :subscription-type="option.subscriptionType"
-              :rate-multiplier="option.rate"
-              :user-rate-multiplier="option.userRate"
-              :peak-rate-enabled="option.peakRateEnabled"
-              :peak-start="option.peakStart"
-              :peak-end="option.peakEnd"
-              :peak-rate-multiplier="option.peakRateMultiplier"
-              :description="option.description"
-              :selected="
-                selectedKeyForGroup?.group_id === option.value ||
-                (!selectedKeyForGroup?.group_id && option.value === null)
-              "
-            />
-          </button>
-          <!-- Empty state when search has no results -->
-          <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
+        <div class="keys-group-picker__list max-h-80 overflow-y-auto p-1.5">
+          <template v-for="option in filteredGroupOptions" :key="`${typeof option.value}:${String(option.value ?? '')}`">
+            <div
+              v-if="option.kind === 'group'"
+              class="keys-group-picker__section"
+            >
+              <span class="keys-group-picker__section-mark" aria-hidden="true" />
+              <span>{{ option.label }}</span>
+            </div>
+            <button
+              v-else
+              type="button"
+              @click="changeGroup(selectedKeyForGroup!, option.value)"
+              :class="[
+                'keys-group-picker__option',
+                (selectedKeyForGroup?.group_id === option.value ||
+                  (!selectedKeyForGroup?.group_id && option.value === null)) &&
+                  'keys-group-picker__option--selected'
+              ]"
+              :title="option.description || undefined"
+            >
+              <GroupOptionItem
+                variant="tech"
+                :name="option.label"
+                :platform="option.platform"
+                :subscription-type="option.subscriptionType"
+                :rate-multiplier="option.rate"
+                :user-rate-multiplier="option.userRate"
+                :peak-rate-enabled="option.peakRateEnabled"
+                :peak-start="option.peakStart"
+                :peak-end="option.peakEnd"
+                :peak-rate-multiplier="option.peakRateMultiplier"
+                :description="option.description"
+                :selected="
+                  selectedKeyForGroup?.group_id === option.value ||
+                  (!selectedKeyForGroup?.group_id && option.value === null)
+                "
+              />
+            </button>
+          </template>
+          <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-sky-600/70 dark:text-cyan-300/60">
             {{ t('keys.noGroupFound') }}
           </div>
         </div>
@@ -1146,6 +1162,10 @@ import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import {
+  filterSectionedGroupOptions,
+  withGroupSectionHeaders
+} from '@/utils/groupSectionOptions'
+import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
@@ -1161,6 +1181,7 @@ interface GroupOption {
   value: number
   label: string
   description: string | null
+  section?: string
   rate: number
   userRate: number | null
   peakRateEnabled: boolean
@@ -1169,6 +1190,8 @@ interface GroupOption {
   peakRateMultiplier: number
   subscriptionType: SubscriptionType
   platform: GroupPlatform
+  kind?: 'group'
+  disabled?: boolean
 }
 
 const appStore = useAppStore()
@@ -1407,12 +1430,14 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
   onFilterChange()
 }
 
-// Convert groups to Select options format with rate multiplier and subscription type
-const groupOptions = computed(() =>
-  groups.value.map((group) => ({
+// Convert groups to Select options format with rate multiplier and subscription type,
+// partitioned by section (大分组) with disabled headers.
+const groupOptions = computed(() => {
+  const items = groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
+    section: group.section?.trim() || '',
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,
     peakRateEnabled: group.peak_rate_enabled,
@@ -1422,17 +1447,15 @@ const groupOptions = computed(() =>
     subscriptionType: group.subscription_type,
     platform: group.platform
   }))
-)
+  return withGroupSectionHeaders(items, t('keys.uncategorizedSection')) as GroupOption[]
+})
 
 // Group dropdown search
 const groupSearchQuery = ref('')
 const filteredGroupOptions = computed(() => {
-  const query = groupSearchQuery.value.trim().toLowerCase()
+  const query = groupSearchQuery.value.trim()
   if (!query) return groupOptions.value
-  return groupOptions.value.filter((opt) => {
-    return opt.label.toLowerCase().includes(query) ||
-      (opt.description && opt.description.toLowerCase().includes(query))
-  })
+  return filterSectionedGroupOptions(groupOptions.value, query)
 })
 
 const copyToClipboard = async (text: string, keyId: number) => {
@@ -1968,3 +1991,156 @@ onUnmounted(() => {
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>
+
+<style scoped>
+.keys-group-picker {
+  border-radius: 0.875rem;
+  border: 1px solid rgb(14 165 233 / 0.28);
+  background:
+    linear-gradient(180deg, rgb(240 249 255 / 0.97), rgb(255 255 255 / 0.98)),
+    radial-gradient(120% 80% at 0% 0%, rgb(56 189 248 / 0.16), transparent 55%);
+  box-shadow:
+    0 22px 48px -20px rgb(2 132 199 / 0.4),
+    0 0 0 1px rgb(14 165 233 / 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.keys-group-picker__search {
+  border-bottom: 1px solid rgb(186 230 253 / 0.7);
+  padding: 0.5rem;
+  background: linear-gradient(90deg, rgb(224 242 254 / 0.65), transparent);
+}
+
+.keys-group-picker__input {
+  width: 100%;
+  border-radius: 0.55rem;
+  border: 1px solid rgb(125 211 252 / 0.55);
+  background: rgb(255 255 255 / 0.85);
+  padding: 0.4rem 0.75rem 0.4rem 2rem;
+  font-size: 0.875rem;
+  color: rgb(15 23 42);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.keys-group-picker__input::placeholder {
+  color: rgb(100 116 139);
+}
+
+.keys-group-picker__input:focus {
+  border-color: rgb(14 165 233);
+  box-shadow: 0 0 0 3px rgb(56 189 248 / 0.22);
+}
+
+.keys-group-picker__section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0.2rem 0.15rem;
+  cursor: default;
+  user-select: none;
+  border-radius: 0.4rem;
+  border-left: 2px solid rgb(14 165 233);
+  background: linear-gradient(90deg, rgb(224 242 254 / 0.9), rgb(240 249 255 / 0.3));
+  padding: 0.4rem 0.75rem;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(3 105 161);
+}
+
+.keys-group-picker__section-mark {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgb(14 165 233);
+  box-shadow: 0 0 0 3px rgb(14 165 233 / 0.18);
+}
+
+.keys-group-picker__option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 0.55rem;
+  border: 1px solid transparent;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.keys-group-picker__option:hover {
+  background: rgb(224 242 254 / 0.72);
+  border-color: rgb(125 211 252 / 0.5);
+}
+
+.keys-group-picker__option--selected {
+  background: linear-gradient(90deg, rgb(186 230 253 / 0.8), rgb(224 242 254 / 0.4));
+  border-color: rgb(14 165 233 / 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keys-group-picker__option {
+    transition: none;
+  }
+}
+</style>
+
+<style>
+/* Dark-mode overrides kept unscoped: Vue scoped compiler drops :global(.dark) in production. */
+.dark .keys-group-picker {
+  border-color: rgba(34, 211, 238, 0.28);
+  background:
+    linear-gradient(180deg, rgba(8, 47, 73, 0.96), rgba(15, 23, 42, 0.98)),
+    radial-gradient(120% 80% at 0% 0%, rgba(14, 165, 233, 0.28), transparent 55%);
+  box-shadow:
+    0 28px 56px -24px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(103, 232, 249, 0.08);
+}
+
+.dark .keys-group-picker__search {
+  border-bottom-color: rgba(14, 116, 144, 0.45);
+  background: linear-gradient(90deg, rgba(8, 47, 73, 0.85), transparent);
+}
+
+.dark .keys-group-picker__input {
+  border-color: rgba(34, 211, 238, 0.32);
+  background: rgba(2, 6, 23, 0.55);
+  color: #f1f5f9;
+}
+
+.dark .keys-group-picker__input::placeholder {
+  color: #94a3b8;
+}
+
+.dark .keys-group-picker__input:focus {
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+}
+
+.dark .keys-group-picker__section {
+  border-left-color: #22d3ee;
+  background: linear-gradient(90deg, rgba(8, 47, 73, 0.92), rgba(15, 23, 42, 0.25));
+  color: #67e8f9;
+}
+
+.dark .keys-group-picker__section-mark {
+  background: #22d3ee;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.22);
+}
+
+.dark .keys-group-picker__option:hover {
+  background: rgba(12, 74, 110, 0.45);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.dark .keys-group-picker__option--selected {
+  background: linear-gradient(90deg, rgba(8, 47, 73, 0.95), rgba(14, 116, 144, 0.35));
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.12);
+}
+</style>
+

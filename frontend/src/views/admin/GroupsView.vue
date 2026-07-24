@@ -122,10 +122,18 @@
           default-sort-order="asc"
           @sort="handleSort"
         >
-          <template #cell-name="{ value }">
-            <span class="font-medium text-gray-900 dark:text-white">{{
-              value
-            }}</span>
+          <template #cell-name="{ row }">
+            <div class="min-w-0">
+              <div class="font-medium text-gray-900 dark:text-white">
+                {{ row.name }}
+              </div>
+              <div
+                v-if="row.section"
+                class="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400"
+              >
+                {{ row.section }}
+              </div>
+            </div>
           </template>
 
           <template #cell-id="{ value }">
@@ -459,6 +467,18 @@
             :placeholder="t('admin.groups.enterGroupName')"
             data-tour="group-form-name"
           />
+        </div>
+        <div>
+          <label class="input-label">{{ t("admin.groups.form.section") }}</label>
+          <input
+            v-model="createForm.section"
+            type="text"
+            class="input"
+            maxlength="100"
+            :placeholder="t('admin.groups.form.sectionPlaceholder')"
+            data-tour="group-form-section"
+          />
+          <p class="input-hint">{{ t("admin.groups.form.sectionHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{
@@ -1987,6 +2007,18 @@
             class="input"
             data-tour="edit-group-form-name"
           />
+        </div>
+        <div>
+          <label class="input-label">{{ t("admin.groups.form.section") }}</label>
+          <input
+            v-model="editForm.section"
+            type="text"
+            class="input"
+            maxlength="100"
+            :placeholder="t('admin.groups.form.sectionPlaceholder')"
+            data-tour="edit-group-form-section"
+          />
+          <p class="input-hint">{{ t("admin.groups.form.sectionHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{
@@ -4043,6 +4075,7 @@ const editModelsListSelectedCount = computed(
 
 const createForm = reactive({
   name: "",
+  section: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
@@ -4390,6 +4423,7 @@ const convertApiFormatToRoutingRules = async (
 
 const editForm = reactive({
   name: "",
+  section: "",
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
@@ -4800,6 +4834,7 @@ const closeCreateModal = () => {
   });
   clearAllAccountSearchState();
   createForm.name = "";
+  createForm.section = "";
   createForm.description = "";
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
@@ -4967,6 +5002,7 @@ const handleCreateGroup = async () => {
 const handleEdit = async (group: AdminGroup) => {
   editingGroup.value = group;
   editForm.name = group.name;
+  editForm.section = group.section || "";
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;

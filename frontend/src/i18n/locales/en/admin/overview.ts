@@ -884,6 +884,9 @@ export default {
       },
       form: {
         name: 'Name',
+        section: 'Section',
+        sectionPlaceholder: 'e.g. Image Groups, Video Groups',
+        sectionHint: 'Groups with the same section name are shown together when users pick a group for an API key; leave empty for Uncategorized',
         description: 'Description',
         platform: 'Platform',
         rateMultiplier: 'Rate Multiplier',

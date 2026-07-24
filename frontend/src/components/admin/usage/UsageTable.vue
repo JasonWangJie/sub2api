@@ -92,7 +92,7 @@
         </template>
 
         <template #cell-group="{ row }">
-          <span v-if="row.group" class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+          <span v-if="row.group" class="usage-group-pill inline-flex items-center rounded px-2 py-0.5 text-xs font-medium">
             {{ row.group.name }}
           </span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -644,3 +644,18 @@ const hideTokenTooltip = () => {
   tokenTooltipData.value = null
 }
 </script>
+
+<style scoped>
+.usage-group-pill {
+  background: rgba(204, 251, 241, 0.95);
+  color: #0f766e;
+}
+</style>
+
+<style>
+/* Dark-mode overrides kept unscoped: Vue scoped compiler drops :global(.dark) in production. */
+.dark .usage-group-pill {
+  background: rgba(8, 47, 73, 0.9);
+  color: #67e8f9;
+}
+</style>

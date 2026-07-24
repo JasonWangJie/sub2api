@@ -1,13 +1,20 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+    <div class="usage-page space-y-6">
+      <section class="usage-section usage-section--stats">
+        <UsageStatsCards
+          :stats="usageStats"
+          :show-account-cost="false"
+          :strike-standard-cost="true"
+          glow
+        />
+      </section>
 
-      <div class="space-y-4">
-        <div class="card p-4">
+      <div class="usage-section space-y-4">
+        <div class="card usage-panel p-4">
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
+              <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t('admin.dashboard.timeRange') }}:</span>
               <DateRangePicker
                 v-model:start-date="startDate"
                 v-model:end-date="endDate"
@@ -15,7 +22,7 @@
               />
             </div>
             <div class="ml-auto flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
+              <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{{ t('admin.dashboard.granularity') }}:</span>
               <div class="w-28">
                 <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
               </div>
@@ -66,7 +73,7 @@
         </div>
       </div>
 
-      <div class="card p-6">
+      <div class="card usage-panel p-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">
@@ -161,28 +168,43 @@
         </div>
       </div>
 
-      <div v-if="errorViewEnabled" class="flex gap-2 border-b border-gray-200 dark:border-dark-700">
-        <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
+      <div v-if="errorViewEnabled" class="usage-tabs flex gap-2">
+        <button class="usage-tab" :class="{ 'usage-tab--active': activeTab === 'usage' }" @click="activeTab = 'usage'">
           {{ t('usage.tabs.usage') }}
         </button>
-        <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
+        <button class="usage-tab" :class="{ 'usage-tab--active': activeTab === 'errors' }" @click="switchToErrors">
           {{ t('usage.tabs.errors') }}
         </button>
       </div>
 
       <template v-if="activeTab === 'usage'">
-        <UsageTable
-          :data="usageLogs"
-          :loading="loading"
-          :columns="visibleColumns"
-          :server-side-sort="true"
-          :show-account-billing="false"
-          :show-upstream-endpoint="false"
-          default-sort-key="created_at"
-          default-sort-order="desc"
-          @sort="handleSort"
-          @ipGeoBatchFailed="handleIpGeoBatchFailed"
-        />
+        <div class="usage-section usage-list">
+          <div class="usage-list__head">
+            <div class="min-w-0">
+              <p class="usage-list__eyebrow">{{ t('usage.tabs.usage') }}</p>
+              <h3 class="usage-list__title">{{ t('usage.title') }}</h3>
+            </div>
+            <span class="usage-list__count">
+              {{ t('common.total') }}
+              <strong>{{ pagination.total.toLocaleString() }}</strong>
+            </span>
+          </div>
+          <div class="usage-list__body">
+            <UsageTable
+              flat
+              :data="usageLogs"
+              :loading="loading"
+              :columns="visibleColumns"
+              :server-side-sort="true"
+              :show-account-billing="false"
+              :show-upstream-endpoint="false"
+              default-sort-key="created_at"
+              default-sort-order="desc"
+              @sort="handleSort"
+              @ipGeoBatchFailed="handleIpGeoBatchFailed"
+            />
+          </div>
+        </div>
 
         <Pagination
           v-if="pagination.total > 0"
@@ -209,7 +231,6 @@
       />
     </div>
   </AppLayout>
-
 </template>
 
 <script setup lang="ts">
@@ -888,3 +909,356 @@ watch(endpointDistributionSource, () => {
   // Endpoint source switching is handled by the chart component using already loaded stats.
 })
 </script>
+
+<style scoped>
+.usage-page {
+  position: relative;
+}
+
+.usage-section {
+  animation: usage-rise 0.45s ease both;
+}
+
+.usage-section--stats {
+  animation-delay: 0.04s;
+}
+
+.usage-section--stats :deep(.usage-stat-card) {
+  --usage-card-angle: 0deg;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: rgba(167, 243, 208, 0.55);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 250, 0.9));
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+.usage-section--stats :deep(.usage-stat-card > *) {
+  position: relative;
+  z-index: 1;
+}
+
+.usage-section--stats :deep(.usage-stat-card::before) {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--usage-card-angle),
+    transparent 0%,
+    transparent 58%,
+    rgba(45, 212, 191, 0.06) 66%,
+    rgba(56, 189, 248, 0.45) 74%,
+    #ecfeff 80%,
+    #38bdf8 84%,
+    #14b8a6 90%,
+    transparent 97%,
+    transparent 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.92;
+  animation: usage-card-border-spin 3.6s linear infinite;
+}
+
+.usage-section--stats :deep(.usage-stat-card:nth-child(2)::before) {
+  animation-delay: -0.7s;
+}
+
+.usage-section--stats :deep(.usage-stat-card:nth-child(3)::before) {
+  animation-delay: -1.4s;
+}
+
+.usage-section--stats :deep(.usage-stat-card:nth-child(4)::before) {
+  animation-delay: -2.1s;
+}
+
+.usage-section--stats :deep(.usage-stat-card:hover) {
+  transform: translateY(-2px);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow:
+    0 12px 28px rgba(45, 212, 191, 0.1),
+    0 0 0 1px rgba(56, 189, 248, 0.1);
+}
+
+.usage-section--stats :deep(.usage-stat-card:hover::before) {
+  animation-duration: 2.2s;
+  filter: brightness(1.15) saturate(1.12);
+}
+
+.usage-panel {
+  border-color: rgba(186, 230, 253, 0.55);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+}
+
+.usage-tabs {
+  border-bottom: 1px solid rgba(203, 213, 225, 0.85);
+}
+
+.usage-tab {
+  position: relative;
+  padding: 0.55rem 0.9rem;
+  color: #64748b;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: color 0.18s ease;
+}
+
+.usage-tab:hover {
+  color: #0f766e;
+}
+
+.usage-tab--active {
+  color: #0d9488;
+}
+
+.usage-tab--active::after {
+  content: '';
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2dd4bf, #38bdf8);
+}
+
+/* Usage records list */
+.usage-list {
+  overflow: hidden;
+  border: 1px solid rgba(186, 230, 253, 0.7);
+  border-radius: 1.05rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 250, 0.72));
+  box-shadow: 0 14px 32px rgba(14, 165, 233, 0.06);
+}
+
+.usage-list__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.95rem 1.15rem 0.85rem;
+  border-bottom: 1px solid rgba(186, 230, 253, 0.65);
+  background: linear-gradient(90deg, rgba(224, 242, 254, 0.55), rgba(204, 251, 241, 0.35), transparent 70%);
+}
+
+.usage-list__eyebrow {
+  margin: 0;
+  color: #0d9488;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.usage-list__title {
+  margin: 0.2rem 0 0;
+  color: #0f172a;
+  font-size: 1.05rem;
+  font-weight: 720;
+  letter-spacing: -0.015em;
+}
+
+.usage-list__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.usage-list__count strong {
+  color: #0369a1;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-list__body {
+  overflow: hidden;
+}
+
+.usage-list__body :deep(.table-header) {
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.usage-list__body :deep(.table-header th) {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.usage-list__body :deep(.table-body) {
+  background: transparent;
+}
+
+.usage-list__body :deep(.table-body tr) {
+  transition: background-color 0.16s ease;
+}
+
+.usage-list__body :deep(.table-body tr:hover) {
+  background: rgba(224, 242, 254, 0.45);
+}
+
+.usage-list__body :deep(.table-body td) {
+  border-color: rgba(226, 232, 240, 0.9);
+}
+
+@keyframes usage-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes usage-card-border-spin {
+  to {
+    --usage-card-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-section {
+    animation: none;
+  }
+
+  .usage-section--stats :deep(.usage-stat-card:hover) {
+    transform: none;
+  }
+
+  .usage-section--stats :deep(.usage-stat-card::before) {
+    animation: none;
+    --usage-card-angle: 210deg;
+    opacity: 0.55;
+  }
+}
+</style>
+
+<style>
+@property --usage-card-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* Dark-mode overrides kept unscoped: Vue scoped compiler drops :global(.dark) in production. */
+.dark .usage-section--stats .usage-stat-card {
+  border-color: rgba(51, 65, 85, 0.75);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.58), rgba(15, 23, 42, 0.48));
+}
+
+.dark .usage-section--stats .usage-stat-card::before {
+  background: conic-gradient(
+    from var(--usage-card-angle),
+    transparent 0%,
+    transparent 58%,
+    rgba(56, 189, 248, 0.08) 66%,
+    rgba(56, 189, 248, 0.65) 74%,
+    #7dd3fc 80%,
+    #38bdf8 84%,
+    #2dd4bf 90%,
+    transparent 97%,
+    transparent 100%
+  );
+  opacity: 1;
+}
+
+.dark .usage-section--stats .usage-stat-card:hover {
+  border-color: rgba(56, 189, 248, 0.28);
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.35),
+    0 0 18px rgba(56, 189, 248, 0.12);
+}
+
+.dark .usage-panel {
+  border-color: rgba(51, 65, 85, 0.8);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.42));
+}
+
+.dark .usage-tabs {
+  border-bottom-color: rgba(51, 65, 85, 0.9);
+}
+
+.dark .usage-tab {
+  color: #94a3b8;
+}
+
+.dark .usage-tab:hover {
+  color: #7dd3fc;
+}
+
+.dark .usage-tab--active {
+  color: #67e8f9;
+}
+
+.dark .usage-list {
+  border-color: rgba(56, 189, 248, 0.2);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(8, 47, 73, 0.45));
+  box-shadow:
+    0 18px 40px rgba(2, 6, 23, 0.45),
+    inset 0 1px 0 rgba(103, 232, 249, 0.08);
+}
+
+.dark .usage-list__head {
+  border-bottom-color: rgba(14, 116, 144, 0.4);
+  background: linear-gradient(90deg, rgba(8, 47, 73, 0.75), rgba(14, 116, 144, 0.18), transparent 72%);
+}
+
+.dark .usage-list__eyebrow {
+  color: #67e8f9;
+}
+
+.dark .usage-list__title {
+  color: #f8fafc;
+}
+
+.dark .usage-list__count {
+  border-color: rgba(34, 211, 238, 0.28);
+  background: rgba(2, 6, 23, 0.45);
+  color: #94a3b8;
+}
+
+.dark .usage-list__count strong {
+  color: #7dd3fc;
+}
+
+.dark .usage-list__body .table-header {
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.dark .usage-list__body .table-header th {
+  color: #94a3b8;
+}
+
+.dark .usage-list__body .table-body {
+  background: transparent;
+}
+
+.dark .usage-list__body .table-body tr:hover {
+  background: rgba(12, 74, 110, 0.35);
+}
+
+.dark .usage-list__body .table-body td {
+  border-color: rgba(51, 65, 85, 0.75);
+}
+</style>

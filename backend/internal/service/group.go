@@ -16,6 +16,7 @@ type GroupModelsListConfig = domain.GroupModelsListConfig
 type Group struct {
 	ID             int64
 	Name           string
+	Section        string // 大分组标签：同名归类，空表示未分类
 	Description    string
 	Platform       string
 	RateMultiplier float64
@@ -103,6 +104,15 @@ type Group struct {
 
 func (g *Group) IsActive() bool {
 	return g.Status == StatusActive
+}
+
+// normalizeGroupSection trims and caps the optional large-group label.
+func normalizeGroupSection(section string) string {
+	section = strings.TrimSpace(section)
+	if len(section) > 100 {
+		return section[:100]
+	}
+	return section
 }
 
 func (g *Group) IsSubscriptionType() bool {

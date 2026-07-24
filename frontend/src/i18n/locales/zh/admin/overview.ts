@@ -866,6 +866,9 @@ export default {
       accountsUnit: '个账号',
       form: {
         name: '名称',
+        section: '大分组',
+        sectionPlaceholder: '例如：图片分组、视频分组',
+        sectionHint: '同名大分组在用户选择 API 密钥分组时会归为一类显示；留空则为未分类',
         description: '描述',
         platform: '平台',
         rateMultiplier: '费率倍数',

@@ -205,6 +205,7 @@ type AdminBoundAuthIdentityChannel struct {
 
 type CreateGroupInput struct {
 	Name             string
+	Section          string
 	Description      string
 	Platform         string
 	RateMultiplier   float64
@@ -261,6 +262,7 @@ type CreateGroupInput struct {
 
 type UpdateGroupInput struct {
 	Name             string
+	Section          *string
 	Description      *string
 	Platform         string
 	RateMultiplier   *float64 // 使用指针以支持设置为0

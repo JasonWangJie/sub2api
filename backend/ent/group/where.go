@@ -75,6 +75,11 @@ func Name(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldName, v))
 }
 
+// Section applies equality check predicate on the "section" field. It's identical to SectionEQ.
+func Section(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSection, v))
+}
+
 // Description applies equality check predicate on the "description" field. It's identical to DescriptionEQ.
 func Description(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDescription, v))
@@ -478,6 +483,71 @@ func NameEqualFold(v string) predicate.Group {
 // NameContainsFold applies the ContainsFold predicate on the "name" field.
 func NameContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldName, v))
+}
+
+// SectionEQ applies the EQ predicate on the "section" field.
+func SectionEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSection, v))
+}
+
+// SectionNEQ applies the NEQ predicate on the "section" field.
+func SectionNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldSection, v))
+}
+
+// SectionIn applies the In predicate on the "section" field.
+func SectionIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldSection, vs...))
+}
+
+// SectionNotIn applies the NotIn predicate on the "section" field.
+func SectionNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldSection, vs...))
+}
+
+// SectionGT applies the GT predicate on the "section" field.
+func SectionGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldSection, v))
+}
+
+// SectionGTE applies the GTE predicate on the "section" field.
+func SectionGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldSection, v))
+}
+
+// SectionLT applies the LT predicate on the "section" field.
+func SectionLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldSection, v))
+}
+
+// SectionLTE applies the LTE predicate on the "section" field.
+func SectionLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldSection, v))
+}
+
+// SectionContains applies the Contains predicate on the "section" field.
+func SectionContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldSection, v))
+}
+
+// SectionHasPrefix applies the HasPrefix predicate on the "section" field.
+func SectionHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldSection, v))
+}
+
+// SectionHasSuffix applies the HasSuffix predicate on the "section" field.
+func SectionHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldSection, v))
+}
+
+// SectionEqualFold applies the EqualFold predicate on the "section" field.
+func SectionEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldSection, v))
+}
+
+// SectionContainsFold applies the ContainsFold predicate on the "section" field.
+func SectionContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldSection, v))
 }
 
 // DescriptionEQ applies the EQ predicate on the "description" field.

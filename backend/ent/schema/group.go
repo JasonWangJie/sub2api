@@ -38,6 +38,10 @@ func (Group) Fields() []ent.Field {
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
+		field.String("section").
+			MaxLen(100).
+			Default("").
+			Comment("大分组标签：同名自动归类，空表示未分类"),
 		field.String("description").
 			Optional().
 			Nillable().

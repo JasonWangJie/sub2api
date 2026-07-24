@@ -95,6 +95,7 @@ export default {
     noGroup: '无分组',
     searchGroup: '搜索分组...',
     noGroupFound: '未找到匹配的分组',
+    uncategorizedSection: '未分类',
     created: '创建时间',
     copyToClipboard: '复制到剪贴板',
     copied: '已复制！',

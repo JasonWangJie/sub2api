@@ -507,6 +507,7 @@ export interface OpenAIMessagesDispatchModelConfig {
 export interface Group {
   id: number
   name: string
+  section?: string
   description: string | null
   platform: GroupPlatform
   rate_multiplier: number
@@ -646,6 +647,7 @@ export interface UpdateApiKeyRequest {
 
 export interface CreateGroupRequest {
   name: string
+  section?: string
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
@@ -694,6 +696,7 @@ export interface CreateGroupRequest {
 
 export interface UpdateGroupRequest {
   name?: string
+  section?: string | null
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
