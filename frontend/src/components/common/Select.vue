@@ -7,7 +7,9 @@
       :disabled="disabled"
       :aria-expanded="isOpen"
       :aria-haspopup="true"
-      aria-label="Select option"
+      :id="id"
+      :aria-label="ariaLabel ?? 'Select option'"
+      :aria-describedby="ariaDescribedby"
       :class="[
         'select-trigger',
         isOpen && 'select-trigger-open',
@@ -65,6 +67,7 @@
               v-model="searchQuery"
               type="text"
               :placeholder="searchPlaceholderText"
+              :aria-label="searchPlaceholderText"
               class="select-search-input"
               @click.stop
             />
@@ -151,6 +154,9 @@ interface Props {
   clearable?: boolean
   /** Extra class on the teleported dropdown portal (e.g. theme variants). */
   portalClass?: string
+  id?: string
+  ariaLabel?: string
+  ariaDescribedby?: string
 }
 
 interface Emits {
