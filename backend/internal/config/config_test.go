@@ -37,6 +37,32 @@ func TestLoadServerTimingConfig(t *testing.T) {
 	})
 }
 
+func TestValidateImageDurableStorageConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	cfg.ImageDurableStorage.Backend = "unknown"
+	require.ErrorContains(t, cfg.Validate(), "image_durable_storage.backend")
+
+	cfg.ImageDurableStorage.Backend = ImageDurableBackendLocal
+	cfg.ImageDurableStorage.Local.Shared = true
+	cfg.ImageDurableStorage.Local.DataDir = "relative/path"
+	require.ErrorContains(t, cfg.Validate(), "must be absolute")
+
+	cfg.ImageDurableStorage.Local.Shared = false
+	cfg.ImageDurableStorage.Backend = ImageDurableBackendOSS
+	cfg.ImageDurableStorage.OSS.Enabled = false
+	require.ErrorContains(t, cfg.Validate(), "oss.enabled")
+
+	cfg.ImageDurableStorage.OSS.Enabled = true
+	cfg.ImageDurableStorage.OSS.Bucket = "bucket"
+	cfg.ImageDurableStorage.OSS.AccessKeyID = "access"
+	cfg.ImageDurableStorage.OSS.SecretAccessKey = "secret"
+	cfg.ImageDurableStorage.OSS.Prefix = "library/../escape"
+	require.ErrorContains(t, cfg.Validate(), "prefix")
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")

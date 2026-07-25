@@ -70,6 +70,7 @@ func (r *imageLibraryRepository) HasActiveImageStorageObjects(ctx context.Contex
   EXISTS(SELECT 1 FROM image_storage_objects WHERE state<>'deleted')
   OR EXISTS(SELECT 1 FROM async_image_input_objects)
   OR EXISTS(SELECT 1 FROM async_image_result_upload_intents)
+  OR EXISTS(SELECT 1 FROM image_library_upload_intents)
   OR EXISTS(
       SELECT 1 FROM async_image_upload_reservations
       WHERE status='reserved' OR intent_object_key IS NOT NULL
@@ -317,6 +318,9 @@ func (r *imageLibraryRepository) CreateAsset(ctx context.Context, in service.Cre
 	if err := lockImageLibraryUser(ctx, tx, in.UserID); err != nil {
 		return nil, false, err
 	}
+	if err := lockImageLibraryUploadIntent(ctx, tx, in.UploadIntentID, in.Object); err != nil {
+		return nil, false, err
+	}
 	if err := resolveImageLibraryProvenance(ctx, tx, &in); err != nil {
 		return nil, false, err
 	}
@@ -385,6 +389,9 @@ WHERE user_id=$1 AND idempotency_key=$2 AND request_hash=$3 AND state='processin
 	}
 	item, _, err := getLibraryItemForUserByID(ctx, tx, in.UserID, id)
 	if err != nil {
+		return nil, false, err
+	}
+	if err := deleteImageLibraryUploadIntentTx(ctx, tx, in.UploadIntentID); err != nil {
 		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {

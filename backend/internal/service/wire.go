@@ -580,6 +580,9 @@ func ProvideImageDurableStorageService(
 	async *ImageStorageSettingService,
 	cfg *config.Config,
 ) *ImageDurableStorageService {
+	if cfg.ImageDurableStorage.NormalizedBackend() == config.ImageDurableBackendLocal && !cfg.ImageDurableStorage.Local.Shared {
+		logger.L().Warn("image_durable_storage uses local single-instance storage; use backend=oss or local.shared=true with a shared absolute data_dir before running multiple instances")
+	}
 	return NewImageDurableStorageService(cfg.ImageDurableStorage, cfg.Pricing.DataDir, factory, async)
 }
 
@@ -650,10 +653,13 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
+func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, billingInvalidation BillingSettingInvalidation, cfg *config.Config) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
+	svc.SetBillingSettingInvalidation(billingInvalidation)
+	svc.StartBillingSettingInvalidationSubscriber(context.Background())
+	svc.WarmBillingChargeMultiplier(context.Background())
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client IP settings failed: %v", err)
 	}

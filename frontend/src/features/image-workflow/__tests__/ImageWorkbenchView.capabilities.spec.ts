@@ -36,7 +36,9 @@ describe('ImageWorkbenchView capability-driven controls', () => {
     expect(source).toContain('localOnly: true')
     expect(source).toContain('function publishLocalResult')
     expect(source).toContain('createPlazaSubmissionRequest')
-    expect(source).toContain('savePlazaSubmissionBlob')
+    expect(source).toContain('savePersonalGalleryItem')
+    expect(source).toContain('gallerySaveFailed')
+    expect(source).not.toContain('previewUrl: url')
     expect(source).not.toContain('await Promise.allSettled(results.value.map((result) => archiveResult(result, current)))')
   })
 

@@ -10,6 +10,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -272,6 +273,9 @@ type ImageDurableLocalStorageConfig struct {
 	// DataDir is the root for durable library files. Empty falls back to
 	// {pricing.data_dir}/image_durable.
 	DataDir string `mapstructure:"data_dir"`
+	// Shared declares that DataDir is a shared filesystem mounted at the same
+	// absolute path on every application instance. False means single-instance.
+	Shared bool `mapstructure:"shared"`
 }
 
 const (
@@ -2133,6 +2137,7 @@ func setDefaults() {
 	// Durable plaza/library storage (separate from ephemeral async image_storage).
 	viper.SetDefault("image_durable_storage.backend", "local")
 	viper.SetDefault("image_durable_storage.local.data_dir", "")
+	viper.SetDefault("image_durable_storage.local.shared", false)
 	viper.SetDefault("image_durable_storage.oss.enabled", false)
 	viper.SetDefault("image_durable_storage.oss.provider", ImageStorageProviderCustomS3)
 	viper.SetDefault("image_durable_storage.oss.region", "auto")
@@ -2550,6 +2555,31 @@ func (c *Config) Validate() error {
 	}
 	c.Security.ForwardedClientIPHeaders = forwardedClientIPHeaders
 	c.SetForwardedClientIPSettings(c.Security.TrustForwardedIPForAPIKeyACL, forwardedClientIPHeaders)
+	switch backend := c.ImageDurableStorage.NormalizedBackend(); backend {
+	case ImageDurableBackendLocal:
+		if c.ImageDurableStorage.Local.Shared {
+			dataDir := strings.TrimSpace(c.ImageDurableStorage.Local.DataDir)
+			if dataDir == "" {
+				return fmt.Errorf("image_durable_storage.local.data_dir is required when local.shared=true")
+			}
+			if !filepath.IsAbs(dataDir) {
+				return fmt.Errorf("image_durable_storage.local.data_dir must be absolute when local.shared=true")
+			}
+		}
+	case ImageDurableBackendOSS:
+		if !c.ImageDurableStorage.OSS.Enabled {
+			return fmt.Errorf("image_durable_storage.oss.enabled must be true when backend=oss")
+		}
+		if !c.ImageDurableStorage.OSS.IsConfigured() {
+			return fmt.Errorf("image_durable_storage.oss bucket and credentials are required when backend=oss")
+		}
+		prefix := strings.TrimSpace(c.ImageDurableStorage.OSS.Prefix)
+		if strings.Contains(prefix, "..") || strings.Contains(prefix, `\`) {
+			return fmt.Errorf("image_durable_storage.oss.prefix must be a safe object-key prefix")
+		}
+	default:
+		return fmt.Errorf("image_durable_storage.backend must be one of: %s/%s", ImageDurableBackendLocal, ImageDurableBackendOSS)
+	}
 	if c.Server.ReadHeaderTimeout < 1 || c.Server.ReadHeaderTimeout > 60 {
 		return fmt.Errorf("server.read_header_timeout must be between 1 and 60 seconds")
 	}

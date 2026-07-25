@@ -281,7 +281,7 @@ export default {
         defaultBalanceHint: 'Initial balance for new users',
         billingChargeMultiplier: 'System Charge Multiplier',
         billingChargeMultiplierHint:
-          'Applied after group/user/peak rates; affects both usage display amounts and actual deductions. Default 1; e.g. 1.1 means 10% more. Valid range: (0, 10].',
+          'Applied after group/user/peak rates; affects both usage display amounts and actual deductions. Normal image generation and batch image settlement are excluded; video remains covered. Default 1; e.g. 1.1 means 10% more. Valid range: (0, 10].',
         affiliateRebateRate: 'Affiliate Rebate Rate',
         affiliateRebateRateHint:
           'Rebate percentage credited to inviter after recharge (0-100%, e.g. 10 means 10%)',

@@ -44,11 +44,38 @@ func (s *ImageDurableStorageService) WriteStorage(ctx context.Context) (DurableI
 		return nil, apperrors.ServiceUnavailable("IMAGE_DURABLE_STORAGE_DISABLED", "durable image storage is not configured")
 	}
 	switch s.cfg.NormalizedBackend() {
+	case config.ImageDurableBackendLocal:
+		return s.localStorage()
 	case config.ImageDurableBackendOSS:
 		return s.ossStorage(ctx)
 	default:
-		return s.localStorage()
+		return nil, apperrors.ServiceUnavailable("IMAGE_DURABLE_STORAGE_DISABLED", "image_durable_storage.backend is invalid")
 	}
+}
+
+// ObjectKey applies the durable backend's configured namespace to a relative
+// library path. Local storage keeps its fixed library/ namespace; OSS uses the
+// operator-provided prefix.
+func (s *ImageDurableStorageService) ObjectKey(relative string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("durable image storage is nil")
+	}
+	relative = strings.Trim(strings.ReplaceAll(strings.TrimSpace(relative), `\`, "/"), "/")
+	if relative == "" || strings.Contains(relative, "..") {
+		return "", fmt.Errorf("durable image object key is invalid")
+	}
+	prefix := "library"
+	switch s.cfg.NormalizedBackend() {
+	case config.ImageDurableBackendLocal:
+	case config.ImageDurableBackendOSS:
+		prefix = strings.Trim(strings.ReplaceAll(strings.TrimSpace(s.cfg.OSS.Prefix), `\`, "/"), "/")
+	default:
+		return "", fmt.Errorf("durable image storage backend is invalid")
+	}
+	if prefix == "" {
+		return relative, nil
+	}
+	return prefix + "/" + relative, nil
 }
 
 // StorageForObject picks the backend that owns the given object identity.
@@ -116,8 +143,7 @@ func (s *ImageDurableStorageService) ossStorage(ctx context.Context) (DurableIma
 		return s.oss, nil
 	}
 	ossCfg := s.cfg.OSS
-	ossCfg.Enabled = true
-	if !ossCfg.IsConfigured() {
+	if !ossCfg.Enabled || !ossCfg.IsConfigured() {
 		return nil, apperrors.ServiceUnavailable("IMAGE_DURABLE_STORAGE_DISABLED", "image_durable_storage.oss is not fully configured")
 	}
 	if s.factory == nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -33,6 +34,14 @@ type SettingRepository interface {
 	SetMultiple(ctx context.Context, settings map[string]string) error
 	GetAll(ctx context.Context) (map[string]string, error)
 	Delete(ctx context.Context, key string) error
+}
+
+// BillingSettingInvalidation propagates billing-setting changes to every
+// application instance. The database remains the source of truth; Pub/Sub
+// removes the normal cache-TTL delay between instances.
+type BillingSettingInvalidation interface {
+	PublishBillingChargeMultiplier(ctx context.Context, value string) error
+	SubscribeBillingChargeMultiplier(ctx context.Context, handler func(value string)) error
 }
 
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
@@ -73,9 +82,17 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 
 	// billingChargeMultiplierCache holds the system charge multiplier (default 1).
-	// Billing hot paths only atomic-Load this value; DB refresh is async.
-	billingChargeMultiplierCache atomic.Value // *cachedBillingChargeMultiplier
-	billingChargeMultiplierSF    singleflight.Group
+	// A generation prevents a DB read started before an admin update from
+	// overwriting the new write-through value after that update commits.
+	billingChargeMultiplierCache      atomic.Value // *cachedBillingChargeMultiplier
+	billingChargeMultiplierGeneration atomic.Uint64
+	billingChargeMultiplierMu         sync.Mutex
+	billingChargeMultiplierSF         singleflight.Group
+	billingSettingInvalidation        BillingSettingInvalidation
+	billingInvalidationStart          sync.Once
+	billingInvalidationStop           sync.Once
+	billingInvalidationCancel         context.CancelFunc
+	billingInvalidationWG             sync.WaitGroup
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

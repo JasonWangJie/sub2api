@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -36,6 +37,26 @@ func TestLocalImageStorageRoundTrip(t *testing.T) {
 
 	require.NoError(t, storage.Delete(context.Background(), ref))
 	_, err = os.Stat(filepath.Join(root, filepath.FromSlash(ref.ObjectKey)))
+	require.True(t, os.IsNotExist(err))
+}
+
+func TestLocalImageStorageRecoversStaleTemporaryFile(t *testing.T) {
+	root := t.TempDir()
+	storage, err := NewLocalImageStorage(root)
+	require.NoError(t, err)
+
+	key := "library/7/recovered.png"
+	fullPath := filepath.Join(root, filepath.FromSlash(key))
+	require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0o700))
+	require.NoError(t, os.WriteFile(fullPath+".tmp", []byte("stale"), 0o644))
+
+	data := []byte("complete image data")
+	_, err = storage.SaveObject(context.Background(), key, "image/png", data)
+	require.NoError(t, err)
+	stored, err := os.ReadFile(fullPath)
+	require.NoError(t, err)
+	require.Equal(t, data, stored)
+	_, err = os.Stat(fullPath + ".tmp")
 	require.True(t, os.IsNotExist(err))
 }
 
@@ -95,4 +116,21 @@ func TestImageDurableStorageDefaultLocalBackend(t *testing.T) {
 	local, ok := write.(*LocalImageStorage)
 	require.True(t, ok)
 	require.Contains(t, local.RootDir(), "image_durable")
+}
+
+func TestImageDurableStorageObjectKeyUsesConfiguredNamespace(t *testing.T) {
+	local := NewImageDurableStorageService(config.ImageDurableStorageConfig{Backend: config.ImageDurableBackendLocal}, t.TempDir(), nil, nil)
+	localKey, err := local.ObjectKey("42/2026/07/24/image.png")
+	require.NoError(t, err)
+	require.Equal(t, "library/42/2026/07/24/image.png", localKey)
+
+	oss := NewImageDurableStorageService(config.ImageDurableStorageConfig{
+		Backend: config.ImageDurableBackendOSS,
+		OSS:     config.ImageStorageConfig{Prefix: "tenant-a/images/"},
+	}, t.TempDir(), nil, nil)
+	ossKey, err := oss.ObjectKey("42/2026/07/24/image.png")
+	require.NoError(t, err)
+	require.Equal(t, "tenant-a/images/42/2026/07/24/image.png", ossKey)
+	_, err = oss.ObjectKey(strings.ReplaceAll(`../outside.png`, `\`, "/"))
+	require.Error(t, err)
 }

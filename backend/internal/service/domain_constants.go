@@ -453,7 +453,8 @@ const (
 	// SettingKeyOpenAIOAuthSchedulingRateMultiplier OAuth 账号参与成本调度时使用的参考倍率。
 	SettingKeyOpenAIOAuthSchedulingRateMultiplier = "openai_oauth_scheduling_rate_multiplier"
 	// SettingKeyBillingChargeMultiplier 系统扣款系数：在分组/用户/高峰倍率之后再乘，
-	// 同时影响 usage_logs.actual_cost（前端用量展示）与余额/订阅实际扣款。默认 1。
+	// 同时影响 usage_logs.actual_cost（前端用量展示）与余额/订阅实际扣款；
+	// 普通及批量生图结算不应用该系数。默认 1。
 	SettingKeyBillingChargeMultiplier = "billing_charge_multiplier"
 	// SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled OpenAI 高级调度下是否启用粘性加权。
 	SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled = "openai_advanced_scheduler_sticky_weighted_enabled"

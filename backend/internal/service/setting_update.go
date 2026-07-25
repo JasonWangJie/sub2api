@@ -24,7 +24,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
-		s.refreshCachedSettings(settings)
+		s.refreshCachedSettings(ctx, settings)
 	}
 	return err
 }
@@ -46,7 +46,7 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Contex
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
-		s.refreshCachedSettings(settings)
+		s.refreshCachedSettings(ctx, settings)
 	}
 	return err
 }
@@ -517,7 +517,7 @@ func (s *SettingService) buildAuthSourceDefaultUpdates(ctx context.Context, sett
 	return updates, nil
 }
 
-func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
+func (s *SettingService) refreshCachedSettings(ctx context.Context, settings *SystemSettings) {
 	if settings == nil {
 		return
 	}
@@ -600,6 +600,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	}
 	s.billingChargeMultiplierSF.Forget(billingChargeMultiplierRefreshKey)
 	s.storeBillingChargeMultiplierCache(settings.BillingChargeMultiplier)
+	s.publishBillingChargeMultiplier(ctx, settings.BillingChargeMultiplier)
 	if s.cfg != nil {
 		s.cfg.SetForwardedClientIPSettings(settings.APIKeyACLTrustForwardedIP, settings.ForwardedClientIPHeaders)
 	}

@@ -118,6 +118,9 @@ func (s *ImageLibraryMaintenanceService) runOnce(ctx context.Context) {
 	if err := s.processOutbox(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.L().Warn("image_library.outbox_failed", zap.Error(err))
 	}
+	if err := s.processUploadIntents(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		logger.L().Warn("image_library.upload_intent_cleanup_failed", zap.Error(err))
+	}
 	if err := s.processStaleObjectDeletions(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.L().Warn("image_library.object_recovery_failed", zap.Error(err))
 	}
@@ -127,6 +130,49 @@ func (s *ImageLibraryMaintenanceService) runOnce(ctx context.Context) {
 	if err := s.processLegacyMigration(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.L().Warn("image_library.legacy_migration_failed", zap.Error(err))
 	}
+}
+
+func (s *ImageLibraryMaintenanceService) processUploadIntents(ctx context.Context) error {
+	repo := s.library.repo
+	intents, err := repo.ClaimExpiredLibraryUploadIntents(
+		ctx,
+		time.Now().UTC(),
+		time.Now().UTC().Add(-imageLibraryMaintenanceLease),
+		100,
+	)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, intent := range intents {
+		if intent.CleanupClaimedAt == nil {
+			if firstErr == nil {
+				firstErr = errors.New("claimed image library upload intent has no lease timestamp")
+			}
+			continue
+		}
+		claimedAt := *intent.CleanupClaimedAt
+		if !intent.Referenced {
+			storage, storageErr := s.library.storageForObject(ctx, intent.ObjectRef)
+			if storageErr == nil {
+				storageErr = storage.Delete(ctx, intent.ObjectRef)
+			}
+			if storageErr != nil {
+				_ = repo.ReleaseLibraryUploadIntentDeletion(ctx, intent.ID, claimedAt)
+				if firstErr == nil {
+					firstErr = fmt.Errorf("delete orphaned image upload %s: %w", intent.ObjectKey, storageErr)
+				}
+				continue
+			}
+		}
+		if completeErr := repo.CompleteLibraryUploadIntentDeletion(ctx, intent.ID, claimedAt); completeErr != nil {
+			_ = repo.ReleaseLibraryUploadIntentDeletion(ctx, intent.ID, claimedAt)
+			if firstErr == nil {
+				firstErr = completeErr
+			}
+		}
+	}
+	return firstErr
 }
 
 func (s *ImageLibraryMaintenanceService) processOutbox(ctx context.Context) error {

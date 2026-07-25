@@ -1298,6 +1298,9 @@ image_durable_storage:
     # 留空则使用 {pricing.data_dir}/image_durable（发行版常见为 /opt/sub2api/data/image_durable）
     # 请确保该目录对运行用户可写，并纳入备份策略。
     data_dir: ""
+    # false 表示明确按单实例本机盘运行。多实例必须改用 oss，或把所有实例挂载到
+    # 同一个共享文件系统、填写相同的绝对 data_dir，并将此项设为 true。
+    shared: false
 
   # backend=oss 时生效；与 image_storage 字段含义类似，但是独立身份，勿填异步任务那个桶。
   oss:

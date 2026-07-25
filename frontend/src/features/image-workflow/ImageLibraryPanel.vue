@@ -341,8 +341,7 @@ async function refreshPreviews(records: PersonalGalleryRecord[]) {
       next[item.id] = previous[item.id]
       continue
     }
-    if (item.previewUrl) next[item.id] = item.previewUrl
-    else if (item.file) next[item.id] = URL.createObjectURL(item.file)
+    if (item.file) next[item.id] = URL.createObjectURL(item.file)
   }
   Object.entries(previous).forEach(([id, url]) => {
     if (!next[id] && url.startsWith('blob:')) URL.revokeObjectURL(url)
@@ -375,8 +374,7 @@ async function refreshSubmissions() {
     const nextPreviews: Record<string, string> = {}
     for (const item of submissions.value) {
       const local = await getPersonalGalleryItem(item.client_blob_key)
-      if (local?.previewUrl) nextPreviews[item.id] = local.previewUrl
-      else if (local?.file) nextPreviews[item.id] = URL.createObjectURL(local.file)
+      if (local?.file) nextPreviews[item.id] = URL.createObjectURL(local.file)
       else if (previewURLs.value[item.client_blob_key]) nextPreviews[item.id] = previewURLs.value[item.client_blob_key]
     }
     revokeObjectURLs(submissionPreviewURLs.value)
@@ -394,7 +392,7 @@ async function ensurePreview(item: PersonalGalleryRecord): Promise<string> {
     markBroken(item.id)
     throw new Error('image unavailable')
   }
-  const url = fresh.previewUrl || URL.createObjectURL(fresh.file)
+  const url = URL.createObjectURL(fresh.file)
   previewURLs.value = { ...previewURLs.value, [item.id]: url }
   return url
 }

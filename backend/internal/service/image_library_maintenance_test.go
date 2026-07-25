@@ -63,3 +63,41 @@ func TestResolveLegacyImagePathAllowsContainedObject(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "image_plaza", "42", "result.png"), got)
 }
+
+func TestImageLibraryMaintenanceUploadIntentCleanupProtectsReferencesAndDeletesOrphans(t *testing.T) {
+	claimedAt := time.Now().UTC()
+	repo := &imageLibraryFlowRepo{claimedIntents: []ImageLibraryUploadIntent{
+		{
+			ID: 1, ObjectRef: ObjectRef{Provider: "custom_s3", Bucket: "images", ObjectKey: "library/referenced.png"},
+			CleanupClaimedAt: &claimedAt, Referenced: true,
+		},
+		{
+			ID: 2, ObjectRef: ObjectRef{Provider: "custom_s3", Bucket: "images", ObjectKey: "library/orphan.png"},
+			CleanupClaimedAt: &claimedAt,
+		},
+	}}
+	storage := &imageLibraryFlowStorage{}
+	service := imageLibraryFlowService(repo, storage)
+	maintenance := NewImageLibraryMaintenanceService(service, nil)
+
+	require.NoError(t, maintenance.processUploadIntents(context.Background()))
+	require.Equal(t, 1, storage.deleteCalls)
+	require.Equal(t, 2, repo.cleanupCompleteCalls)
+	require.Zero(t, repo.cleanupReleaseCalls)
+}
+
+func TestImageLibraryMaintenanceUploadIntentCleanupReleasesFailedDeletion(t *testing.T) {
+	claimedAt := time.Now().UTC()
+	repo := &imageLibraryFlowRepo{claimedIntents: []ImageLibraryUploadIntent{{
+		ID: 3, ObjectRef: ObjectRef{Provider: "custom_s3", Bucket: "images", ObjectKey: "library/retry.png"},
+		CleanupClaimedAt: &claimedAt,
+	}}}
+	storage := &imageLibraryFlowStorage{deleteErr: errors.New("storage unavailable")}
+	service := imageLibraryFlowService(repo, storage)
+	maintenance := NewImageLibraryMaintenanceService(service, nil)
+
+	require.ErrorContains(t, maintenance.processUploadIntents(context.Background()), "storage unavailable")
+	require.Equal(t, 1, storage.deleteCalls)
+	require.Zero(t, repo.cleanupCompleteCalls)
+	require.Equal(t, 1, repo.cleanupReleaseCalls)
+}

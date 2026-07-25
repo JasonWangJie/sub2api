@@ -31,8 +31,11 @@ func NewLocalImageStorage(rootDir string) (*LocalImageStorage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve local image storage root: %w", err)
 	}
-	if err := os.MkdirAll(abs, 0o755); err != nil {
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, fmt.Errorf("create local image storage root: %w", err)
+	}
+	if err := os.Chmod(abs, 0o700); err != nil {
+		return nil, fmt.Errorf("secure local image storage root: %w", err)
 	}
 	return &LocalImageStorage{rootDir: abs}, nil
 }
@@ -67,12 +70,31 @@ func (s *LocalImageStorage) SaveObject(ctx context.Context, key, contentType str
 	if err != nil {
 		return ObjectRef{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+	directory := filepath.Dir(fullPath)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return ObjectRef{}, fmt.Errorf("create local object directory: %w", err)
 	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return ObjectRef{}, fmt.Errorf("secure local object directory: %w", err)
+	}
 	tmp := fullPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return ObjectRef{}, fmt.Errorf("write local object: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tmp)
+		return ObjectRef{}, fmt.Errorf("secure local object: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tmp)
+		return ObjectRef{}, fmt.Errorf("write local object: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return ObjectRef{}, fmt.Errorf("close local object: %w", err)
 	}
 	if err := os.Rename(tmp, fullPath); err != nil {
 		_ = os.Remove(tmp)
@@ -141,8 +163,10 @@ func (s *LocalImageStorage) Head(_ context.Context, ref ObjectRef) (ObjectMetada
 	if err != nil {
 		return ObjectMetadata{}, fmt.Errorf("stat local object: %w", err)
 	}
+	observed := ref
+	observed.SizeBytes = info.Size()
 	return ObjectMetadata{
-		ObjectRef:    ref,
+		ObjectRef:    observed,
 		LastModified: info.ModTime().UTC(),
 	}, nil
 }

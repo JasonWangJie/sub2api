@@ -1,6 +1,6 @@
 /**
  * Browser-local personal gallery for realtime image workbench results.
- * Retention: keep at most 500 records OR 180 days (whichever limit is exceeded first).
+ * Retention per user: 100 records, 30 days, and 200 MiB.
  */
 
 export interface PersonalGalleryRecord {
@@ -12,7 +12,6 @@ export interface PersonalGalleryRecord {
   contentType: string
   byteSize: number
   checksumSha256: string
-  previewUrl?: string
   platform?: string
   model?: string
   prompt?: string
@@ -28,12 +27,13 @@ export interface PersonalGalleryRecord {
   expiresAt: number
 }
 
-export const PERSONAL_GALLERY_MAX_RECORDS = 500
-export const PERSONAL_GALLERY_TTL_MS = 180 * 24 * 60 * 60 * 1000
+export const PERSONAL_GALLERY_MAX_RECORDS = 100
+export const PERSONAL_GALLERY_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const PERSONAL_GALLERY_MAX_BYTES = 200 * 1024 * 1024
 export const PERSONAL_GALLERY_CHANGE_EVENT = 'sub2api:personal-gallery-changed'
 
 const DB_NAME = 'sub2api-personal-gallery'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE = 'items'
 
 const memoryFallback = new Map<string, PersonalGalleryRecord>()
@@ -49,14 +49,37 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const database = request.result
+      let store: IDBObjectStore
       if (!database.objectStoreNames.contains(STORE)) {
-        const store = database.createObjectStore(STORE, { keyPath: 'id' })
+        store = database.createObjectStore(STORE, { keyPath: 'id' })
         store.createIndex('createdAt', 'createdAt', { unique: false })
         store.createIndex('userId', 'userId', { unique: false })
         store.createIndex('expiresAt', 'expiresAt', { unique: false })
+      } else {
+        store = request.transaction!.objectStore(STORE)
+        if (!store.indexNames.contains('createdAt')) store.createIndex('createdAt', 'createdAt', { unique: false })
+        if (!store.indexNames.contains('userId')) store.createIndex('userId', 'userId', { unique: false })
+        if (!store.indexNames.contains('expiresAt')) store.createIndex('expiresAt', 'expiresAt', { unique: false })
+      }
+      const cursorRequest = store.openCursor()
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result
+        if (!cursor) return
+        const value = cursor.value as PersonalGalleryRecord & { previewUrl?: string }
+        if ('previewUrl' in value) {
+          delete value.previewUrl
+          cursor.update(value)
+        }
+        cursor.continue()
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      request.result.onversionchange = () => {
+        request.result.close()
+        databasePromise = null
+      }
+      resolve(request.result)
+    }
     request.onerror = () => {
       databasePromise = null
       reject(request.error || new Error('Could not open personal gallery database'))
@@ -88,20 +111,30 @@ function notifyChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(PERSONAL_GALLERY_CHANGE_EVENT))
 }
 
-/** Pure cleanup helper — exported for unit tests. */
+/** Pure cleanup helper, exported for unit tests. */
 export function selectPersonalGalleryOverflowIDs(
-  records: Array<Pick<PersonalGalleryRecord, 'id' | 'createdAt' | 'expiresAt'>>,
+  records: Array<Pick<PersonalGalleryRecord, 'id' | 'userId' | 'createdAt' | 'expiresAt' | 'byteSize'>>,
+  userId: number,
   now = Date.now(),
   maxRecords = PERSONAL_GALLERY_MAX_RECORDS,
+  maxBytes = PERSONAL_GALLERY_MAX_BYTES,
 ): string[] {
-  const expired = records.filter((item) => item.expiresAt <= now).map((item) => item.id)
+  const owned = records.filter((item) => item.userId === userId)
+  const expired = owned.filter((item) => item.expiresAt <= now).map((item) => item.id)
   const expiredSet = new Set(expired)
-  const alive = records
+  const alive = owned
     .filter((item) => !expiredSet.has(item.id))
     .sort((left, right) => right.createdAt - left.createdAt)
   const overflow: string[] = []
-  if (alive.length > maxRecords) {
-    for (const item of alive.slice(maxRecords)) overflow.push(item.id)
+  let retainedCount = alive.length
+  let retainedBytes = alive.reduce((total, item) => total + Math.max(0, item.byteSize), 0)
+  for (let index = alive.length - 1; index >= 0; index -= 1) {
+    if (retainedCount <= maxRecords && retainedBytes <= maxBytes) break
+    const item = alive[index]
+    if (!item) continue
+    overflow.push(item.id)
+    retainedCount -= 1
+    retainedBytes -= Math.max(0, item.byteSize)
   }
   return [...expired, ...overflow]
 }
@@ -117,9 +150,10 @@ export async function sha256HexOfBlob(blob: Blob): Promise<string> {
 function applyCleanup(
   store: IDBObjectStore | Map<string, PersonalGalleryRecord>,
   records: PersonalGalleryRecord[],
+  userId: number,
   now = Date.now(),
 ): void {
-  for (const id of selectPersonalGalleryOverflowIDs(records, now)) {
+  for (const id of selectPersonalGalleryOverflowIDs(records, userId, now)) {
     if (store instanceof Map) store.delete(id)
     else store.delete(id)
   }
@@ -130,7 +164,7 @@ export async function savePersonalGalleryItem(
     & Partial<Pick<PersonalGalleryRecord, 'createdAt' | 'expiresAt' | 'byteSize' | 'checksumSha256' | 'contentType'>>,
 ): Promise<PersonalGalleryRecord> {
   const contentType = record.contentType || record.file.type || 'application/octet-stream'
-  const byteSize = record.byteSize ?? record.file.size
+  const byteSize = record.file.size
   const checksumSha256 = record.checksumSha256 || await sha256HexOfBlob(record.file)
   const createdAt = record.createdAt || Date.now()
   const normalized: PersonalGalleryRecord = {
@@ -141,10 +175,11 @@ export async function savePersonalGalleryItem(
     createdAt,
     expiresAt: record.expiresAt || createdAt + PERSONAL_GALLERY_TTL_MS,
   }
+  delete (normalized as PersonalGalleryRecord & { previewUrl?: string }).previewUrl
 
   if (!hasIndexedDB()) {
     memoryFallback.set(normalized.id, normalized)
-    applyCleanup(memoryFallback, [...memoryFallback.values()])
+    applyCleanup(memoryFallback, [...memoryFallback.values()], normalized.userId)
     notifyChanged()
     return normalized
   }
@@ -153,8 +188,8 @@ export async function savePersonalGalleryItem(
   const transaction = database.transaction(STORE, 'readwrite')
   const store = transaction.objectStore(STORE)
   store.put(normalized)
-  const records = await requestResult(store.getAll()) as PersonalGalleryRecord[]
-  applyCleanup(store, records)
+  const records = await readPersonalGalleryRecordsForUser(store, normalized.userId)
+  applyCleanup(store, records, normalized.userId)
   await transactionDone(transaction)
   notifyChanged()
   return normalized
@@ -162,13 +197,14 @@ export async function savePersonalGalleryItem(
 
 export async function updatePersonalGalleryItem(
   id: string,
-  patch: Partial<Pick<PersonalGalleryRecord, 'title' | 'prompt' | 'requestId' | 'previewUrl'>>,
+  patch: Partial<Pick<PersonalGalleryRecord, 'title' | 'prompt' | 'requestId'>>,
 ): Promise<PersonalGalleryRecord | null> {
   if (!id) return null
   if (!hasIndexedDB()) {
     const existing = memoryFallback.get(id)
     if (!existing) return null
     const next = { ...existing, ...patch }
+    delete (next as PersonalGalleryRecord & { previewUrl?: string }).previewUrl
     memoryFallback.set(id, next)
     notifyChanged()
     return next
@@ -182,6 +218,7 @@ export async function updatePersonalGalleryItem(
     return null
   }
   const next = { ...existing, ...patch }
+  delete (next as PersonalGalleryRecord & { previewUrl?: string }).previewUrl
   store.put(next)
   await transactionDone(transaction)
   notifyChanged()
@@ -216,9 +253,10 @@ export async function listPersonalGalleryItems(userId: number): Promise<Personal
   if (userId <= 0) return []
   const now = Date.now()
   if (!hasIndexedDB()) {
-    const before = memoryFallback.size
-    applyCleanup(memoryFallback, [...memoryFallback.values()], now)
-    if (memoryFallback.size !== before) notifyChanged()
+    const before = [...memoryFallback.values()].filter((item) => item.userId === userId).length
+    applyCleanup(memoryFallback, [...memoryFallback.values()], userId, now)
+    const after = [...memoryFallback.values()].filter((item) => item.userId === userId).length
+    if (after !== before) notifyChanged()
     return [...memoryFallback.values()]
       .filter((item) => item.userId === userId && item.expiresAt > now)
       .sort((left, right) => right.createdAt - left.createdAt)
@@ -226,8 +264,8 @@ export async function listPersonalGalleryItems(userId: number): Promise<Personal
   const database = await openDatabase()
   const transaction = database.transaction(STORE, 'readwrite')
   const store = transaction.objectStore(STORE)
-  const records = await requestResult(store.getAll()) as PersonalGalleryRecord[]
-  const overflow = selectPersonalGalleryOverflowIDs(records, now)
+  const records = await readPersonalGalleryRecordsForUser(store, userId)
+  const overflow = selectPersonalGalleryOverflowIDs(records, userId, now)
   overflow.forEach((id) => store.delete(id))
   await transactionDone(transaction)
   if (overflow.length) notifyChanged()
@@ -235,6 +273,23 @@ export async function listPersonalGalleryItems(userId: number): Promise<Personal
   return records
     .filter((item) => item.userId === userId && item.expiresAt > now && !expiredSet.has(item.id))
     .sort((left, right) => right.createdAt - left.createdAt)
+}
+
+function readPersonalGalleryRecordsForUser(store: IDBObjectStore, userId: number): Promise<PersonalGalleryRecord[]> {
+  return new Promise((resolve, reject) => {
+    const records: PersonalGalleryRecord[] = []
+    const request = store.index('userId').openCursor(IDBKeyRange.only(userId))
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve(records)
+        return
+      }
+      records.push(cursor.value as PersonalGalleryRecord)
+      cursor.continue()
+    }
+    request.onerror = () => reject(request.error || new Error('Could not scan personal gallery records'))
+  })
 }
 
 export async function removePersonalGalleryItem(id: string): Promise<void> {

@@ -606,7 +606,7 @@ func TestGatewayServiceRecordUsage_ReasoningEffortNil(t *testing.T) {
 	require.Nil(t, usageRepo.lastLog.ReasoningEffort)
 }
 
-func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesActualCostAndBalance(t *testing.T) {
+func TestGatewayServiceRecordUsage_BillingChargeMultiplierDoesNotScaleImageCost(t *testing.T) {
 	imagePrice2K := 0.20
 	groupID := int64(910)
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -640,7 +640,42 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesActualCostAndBal
 	require.NoError(t, err)
 	require.NotNil(t, usageRepo.lastLog)
 	require.InDelta(t, 0.20, usageRepo.lastLog.TotalCost, 1e-12)
-	require.InDelta(t, 0.22, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, 0.20, usageRepo.lastLog.ActualCost, 1e-12)
 	require.NotNil(t, billingRepo.lastCmd)
-	require.InDelta(t, 0.22, billingRepo.lastCmd.BalanceCost, 1e-12)
+	require.InDelta(t, 0.20, billingRepo.lastCmd.BalanceCost, 1e-12)
+}
+
+func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{}
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	settingSvc := &SettingService{}
+	settingSvc.storeBillingChargeMultiplierCache(1.1)
+	svc.settingService = settingSvc
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID: "gateway_token_billing_charge_multiplier",
+			Model:     "claude-sonnet-4",
+			Usage: ClaudeUsage{
+				InputTokens:  1000,
+				OutputTokens: 500,
+			},
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      812,
+			GroupID: i64p(911),
+			Group:   &Group{ID: 911, RateMultiplier: 1},
+		},
+		User:    &User{ID: 612, Balance: 100},
+		Account: &Account{ID: 712},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.Positive(t, usageRepo.lastLog.TotalCost)
+	require.InDelta(t, usageRepo.lastLog.TotalCost*1.1, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.InDelta(t, usageRepo.lastLog.ActualCost, billingRepo.lastCmd.BalanceCost, 1e-12)
 }

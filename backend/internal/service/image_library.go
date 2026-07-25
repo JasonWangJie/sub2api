@@ -195,6 +195,7 @@ type ImagePublicationListParams struct {
 }
 
 type CreateImageLibraryAssetParams struct {
+	UploadIntentID    int64
 	UserID            int64
 	APIKeyID          *int64
 	GroupID           *int64
@@ -217,6 +218,14 @@ type CreateImageLibraryAssetParams struct {
 	MaxItems          int
 	MaxBytes          int64
 	RateLimit         int
+}
+
+type ImageLibraryUploadIntent struct {
+	ID int64
+	ObjectRef
+	ExpiresAt        time.Time
+	CleanupClaimedAt *time.Time
+	Referenced       bool
 }
 
 type ImageLibraryImportPreflightParams struct {
@@ -320,6 +329,11 @@ type ImageLibraryRepository interface {
 	ImageStorageIdentityGuard
 	PreflightImport(ctx context.Context, in ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error)
 	ReleaseImportAttempt(ctx context.Context, userID int64, idempotencyKey *string, requestHash string) error
+	PrepareLibraryUploadIntent(ctx context.Context, intent ImageLibraryUploadIntent) (int64, error)
+	CompleteLibraryUploadIntent(ctx context.Context, id int64) error
+	ClaimExpiredLibraryUploadIntents(ctx context.Context, before, staleBefore time.Time, limit int) ([]ImageLibraryUploadIntent, error)
+	CompleteLibraryUploadIntentDeletion(ctx context.Context, id int64, claimedAt time.Time) error
+	ReleaseLibraryUploadIntentDeletion(ctx context.Context, id int64, claimedAt time.Time) error
 	CreateAsset(ctx context.Context, in CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error)
 	PrepareAssetFromTask(ctx context.Context, userID int64, taskID string, imageIndex int) (*ImageLibraryItem, *ObjectRef, bool, error)
 	CreateAssetFromTask(ctx context.Context, userID int64, taskID string, imageIndex int, validated *ObjectRef, title string, expiresAt time.Time, maxItems int, maxBytes int64) (*ImageLibraryItem, bool, error)
@@ -511,17 +525,44 @@ func (s *ImageLibraryService) importValidated(
 		title = "Generated image"
 	}
 
-	key := fmt.Sprintf("library/%d/%s/%s.%s", userID, ImageObjectDatePartition(time.Now()), uuid.NewString(), extFromFormat(validated.Format))
+	relativeKey := fmt.Sprintf("%d/%s/%s.%s", userID, ImageObjectDatePartition(time.Now()), uuid.NewString(), extFromFormat(validated.Format))
+	key, err := s.durableStorage.ObjectKey(relativeKey)
+	if err != nil {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "failed to prepare image object key").WithCause(err)
+	}
+	resolver, ok := storage.(DurableImageStorageIntentResolver)
+	if !ok {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "durable image storage cannot prepare upload intents")
+	}
+	intentObject, err := resolver.ObjectIntent(key, validated.MIMEType, validated.SizeBytes, validated.SHA256)
+	if err != nil {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "failed to prepare image upload").WithCause(err)
+	}
+	intentID, err := s.repo.PrepareLibraryUploadIntent(ctx, ImageLibraryUploadIntent{
+		ObjectRef: intentObject,
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+	})
+	if err != nil {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "failed to record image upload intent").WithCause(err)
+	}
 	object, err := storage.SaveObject(ctx, key, validated.MIMEType, validated.Data)
 	if err != nil {
 		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
 		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "failed to archive image").WithCause(err)
 	}
+	if !sameImageUploadObject(intentObject, object) {
+		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
+		return nil, false, apperrors.ServiceUnavailable("IMAGE_ARCHIVE_FAILED", "image storage returned an unexpected object identity")
+	}
 	object.Width, object.Height = validated.Width, validated.Height
 	object.SizeBytes, object.ChecksumSHA256 = validated.SizeBytes, validated.SHA256
 
 	item, reused, err = s.repo.CreateAsset(ctx, CreateImageLibraryAssetParams{
-		UserID: userID, APIKeyID: in.APIKeyID, GroupID: in.GroupID, Object: object,
+		UploadIntentID: intentID, UserID: userID, APIKeyID: in.APIKeyID, GroupID: in.GroupID, Object: object,
 		Platform: cleanLibraryText(in.Platform, 32), GenerationMode: mode, SourceType: source,
 		Model: cleanLibraryText(in.Model, 255), RequestedSize: cleanLibraryText(in.RequestedSize, 32),
 		ActualSize: cleanLibraryText(in.ActualSize, 32), AspectRatio: cleanLibraryText(in.AspectRatio, 32),
@@ -531,17 +572,30 @@ func (s *ImageLibraryService) importValidated(
 		MaxItems: policy.MaxItemsPerUser, MaxBytes: policy.MaxBytesPerUser,
 	})
 	if err != nil {
-		_ = storage.Delete(context.Background(), object)
 		s.releaseImportAttempt(userID, idempotencyKey, requestHash)
 		return nil, false, err
 	}
 	if reused {
-		// A retry uploaded under a fresh random key before the database could
-		// resolve idempotency. The original asset remains canonical.
-		_ = storage.Delete(context.Background(), object)
+		// A retry uploaded under a fresh random key before the database resolved
+		// idempotency. Keep the intent unless immediate deletion fully succeeds.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if deleteErr := storage.Delete(cleanupCtx, object); deleteErr == nil {
+			// On failure the persisted intent remains available to the maintenance worker.
+			_ = s.repo.CompleteLibraryUploadIntent(cleanupCtx, intentID)
+		}
+		cancel()
 	}
 	s.decorateUserItem(ctx, item)
 	return item, reused, nil
+}
+
+func sameImageUploadObject(expected, actual ObjectRef) bool {
+	return strings.EqualFold(strings.TrimSpace(expected.Provider), strings.TrimSpace(actual.Provider)) &&
+		strings.TrimSpace(expected.Bucket) == strings.TrimSpace(actual.Bucket) &&
+		expected.ObjectKey == actual.ObjectKey &&
+		strings.EqualFold(strings.TrimSpace(expected.ContentType), strings.TrimSpace(actual.ContentType)) &&
+		expected.SizeBytes == actual.SizeBytes &&
+		strings.EqualFold(strings.TrimSpace(expected.ChecksumSHA256), strings.TrimSpace(actual.ChecksumSHA256))
 }
 
 func (s *ImageLibraryService) ImportURL(ctx context.Context, userID int64, rawURL string, in ImageLibraryImportInput) (*ImageLibraryItem, bool, error) {

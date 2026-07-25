@@ -796,8 +796,9 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
 
   if (!response.data?.length) throw new Error(t('imageWorkbench.emptyResult'))
   const operationKey = imageAPI.createImageIdempotencyKey()
-  // Realtime images stay in the browser personal gallery. Durable upload happens only after审核通过后同步.
+  // Realtime images stay in the browser gallery; durable upload starts after publication approval.
   const nextResults: WorkbenchResult[] = []
+  let gallerySaveFailed = false
   for (const [index, item] of response.data.entries()) {
     const url = imageAPI.resultToDataUrl(item, item.output_format || form.format || 'png')
     if (!url) continue
@@ -811,37 +812,41 @@ async function runRealtime(key: ApiKey, current: ImageWorkbenchCapabilities) {
     }
     if (url.startsWith('data:')) {
       const file = dataURLToFile(url, `result.${form.format || 'png'}`)
-      await savePersonalGalleryItem({
-        id: archiveKey,
-        userId: Number(authStore.user?.id || 0),
-        title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
-        file,
-        fileName: file.name,
-        contentType: file.type || 'image/png',
-        previewUrl: url,
-        platform: capabilities.value?.platform,
-        model: form.model,
-        prompt: form.prompt.trim(),
-        requestedSize: selectedCapabilityOption(sizeOptions.value, form.size),
-        aspectRatio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
-        quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
-        outputFormat: selectedCapabilityOption(formatOptions.value, form.format),
-        apiKeyId: selectedKey.value?.id,
-        groupId: selectedKey.value?.group_id,
-        metadata: {
-          api_key_id: selectedKey.value?.id,
-          group_id: selectedKey.value?.group_id,
+      try {
+        await savePersonalGalleryItem({
+          id: archiveKey,
+          userId: Number(authStore.user?.id || 0),
+          title: truncateTitle(form.prompt) || t('imageWorkflow.library.untitled'),
+          file,
+          fileName: file.name,
+          contentType: file.type || 'image/png',
           platform: capabilities.value?.platform,
           model: form.model,
           prompt: form.prompt.trim(),
-        },
-      }).catch(() => undefined)
+          requestedSize: selectedCapabilityOption(sizeOptions.value, form.size),
+          aspectRatio: usesResolutionAspect.value ? selectedCapabilityOption(aspectRatioOptions.value, form.aspectRatio) : undefined,
+          quality: isGemini.value ? undefined : selectedCapabilityOption(qualityOptions.value, form.quality),
+          outputFormat: selectedCapabilityOption(formatOptions.value, form.format),
+          apiKeyId: selectedKey.value?.id,
+          groupId: selectedKey.value?.group_id,
+          metadata: {
+            api_key_id: selectedKey.value?.id,
+            group_id: selectedKey.value?.group_id,
+            platform: capabilities.value?.platform,
+            model: form.model,
+            prompt: form.prompt.trim(),
+          },
+        })
+      } catch {
+        gallerySaveFailed = true
+      }
     }
     nextResults.push(result)
   }
   results.value = nextResults
   void libraryPanel.value?.refresh()
-  appStore.showSuccess(t('imageWorkbench.generateSuccess'))
+  if (gallerySaveFailed) appStore.showWarning(t('imageWorkflow.workbench.gallerySaveFailed'))
+  else appStore.showSuccess(t('imageWorkbench.generateSuccess'))
 }
 
 async function submitAsync(key: ApiKey, current: ImageWorkbenchCapabilities) {
@@ -1011,7 +1016,6 @@ async function publishLocalResult(result: WorkbenchResult) {
         file,
         fileName: file.name,
         contentType: file.type || 'image/png',
-        previewUrl: result.url,
         platform: capabilities.value.platform,
         model: form.model,
         prompt: form.prompt.trim(),
@@ -1250,8 +1254,7 @@ async function restoreDeferredSubmissions() {
         continue
       }
       const blob = await getPersonalGalleryItem(req.client_blob_key)
-      let url = blob?.previewUrl || ''
-      if (!url && blob?.file) url = URL.createObjectURL(blob.file)
+      const url = blob?.file ? URL.createObjectURL(blob.file) : ''
       if (!url) continue
       restored.push({
         id: randomID('result'),

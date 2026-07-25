@@ -694,7 +694,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算费用
 	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
-	if cost != nil {
+	if cost != nil && result.ImageCount <= 0 {
 		cost.ActualCost = applyBillingChargeMultiplier(
 			cost.ActualCost,
 			ResolveBillingChargeMultiplier(s.settingService, ctx),

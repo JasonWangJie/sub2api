@@ -17,6 +17,7 @@ func TestForkImageWorkflowMigrationsUseZJOwnershipMarker(t *testing.T) {
 		{"187_ZJ_async_image_upload_reservations.sql", "187_async_image_upload_reservations.sql"},
 		{"188_ZJ_plaza_submission_deferred_upload.sql", "188_plaza_submission_deferred_upload.sql"},
 		{"189_ZJ_async_image_result_upload_intents.sql", "189_async_image_result_upload_intents.sql"},
+		{"192_ZJ_image_library_upload_intents.sql", "192_image_library_upload_intents.sql"},
 	}
 
 	for _, migration := range forkMigrations {

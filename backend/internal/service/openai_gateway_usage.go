@@ -207,6 +207,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		serviceTier,
 		longContextBillingEnabled,
 	)
+	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
 			return err
@@ -222,7 +223,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
-	if cost != nil {
+	if cost != nil && (result.ImageCount <= 0 || isVideoUsage) {
 		cost.ActualCost = applyBillingChargeMultiplier(
 			cost.ActualCost,
 			ResolveBillingChargeMultiplier(s.settingService, ctx),
@@ -277,7 +278,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:  result.ImageSizeBreakdown,
 	}
-	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
 		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))

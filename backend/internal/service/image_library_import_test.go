@@ -3,8 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,12 +19,18 @@ import (
 
 type imageLibraryFlowRepo struct {
 	ImageLibraryRepository
-	preflightFn  func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error)
-	createFn     func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error)
-	prepareFn    func(int64, string, int) (*ImageLibraryItem, *ObjectRef, bool, error)
-	createTaskFn func(int64, string, int, *ObjectRef) (*ImageLibraryItem, bool, error)
-	quarantineFn func(int64, string, int, ObjectRef, string) error
-	releaseCalls int
+	preflightFn          func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error)
+	createFn             func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error)
+	prepareFn            func(int64, string, int) (*ImageLibraryItem, *ObjectRef, bool, error)
+	createTaskFn         func(int64, string, int, *ObjectRef) (*ImageLibraryItem, bool, error)
+	quarantineFn         func(int64, string, int, ObjectRef, string) error
+	preparedIntent       ImageLibraryUploadIntent
+	claimedIntents       []ImageLibraryUploadIntent
+	prepareCalls         int
+	completeCalls        int
+	cleanupCompleteCalls int
+	cleanupReleaseCalls  int
+	releaseCalls         int
 }
 
 func (r *imageLibraryFlowRepo) PreflightImport(_ context.Context, in ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
@@ -29,6 +39,31 @@ func (r *imageLibraryFlowRepo) PreflightImport(_ context.Context, in ImageLibrar
 
 func (r *imageLibraryFlowRepo) ReleaseImportAttempt(context.Context, int64, *string, string) error {
 	r.releaseCalls++
+	return nil
+}
+
+func (r *imageLibraryFlowRepo) PrepareLibraryUploadIntent(_ context.Context, intent ImageLibraryUploadIntent) (int64, error) {
+	r.prepareCalls++
+	r.preparedIntent = intent
+	return 101, nil
+}
+
+func (r *imageLibraryFlowRepo) CompleteLibraryUploadIntent(context.Context, int64) error {
+	r.completeCalls++
+	return nil
+}
+
+func (r *imageLibraryFlowRepo) ClaimExpiredLibraryUploadIntents(context.Context, time.Time, time.Time, int) ([]ImageLibraryUploadIntent, error) {
+	return r.claimedIntents, nil
+}
+
+func (r *imageLibraryFlowRepo) CompleteLibraryUploadIntentDeletion(context.Context, int64, time.Time) error {
+	r.cleanupCompleteCalls++
+	return nil
+}
+
+func (r *imageLibraryFlowRepo) ReleaseLibraryUploadIntentDeletion(context.Context, int64, time.Time) error {
+	r.cleanupReleaseCalls++
 	return nil
 }
 
@@ -50,6 +85,9 @@ func (r *imageLibraryFlowRepo) QuarantineAssetFromTask(_ context.Context, userID
 
 type imageLibraryFlowStorage struct {
 	data        []byte
+	saveErr     error
+	deleteErr   error
+	mismatch    bool
 	saveCalls   int
 	readCalls   int
 	deleteCalls int
@@ -65,7 +103,22 @@ func (s *imageLibraryFlowStorage) Save(ctx context.Context, key, contentType str
 
 func (s *imageLibraryFlowStorage) SaveObject(_ context.Context, key, contentType string, data []byte) (ObjectRef, error) {
 	s.saveCalls++
-	return ObjectRef{Provider: "custom_s3", Bucket: "images", ObjectKey: key, ContentType: contentType, SizeBytes: int64(len(data))}, nil
+	if s.saveErr != nil {
+		return ObjectRef{}, s.saveErr
+	}
+	checksum := fmt.Sprintf("%x", sha256.Sum256(data))
+	ref, err := s.ObjectIntent(key, contentType, int64(len(data)), checksum)
+	if s.mismatch {
+		ref.ObjectKey += ".unexpected"
+	}
+	return ref, err
+}
+
+func (s *imageLibraryFlowStorage) ObjectIntent(key, contentType string, sizeBytes int64, checksum string) (ObjectRef, error) {
+	return ObjectRef{
+		Provider: "custom_s3", Bucket: "images", ObjectKey: key,
+		ContentType: contentType, SizeBytes: sizeBytes, ChecksumSHA256: checksum,
+	}, nil
 }
 
 func (s *imageLibraryFlowStorage) SignURL(_ context.Context, ref ObjectRef, _ time.Duration) (ObjectAccess, error) {
@@ -83,7 +136,7 @@ func (s *imageLibraryFlowStorage) Head(_ context.Context, ref ObjectRef) (Object
 
 func (s *imageLibraryFlowStorage) Delete(context.Context, ObjectRef) error {
 	s.deleteCalls++
-	return nil
+	return s.deleteErr
 }
 
 func imageLibraryFlowService(repo ImageLibraryRepository, storage DurableImageStorage) *ImageLibraryService {
@@ -148,7 +201,8 @@ func TestImageLibraryImportBytesRecordsOnlyOneAttempt(t *testing.T) {
 			preflights = append(preflights, in)
 			return nil, false, nil
 		},
-		createFn: func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error) {
+		createFn: func(in CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error) {
+			require.Equal(t, int64(101), in.UploadIntentID)
 			return &ImageLibraryItem{AssetID: "img_imported"}, false, nil
 		},
 	}
@@ -169,6 +223,71 @@ func TestImageLibraryImportBytesRecordsOnlyOneAttempt(t *testing.T) {
 	require.Equal(t, int64(len(imageData)), preflights[0].IncomingBytes)
 	require.Equal(t, int64(len(imageData)), preflights[1].IncomingBytes)
 	require.Equal(t, 1, storage.saveCalls)
+	require.Equal(t, 1, repo.prepareCalls)
+	require.True(t, strings.HasPrefix(repo.preparedIntent.ObjectKey, "library/42/"))
+	require.Equal(t, int64(len(imageData)), repo.preparedIntent.SizeBytes)
+}
+
+func TestImageLibraryImportKeepsUploadIntentWhenAssetCommitFails(t *testing.T) {
+	storage := &imageLibraryFlowStorage{}
+	repo := &imageLibraryFlowRepo{
+		preflightFn: func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			return nil, false, nil
+		},
+		createFn: func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error) {
+			return nil, false, errors.New("database unavailable")
+		},
+	}
+	svc := imageLibraryFlowService(repo, storage)
+
+	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
+		ImageData: testPNG(t), DeclaredMIME: "image/png", IdempotencyKey: "failed-commit",
+	})
+	require.ErrorContains(t, err, "database unavailable")
+	require.Equal(t, 1, repo.prepareCalls)
+	require.Equal(t, 1, storage.saveCalls)
+	require.Zero(t, storage.deleteCalls)
+	require.Zero(t, repo.completeCalls)
+}
+
+func TestImageLibraryImportDeletesFreshObjectBeforeCompletingReusedIntent(t *testing.T) {
+	storage := &imageLibraryFlowStorage{}
+	repo := &imageLibraryFlowRepo{
+		preflightFn: func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			return nil, false, nil
+		},
+		createFn: func(CreateImageLibraryAssetParams) (*ImageLibraryItem, bool, error) {
+			return &ImageLibraryItem{AssetID: "img_existing"}, true, nil
+		},
+	}
+	svc := imageLibraryFlowService(repo, storage)
+
+	item, reused, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
+		ImageData: testPNG(t), DeclaredMIME: "image/png", IdempotencyKey: "reused-after-upload",
+	})
+	require.NoError(t, err)
+	require.True(t, reused)
+	require.Equal(t, "img_existing", item.AssetID)
+	require.Equal(t, 1, storage.deleteCalls)
+	require.Equal(t, 1, repo.completeCalls)
+}
+
+func TestImageLibraryImportRejectsStorageIdentityMismatchAndKeepsIntent(t *testing.T) {
+	storage := &imageLibraryFlowStorage{mismatch: true}
+	repo := &imageLibraryFlowRepo{
+		preflightFn: func(ImageLibraryImportPreflightParams) (*ImageLibraryItem, bool, error) {
+			return nil, false, nil
+		},
+	}
+	svc := imageLibraryFlowService(repo, storage)
+
+	_, _, err := svc.ImportBytes(context.Background(), 42, ImageLibraryImportInput{
+		ImageData: testPNG(t), DeclaredMIME: "image/png", IdempotencyKey: "mismatched-object",
+	})
+	require.Equal(t, "IMAGE_ARCHIVE_FAILED", infraerrors.Reason(err))
+	require.Equal(t, 1, repo.prepareCalls)
+	require.Zero(t, storage.deleteCalls)
+	require.Zero(t, repo.completeCalls)
 }
 
 func TestImageLibraryImportBytesReleasesIdempotentAttemptAfterValidationFailure(t *testing.T) {
