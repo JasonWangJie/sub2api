@@ -847,6 +847,59 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 	return mappedModel
 }
 
+// AccountModelMappingResolution describes both the effective account mapping
+// and whether it came from an administrator-saved model_mapping rule. Platform
+// defaults and protocol-specific normalization remain part of Model, but do not
+// set ExplicitChanged.
+type AccountModelMappingResolution struct {
+	Model           string
+	InputModel      string
+	ExplicitTarget  string
+	ExplicitMatched bool
+	ExplicitChanged bool
+}
+
+// ResolveMappedModelDetailed resolves the effective model while retaining the
+// provenance needed by usage billing. The explicit source is always the
+// concrete model entering account mapping, including for wildcard rules.
+func (a *Account) ResolveMappedModelDetailed(requestedModel string) AccountModelMappingResolution {
+	inputModel := strings.TrimSpace(requestedModel)
+	resolution := AccountModelMappingResolution{
+		Model:      requestedModel,
+		InputModel: inputModel,
+	}
+	if a == nil {
+		return resolution
+	}
+
+	resolution.Model, _ = a.ResolveMappedModel(requestedModel)
+	explicitMapping := stringMappingFromRaw(a.Credentials["model_mapping"])
+	if len(explicitMapping) == 0 {
+		return resolution
+	}
+
+	matchedInputModel := requestedModel
+	explicitTarget, matched := resolveRequestedModelInMapping(explicitMapping, requestedModel)
+	if !matched {
+		normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+		if normalized != requestedModel {
+			explicitTarget, matched = resolveRequestedModelInMapping(explicitMapping, normalized)
+			if matched {
+				matchedInputModel = normalized
+			}
+		}
+	}
+	if !matched {
+		return resolution
+	}
+
+	resolution.ExplicitMatched = true
+	resolution.ExplicitTarget = strings.TrimSpace(explicitTarget)
+	resolution.ExplicitChanged = strings.TrimSpace(matchedInputModel) != resolution.ExplicitTarget &&
+		inputModel != strings.TrimSpace(resolution.Model)
+	return resolution
+}
+
 // ResolveMappedModel 获取映射后的模型名，并返回是否命中了账号级映射。
 // matched=true 表示命中了精确映射或通配符映射，即使映射结果与原模型名相同。
 func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string, matched bool) {

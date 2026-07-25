@@ -1371,6 +1371,261 @@ func TestOpenAIGatewayServiceRecordUsage_BillsMappedRequestsUsingRequestedModel(
 	require.Equal(t, expectedCost.ActualCost, userRepo.lastAmount)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_ExplicitAccountMappingBillingSources(t *testing.T) {
+	const (
+		modelA = "client-model"
+		modelB = "channel-model"
+		modelC = "account-model"
+		modelD = "upstream-model"
+	)
+	prices := map[string]*LiteLLMModelPricing{
+		modelA: {InputCostPerToken: 1e-6, OutputCostPerToken: 2e-6},
+		modelB: {InputCostPerToken: 3e-6, OutputCostPerToken: 4e-6},
+		modelC: {InputCostPerToken: 5e-6, OutputCostPerToken: 6e-6},
+		modelD: {InputCostPerToken: 7e-6, OutputCostPerToken: 8e-6},
+	}
+	tests := []struct {
+		name               string
+		billingModelSource string
+		wantModel          string
+	}{
+		{name: "requested keeps A", billingModelSource: BillingModelSourceRequested, wantModel: modelA},
+		{name: "channel mapped keeps B", billingModelSource: BillingModelSourceChannelMapped, wantModel: modelB},
+		{name: "upstream switches from D to B", billingModelSource: BillingModelSourceUpstream, wantModel: modelB},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+			svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: prices})
+			result := &OpenAIForwardResult{
+				RequestID:     "openai_account_mapping_billing_sources",
+				Model:         modelB,
+				BillingModel:  modelC,
+				UpstreamModel: modelD,
+				Usage:         OpenAIUsage{InputTokens: 100, OutputTokens: 10},
+				Duration:      time.Second,
+			}
+			expected, err := svc.billingService.CalculateCost(
+				tt.wantModel,
+				UsageTokens{InputTokens: 100, OutputTokens: 10},
+				1.1,
+			)
+			require.NoError(t, err)
+
+			err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				Result: result,
+				APIKey: &APIKey{ID: 10},
+				User:   &User{ID: 20},
+				Account: &Account{ID: 30, Credentials: map[string]any{"model_mapping": map[string]any{
+					"channel-*": modelC,
+				}}},
+				ChannelUsageFields: ChannelUsageFields{
+					ChannelID:          40,
+					OriginalModel:      modelA,
+					ChannelMappedModel: modelB,
+					BillingModelSource: tt.billingModelSource,
+				},
+			})
+
+			require.NoError(t, err)
+			require.True(t, result.AccountMappingApplied)
+			require.Equal(t, modelB, result.AccountMappingSourceModel, "wildcard billing source must be concrete")
+			require.Equal(t, modelC, result.AccountMappingTargetModel)
+			require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+			require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceRecordUsage_IdentityAccountMappingDoesNotOverrideUpstreamBilling(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"whitelist-model": {InputCostPerToken: 1e-6},
+		"upstream-model":  {InputCostPerToken: 9e-6},
+	}})
+	result := &OpenAIForwardResult{
+		RequestID:     "openai_identity_account_mapping",
+		Model:         "whitelist-model",
+		BillingModel:  "whitelist-model",
+		UpstreamModel: "upstream-model",
+		Usage:         OpenAIUsage{InputTokens: 100},
+		Duration:      time.Second,
+	}
+	expected, err := svc.billingService.CalculateCost("upstream-model", UsageTokens{InputTokens: 100}, 1.1)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: result,
+		APIKey: &APIKey{ID: 10},
+		User:   &User{ID: 20},
+		Account: &Account{ID: 30, Credentials: map[string]any{"model_mapping": map[string]any{
+			"whitelist-model": "whitelist-model",
+		}}},
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      "whitelist-model",
+			ChannelMappedModel: "whitelist-model",
+			BillingModelSource: BillingModelSourceUpstream,
+		},
+	})
+
+	require.NoError(t, err)
+	require.False(t, result.AccountMappingApplied)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_AccountMappingPriceFallbackUsesTarget(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"priced-account-model": {InputCostPerToken: 6e-6, OutputCostPerToken: 8e-6},
+	}})
+	expected, err := svc.billingService.CalculateCost(
+		"priced-account-model",
+		UsageTokens{InputTokens: 100, OutputTokens: 10},
+		1.1,
+	)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:     "openai_account_mapping_price_fallback",
+			Model:         "unpriced-public-model",
+			BillingModel:  "priced-account-model",
+			UpstreamModel: "final-upstream-model",
+			Usage:         OpenAIUsage{InputTokens: 100, OutputTokens: 10},
+			Duration:      time.Second,
+		},
+		APIKey: &APIKey{ID: 10},
+		User:   &User{ID: 20},
+		Account: &Account{ID: 30, Credentials: map[string]any{"model_mapping": map[string]any{
+			"unpriced-*": "priced-account-model",
+		}}},
+	})
+
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_AccountStatsStillUseFinalUpstreamModel(t *testing.T) {
+	const groupID int64 = 44
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"channel-model":  {InputCostPerToken: 2e-6},
+		"account-model":  {InputCostPerToken: 5e-6},
+		"upstream-model": {InputCostPerToken: 9e-6},
+	}})
+	statsInputPrice := 0.01
+	statsChannel := &Channel{
+		ID:     1,
+		Status: StatusActive,
+		AccountStatsPricingRules: []AccountStatsPricingRule{{
+			GroupIDs: []int64{groupID},
+			Pricing: []ChannelModelPricing{{
+				Models:     []string{"upstream-model"},
+				InputPrice: &statsInputPrice,
+			}},
+		}},
+	}
+	statsCache := newEmptyChannelCache()
+	statsCache.channelByGroupID[groupID] = statsChannel
+	statsCache.groupPlatform[groupID] = PlatformOpenAI
+	statsCache.loadedAt = time.Now()
+	svc.channelService = &ChannelService{}
+	svc.channelService.cache.Store(statsCache)
+	userExpected, err := svc.billingService.CalculateCost("channel-model", UsageTokens{InputTokens: 100}, 1.1)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:     "openai_account_mapping_stats_upstream",
+			Model:         "channel-model",
+			BillingModel:  "account-model",
+			UpstreamModel: "upstream-model",
+			Usage:         OpenAIUsage{InputTokens: 100},
+			Duration:      time.Second,
+		},
+		APIKey: &APIKey{ID: 10, GroupID: i64p(groupID), Group: &Group{ID: groupID, RateMultiplier: 1.1}},
+		User:   &User{ID: 20},
+		Account: &Account{ID: 30, Credentials: map[string]any{"model_mapping": map[string]any{
+			"channel-model": "account-model",
+		}}},
+		ChannelUsageFields: ChannelUsageFields{
+			ChannelID:          1,
+			OriginalModel:      "client-model",
+			ChannelMappedModel: "channel-model",
+			BillingModelSource: BillingModelSourceUpstream,
+		},
+	})
+
+	require.NoError(t, err)
+	require.InDelta(t, userExpected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, 1.0, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+}
+
+func TestOpenAIGatewayServiceMediaBillingCandidatesPreferSpecificallyPricedTarget(t *testing.T) {
+	svc := newOpenAIRecordUsageServiceForTest(nil, nil, nil, nil)
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"priced-image-model": {OutputCostPerImage: 0.25, TokenPricingAbsent: true},
+	}})
+
+	t.Run("image", func(t *testing.T) {
+		cost, selectedModel, err := svc.calculateOpenAIRecordUsageCostResolved(
+			context.Background(),
+			&OpenAIForwardResult{Model: "unpriced-image-alias", ImageCount: 1, ImageSize: ImageBillingSize1K},
+			&APIKey{},
+			[]string{"unpriced-image-alias", "priced-image-model"},
+			1,
+			1,
+			1,
+			1,
+			UsageTokens{},
+			"",
+			false,
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, "priced-image-model", selectedModel)
+		require.InDelta(t, 0.25, cost.ActualCost, 1e-12)
+	})
+
+	t.Run("video", func(t *testing.T) {
+		cost, selectedModel, err := svc.calculateOpenAIRecordUsageCostResolved(
+			context.Background(),
+			&OpenAIForwardResult{
+				Model:                "unpriced-video-alias",
+				BillingModel:         "grok-imagine-video",
+				ImageCount:           1,
+				VideoCount:           1,
+				VideoResolution:      VideoBillingResolution720P,
+				VideoDurationSeconds: 1,
+			},
+			&APIKey{},
+			[]string{"unpriced-video-alias", "grok-imagine-video"},
+			1,
+			1,
+			1,
+			1,
+			UsageTokens{},
+			"",
+			false,
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, "grok-imagine-video", selectedModel)
+		require.Greater(t, cost.ActualCost, 0.0)
+	})
+}
+
 func TestOpenAIGatewayServiceRecordUsage_ChannelMappedDoesNotOverrideBillingModelWhenUnmapped(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

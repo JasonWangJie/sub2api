@@ -556,7 +556,7 @@ export default {
       modelMapping: 'Model Mapping',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
-        'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
+        'Map request models to actual models. Left is the request-side model and right is the actual model sent to the API. When the model changes, billing prefers the request-side model price and falls back to the actual model price if unavailable.',
       selectedModels: 'Selected {count} model(s)',
       supportsAllModels: '(supports all models)',
       requestModel: 'Request model',

@@ -213,6 +213,101 @@ func TestGatewayServiceRecordUsage_PreservesRequestedAndUpstreamModels(t *testin
 	require.Equal(t, mappedModel, *usageRepo.lastLog.UpstreamModel)
 }
 
+func TestGatewayServiceRecordUsage_ExplicitAccountMappingBillsSourceModel(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-public":   {InputCostPerToken: 2e-6, OutputCostPerToken: 4e-6},
+		"claude-upstream": {InputCostPerToken: 20e-6, OutputCostPerToken: 40e-6},
+	}})
+	result := &ForwardResult{
+		RequestID:     "gateway_account_mapping_source_billing",
+		Model:         "claude-public",
+		UpstreamModel: "claude-upstream",
+		Usage:         ClaudeUsage{InputTokens: 100, OutputTokens: 10},
+		Duration:      time.Second,
+	}
+	account := &Account{ID: 701, Credentials: map[string]any{"model_mapping": map[string]any{
+		"claude-public": "claude-upstream",
+	}}}
+	expected, err := svc.billingService.CalculateCost(
+		"claude-public",
+		UsageTokens{InputTokens: 100, OutputTokens: 10},
+		1.1,
+	)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result:  result,
+		APIKey:  &APIKey{ID: 501, Quota: 100},
+		User:    &User{ID: 601},
+		Account: account,
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.AccountMappingApplied)
+	require.Equal(t, "claude-public", result.AccountMappingSourceModel)
+	require.Equal(t, "claude-upstream", result.AccountMappingTargetModel)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
+func TestGatewayServiceRecordUsage_ExplicitAccountMappingFallsBackToTargetPrice(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"claude-upstream": {InputCostPerToken: 20e-6, OutputCostPerToken: 40e-6},
+	}})
+	expected, err := svc.billingService.CalculateCost(
+		"claude-upstream",
+		UsageTokens{InputTokens: 100, OutputTokens: 10},
+		1.1,
+	)
+	require.NoError(t, err)
+
+	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:     "gateway_account_mapping_target_fallback",
+			Model:         "unpriced-public-model",
+			UpstreamModel: "claude-upstream",
+			Usage:         ClaudeUsage{InputTokens: 100, OutputTokens: 10},
+			Duration:      time.Second,
+		},
+		APIKey: &APIKey{ID: 501, Quota: 100},
+		User:   &User{ID: 601},
+		Account: &Account{ID: 701, Credentials: map[string]any{"model_mapping": map[string]any{
+			"unpriced-public-model": "claude-upstream",
+		}}},
+	})
+
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
+func TestGatewayServiceImageBillingCandidatesPreferSpecificallyPricedTarget(t *testing.T) {
+	svc := newGatewayRecordUsageServiceForTest(nil, nil, nil)
+	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"priced-image-model": {OutputCostPerImage: 0.25, TokenPricingAbsent: true},
+	}})
+
+	cost, selectedModel, err := svc.calculateRecordUsageCostCandidates(
+		context.Background(),
+		&ForwardResult{Model: "unpriced-image-alias", ImageCount: 1, ImageSize: ImageBillingSize1K},
+		&APIKey{},
+		[]string{"unpriced-image-alias", "priced-image-model"},
+		1,
+		1,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "priced-image-model", selectedModel)
+	require.InDelta(t, 0.25, cost.ActualCost, 1e-12)
+}
+
 func TestGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersistence(t *testing.T) {
 	imagePrice2K := 0.19
 	groupID := int64(901)

@@ -225,6 +225,11 @@ type OpenAIForwardResult struct {
 	// This is set by the Anthropic Messages conversion path where
 	// the mapped upstream model differs from the client-facing model.
 	BillingModel string
+	// AccountMappingApplied is true only when an explicit credentials.model_mapping
+	// rule changed the concrete model entering account-level mapping.
+	AccountMappingApplied     bool
+	AccountMappingSourceModel string
+	AccountMappingTargetModel string
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Empty when no mapping was applied (requested model was used as-is).
 	UpstreamModel string

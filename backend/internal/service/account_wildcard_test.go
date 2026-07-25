@@ -492,6 +492,99 @@ func TestAccountResolveMappedModel(t *testing.T) {
 	}
 }
 
+func TestAccountResolveMappedModelDetailed_ExplicitProvenance(t *testing.T) {
+	tests := []struct {
+		name              string
+		platform          string
+		credentials       map[string]any
+		requestedModel    string
+		wantModel         string
+		wantInput         string
+		wantTarget        string
+		wantExplicitMatch bool
+		wantChanged       bool
+	}{
+		{
+			name: "exact explicit mapping changes model",
+			credentials: map[string]any{"model_mapping": map[string]any{
+				"public-model": "upstream-model",
+			}},
+			requestedModel:    "public-model",
+			wantModel:         "upstream-model",
+			wantInput:         "public-model",
+			wantTarget:        "upstream-model",
+			wantExplicitMatch: true,
+			wantChanged:       true,
+		},
+		{
+			name: "wildcard uses concrete input model",
+			credentials: map[string]any{"model_mapping": map[string]any{
+				"claude-*": "upstream-model",
+			}},
+			requestedModel:    "claude-sonnet-4",
+			wantModel:         "upstream-model",
+			wantInput:         "claude-sonnet-4",
+			wantTarget:        "upstream-model",
+			wantExplicitMatch: true,
+			wantChanged:       true,
+		},
+		{
+			name: "identity whitelist mapping is not a billing switch",
+			credentials: map[string]any{"model_mapping": map[string]any{
+				"public-model": "public-model",
+			}},
+			requestedModel:    "public-model",
+			wantModel:         "public-model",
+			wantInput:         "public-model",
+			wantTarget:        "public-model",
+			wantExplicitMatch: true,
+			wantChanged:       false,
+		},
+		{
+			name:           "antigravity default mapping has no explicit provenance",
+			platform:       PlatformAntigravity,
+			requestedModel: "claude-sonnet-4-5",
+			wantModel:      domain.DefaultAntigravityModelMapping["claude-sonnet-4-5"],
+			wantInput:      "claude-sonnet-4-5",
+		},
+		{
+			name:     "compact-only mapping has no normal mapping provenance",
+			platform: PlatformOpenAI,
+			credentials: map[string]any{"compact_model_mapping": map[string]any{
+				"gpt-5": "gpt-5-mini",
+			}},
+			requestedModel: "gpt-5",
+			wantModel:      "gpt-5",
+			wantInput:      "gpt-5",
+		},
+		{
+			name:     "protocol normalization identity is not an explicit change",
+			platform: PlatformGemini,
+			credentials: map[string]any{"model_mapping": map[string]any{
+				"gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+			}},
+			requestedModel:    "gemini-3.1-pro-preview-customtools",
+			wantModel:         "gemini-3.1-pro-preview",
+			wantInput:         "gemini-3.1-pro-preview-customtools",
+			wantTarget:        "gemini-3.1-pro-preview",
+			wantExplicitMatch: true,
+			wantChanged:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account := &Account{Platform: tt.platform, Credentials: tt.credentials}
+			got := account.ResolveMappedModelDetailed(tt.requestedModel)
+			if got.Model != tt.wantModel || got.InputModel != tt.wantInput ||
+				got.ExplicitTarget != tt.wantTarget || got.ExplicitMatched != tt.wantExplicitMatch ||
+				got.ExplicitChanged != tt.wantChanged {
+				t.Fatalf("ResolveMappedModelDetailed(%q) = %#v", tt.requestedModel, got)
+			}
+		})
+	}
+}
+
 func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,

@@ -646,6 +646,11 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	account := input.Account
 	subscription := input.Subscription
 	ApplyForwardImageBillingResolution(result)
+	accountMappingInputModel := input.ChannelMappedModel
+	if strings.TrimSpace(accountMappingInputModel) == "" {
+		accountMappingInputModel = result.Model
+	}
+	applyForwardResultAccountMapping(result, account, accountMappingInputModel)
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
 	// 用于粘性会话切换时的特殊计费处理
@@ -677,14 +682,26 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 不并入上面的 getUserGroupRateMultiplier，以免污染 user:group 倍率缓存。
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, multiplier, timezone.Now())
 
-	// 确定计费模型
-	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
-		billingModel = input.OriginalModel
-	}
+	// 确定计费模型。显式账号映射发生时，upstream/无渠道优先使用映射前模型；
+	// requested 与 channel_mapped 继续保留渠道既有语义。
+	selection := selectUsageBillingModel(
+		input.BillingModelSource,
+		input.OriginalModel,
+		input.ChannelMappedModel,
+		result.UpstreamModel,
+		forwardResultBillingModel(result.Model, result.UpstreamModel),
+		result.AccountMappingApplied,
+		result.AccountMappingSourceModel,
+		result.AccountMappingTargetModel,
+	)
+	billingModels := usageBillingModelCandidates(
+		selection.Primary,
+		selection.AccountMappingFallback,
+		result.AccountMappingSourceModel,
+		result.AccountMappingTargetModel,
+		result.UpstreamModel,
+		result.Model,
+	)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -693,7 +710,31 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	cost, selectedBillingModel, pricingErr := s.calculateRecordUsageCostCandidates(
+		ctx,
+		result,
+		apiKey,
+		billingModels,
+		multiplier,
+		imageMultiplier,
+		opts,
+	)
+	if pricingErr != nil {
+		logger.LegacyPrintf("service.gateway", "Calculate cost failed for billing models %s: %v", strings.Join(billingModels, ","), pricingErr)
+	}
+	if selection.AccountMappingPreferred && selectedBillingModel != "" &&
+		!sameUsageBillingModelFamily(selectedBillingModel, result.AccountMappingSourceModel) {
+		logAccountMappingPricingFallback(
+			"service.gateway",
+			selectedBillingModel,
+			requestedModel,
+			result.AccountMappingSourceModel,
+			result.AccountMappingTargetModel,
+			account.ID,
+			apiKey.ID,
+			input.ChannelID,
+		)
+	}
 	if cost != nil && result.ImageCount <= 0 {
 		cost.ActualCost = applyBillingChargeMultiplier(
 			cost.ActualCost,
@@ -794,16 +835,92 @@ func (s *GatewayService) calculateRecordUsageCost(
 	imageMultiplier float64,
 	opts *recordUsageOpts,
 ) *CostBreakdown {
+	cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
+		return &CostBreakdown{ActualCost: 0}
+	}
+	return cost
+}
+
+func (s *GatewayService) calculateRecordUsageCostCandidates(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+	multiplier float64,
+	imageMultiplier float64,
+	opts *recordUsageOpts,
+) (*CostBreakdown, string, error) {
+	if result != nil && result.ImageCount > 0 {
+		billingModels = billingModelsWithPreferredFirst(
+			billingModels,
+			s.selectGatewayImageBillingModel(ctx, result, apiKey, billingModels),
+		)
+	}
+	var lastErr error
+	for _, billingModel := range billingModels {
+		cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+		if err == nil {
+			return cost, billingModel, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no non-empty billing model candidates")
+	}
+	return &CostBreakdown{ActualCost: 0}, "", lastErr
+}
+
+func (s *GatewayService) selectGatewayImageBillingModel(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+) string {
+	first := firstUsageBillingModel(billingModels)
+	counts := resolveImageBillingCounts(result.ImageCount, result.ImageSize, result.ImageSizeBreakdown)
+	allGroupPricesConfigured := len(counts) > 0
+	for sizeTier := range counts {
+		if !apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
+			allGroupPricesConfigured = false
+			break
+		}
+	}
+	if allGroupPricesConfigured {
+		return first
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if s.resolveChannelPricing(ctx, candidate, apiKey) != nil || modelHasSpecificImagePrice(s.billingService, candidate) {
+			return candidate
+		}
+	}
+	return first
+}
+
+func (s *GatewayService) tryCalculateRecordUsageCost(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModel string,
+	multiplier float64,
+	imageMultiplier float64,
+	opts *recordUsageOpts,
+) (*CostBreakdown, error) {
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
-			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+			return s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
 		}
-		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier)
+		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier), nil
 	}
 
 	// Token 计费
-	return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	return s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
 }
 
 // resolveChannelPricing 检查指定模型是否存在渠道级别定价。
@@ -884,6 +1001,22 @@ func (s *GatewayService) calculateTokenCost(
 	multiplier float64,
 	opts *recordUsageOpts,
 ) *CostBreakdown {
+	cost, err := s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
+		return &CostBreakdown{ActualCost: 0}
+	}
+	return cost
+}
+
+func (s *GatewayService) tryCalculateTokenCost(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModel string,
+	multiplier float64,
+	opts *recordUsageOpts,
+) (*CostBreakdown, error) {
 	tokens := UsageTokens{
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
@@ -910,17 +1043,16 @@ func (s *GatewayService) calculateTokenCost(
 			Resolver:       s.resolver,
 			Resolved:       resolved,
 		})
-	} else if opts.LongContextThreshold > 0 {
+	} else if opts != nil && opts.LongContextThreshold > 0 {
 		// 长上下文双倍计费（如 Gemini 200K 阈值）
 		cost, err = s.billingService.CalculateCostWithLongContext(billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier)
 	} else {
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 	}
 	if err != nil {
-		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
+		return nil, err
 	}
-	return cost
+	return cost, nil
 }
 
 // buildRecordUsageLog 构建使用日志并设置计费模式。

@@ -555,6 +555,11 @@ type ForwardResult struct {
 	RequestID string
 	Usage     ClaudeUsage
 	Model     string
+	// AccountMappingApplied is true only when an explicit credentials.model_mapping
+	// rule changed the concrete model entering account-level mapping.
+	AccountMappingApplied     bool
+	AccountMappingSourceModel string
+	AccountMappingTargetModel string
 	// UpstreamModel is the actual upstream model after mapping.
 	// Prefer empty when it is identical to Model; persistence normalizes equal values away as no-op mappings.
 	UpstreamModel    string

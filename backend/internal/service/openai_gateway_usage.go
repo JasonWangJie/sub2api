@@ -130,6 +130,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if !isGrokVideoUsageResult(result, nil) {
 		ApplyOpenAIImageBillingResolution(result)
 	}
+	accountMappingInputModel := input.ChannelMappedModel
+	if strings.TrimSpace(accountMappingInputModel) == "" {
+		accountMappingInputModel = result.Model
+	}
+	applyOpenAIForwardResultAccountMapping(result, account, accountMappingInputModel)
 
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。
@@ -164,18 +169,25 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	var cost *CostBreakdown
 	var err error
-	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
+	currentBillingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 	if result.BillingModel != "" {
-		billingModel = strings.TrimSpace(result.BillingModel)
+		currentBillingModel = strings.TrimSpace(result.BillingModel)
 	}
-	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" && input.ChannelMappedModel != input.OriginalModel {
-		billingModel = input.ChannelMappedModel
-	}
-	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
-		billingModel = input.OriginalModel
-	}
+	selection := selectUsageBillingModel(
+		input.BillingModelSource,
+		input.OriginalModel,
+		input.ChannelMappedModel,
+		result.UpstreamModel,
+		currentBillingModel,
+		result.AccountMappingApplied,
+		result.AccountMappingSourceModel,
+		result.AccountMappingTargetModel,
+	)
 	billingModels := usageBillingModelCandidates(
-		billingModel,
+		selection.Primary,
+		selection.AccountMappingFallback,
+		result.AccountMappingSourceModel,
+		result.AccountMappingTargetModel,
 		result.BillingModel,
 		input.ChannelMappedModel,
 		input.OriginalModel,
@@ -194,7 +206,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		}
 	}
 	longContextBillingEnabled := billingAccount.IsOpenAILongContextBillingEnabled()
-	cost, err = s.calculateOpenAIRecordUsageCost(
+	requestedModelForPricingLog := input.OriginalModel
+	if strings.TrimSpace(requestedModelForPricingLog) == "" {
+		requestedModelForPricingLog = result.Model
+	}
+	var selectedBillingModel string
+	cost, selectedBillingModel, err = s.calculateOpenAIRecordUsageCostResolved(
 		ctx,
 		result,
 		apiKey,
@@ -207,6 +224,19 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		serviceTier,
 		longContextBillingEnabled,
 	)
+	if selection.AccountMappingPreferred && selectedBillingModel != "" &&
+		!sameUsageBillingModelFamily(selectedBillingModel, result.AccountMappingSourceModel) {
+		logAccountMappingPricingFallback(
+			"service.openai_gateway",
+			selectedBillingModel,
+			requestedModelForPricingLog,
+			result.AccountMappingSourceModel,
+			result.AccountMappingTargetModel,
+			account.ID,
+			apiKey.ID,
+			input.ChannelID,
+		)
+	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
@@ -423,27 +453,66 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	serviceTier string,
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, error) {
+	cost, _, err := s.calculateOpenAIRecordUsageCostResolved(
+		ctx,
+		result,
+		apiKey,
+		billingModels,
+		multiplier,
+		imageMultiplier,
+		videoMultiplier,
+		webSearchMultiplier,
+		tokens,
+		serviceTier,
+		longContextBillingEnabled,
+	)
+	return cost, err
+}
+
+func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCostResolved(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+	multiplier float64,
+	imageMultiplier float64,
+	videoMultiplier float64,
+	webSearchMultiplier float64,
+	tokens UsageTokens,
+	serviceTier string,
+	longContextBillingEnabled bool,
+) (*CostBreakdown, string, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取
 		// 分组覆盖价（nil 时默认 0.01 = 官方 $10/1000 次），不参与渠道级模型定价。
 		// 倍率与 image/video 按次口径一致：使用不含高峰因子的基础倍率
 		//（用户专属 > 分组 rate_multiplier > 系统默认），与分组表单的价格预览承诺一致。
-		return s.billingService.CalculateWebSearchCost(result.WebSearchCalls, webSearchPricePerCallFromAPIKey(apiKey), webSearchMultiplier), nil
+		return s.billingService.CalculateWebSearchCost(result.WebSearchCalls, webSearchPricePerCallFromAPIKey(apiKey), webSearchMultiplier), billingModel, nil
 	}
 	if isGrokVideoUsageResult(result, billingModels) {
+		billingModels = billingModelsWithPreferredFirst(
+			billingModels,
+			s.selectOpenAIVideoBillingModel(ctx, result, apiKey, billingModels),
+		)
+		billingModel = firstUsageBillingModel(billingModels)
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
-			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
+			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), billingModel, nil
 		}
 	}
 	if result != nil && result.ImageCount > 0 {
+		billingModels = billingModelsWithPreferredFirst(
+			billingModels,
+			s.selectOpenAIImageBillingModel(ctx, result, apiKey, billingModels),
+		)
+		billingModel = firstUsageBillingModel(billingModels)
 		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
-			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), billingModel, nil
 		}
 	}
 	if len(billingModels) == 0 || billingModel == "" {
-		return nil, errors.New("openai usage billing model is empty")
+		return nil, "", errors.New("openai usage billing model is empty")
 	}
 	var lastErr error
 	for _, candidate := range billingModels {
@@ -461,14 +530,67 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			longContextBillingEnabled,
 		)
 		if err == nil {
-			return cost, nil
+			return cost, candidate, nil
 		}
 		lastErr = err
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no non-empty billing model candidates")
 	}
-	return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
+	return nil, "", fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
+}
+
+func (s *OpenAIGatewayService) selectOpenAIImageBillingModel(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+) string {
+	first := firstUsageBillingModel(billingModels)
+	counts := resolveImageBillingCounts(result.ImageCount, result.ImageSize, result.ImageSizeBreakdown)
+	allGroupPricesConfigured := len(counts) > 0
+	for sizeTier := range counts {
+		if !apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
+			allGroupPricesConfigured = false
+			break
+		}
+	}
+	if allGroupPricesConfigured {
+		return first
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if s.resolveOpenAIChannelPricing(ctx, candidate, apiKey) != nil || modelHasSpecificImagePrice(s.billingService, candidate) {
+			return candidate
+		}
+	}
+	return first
+}
+
+func (s *OpenAIGatewayService) selectOpenAIVideoBillingModel(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+) string {
+	first := firstUsageBillingModel(billingModels)
+	resolution := NormalizeVideoBillingResolutionOrDefault(result.VideoResolution)
+	if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+		return first
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if s.resolveOpenAIChannelPricing(ctx, candidate, apiKey) != nil || modelHasSpecificVideoPrice(s.billingService, candidate) {
+			return candidate
+		}
+	}
+	return first
 }
 
 func isGrokVideoBillingModel(model string) bool {
