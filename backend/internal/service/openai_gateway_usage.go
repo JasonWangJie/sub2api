@@ -256,10 +256,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
-	if cost != nil && (result.ImageCount <= 0 || isVideoUsage) {
+	if shouldApplyBillingChargeMultiplier(cost, result.ImageCount, isVideoUsage) {
 		cost.ActualCost = applyBillingChargeMultiplier(
 			cost.ActualCost,
-			ResolveBillingChargeMultiplier(s.settingService, ctx),
+			ResolveBillingChargeMultiplierForGroup(s.settingService, ctx, apiKey.GroupID),
 		)
 	}
 

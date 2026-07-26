@@ -278,7 +278,12 @@ export default {
         defaultBalanceHint: '新用户的初始余额',
         billingChargeMultiplier: '系统扣款系数',
         billingChargeMultiplierHint:
-          '在分组/用户/高峰倍率之后再乘；同时影响用量展示金额与实际扣款。普通生图和批量生图结算不应用此系数，视频仍应用。默认 1；例如 1.1 表示整体贵 10%。合法范围 (0, 10]。',
+          '在分组/用户/高峰倍率之后再乘；同时影响用量展示金额与实际扣款。普通生图、异步生图、批量生图和视频结算均不应用此系数。默认 1；例如 1.1 表示适用分组贵 10%。合法范围 (0, 10]。',
+        billingChargeMultiplierScope: '扣款系数适用范围',
+        billingChargeMultiplierScopeHint: '按 API Key 实际绑定的计费分组判断；未绑定分组的 Key 仅在“全部分组”模式下应用。',
+        billingChargeMultiplierAllGroups: '全部分组',
+        billingChargeMultiplierSelectedGroups: '指定适用分组',
+        billingChargeMultiplierNoGroups: '当前未选择任何分组，系统扣款系数不会应用于任何请求。',
         affiliateRebateRate: '邀请返利比例',
         affiliateRebateRateHint: '充值后返给邀请人的比例（0-100%，例如填写 10 表示返利 10%）',
         defaultConcurrency: '默认并发数',

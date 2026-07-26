@@ -709,7 +709,7 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierDoesNotScaleImageCost(
 	billingRepo := &openAIRecordUsageBillingRepoStub{}
 	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
 	settingSvc := &SettingService{}
-	settingSvc.storeBillingChargeMultiplierCache(1.1)
+	settingSvc.storeBillingChargeMultiplierPolicyCache(1.1, false, []int64{groupID})
 	svc.settingService = settingSvc
 
 	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
@@ -741,37 +741,91 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierDoesNotScaleImageCost(
 	require.InDelta(t, 0.20, billingRepo.lastCmd.BalanceCost, 1e-12)
 }
 
-func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *testing.T) {
+func TestGatewayServicePrepareRecordUsage_BillingChargeMultiplierDoesNotScaleAsyncImageCost(t *testing.T) {
+	imagePrice2K := 0.20
+	groupID := int64(913)
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
-	billingRepo := &openAIRecordUsageBillingRepoStub{}
-	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	svc := newGatewayRecordUsageServiceWithBillingRepoForTest(
+		usageRepo,
+		&openAIRecordUsageBillingRepoStub{},
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+	)
 	settingSvc := &SettingService{}
-	settingSvc.storeBillingChargeMultiplierCache(1.1)
+	settingSvc.storeBillingChargeMultiplierPolicyCache(1.5, false, []int64{groupID})
 	svc.settingService = settingSvc
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "async-image:multiplier-gemini")
 
-	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+	prepared, err := svc.PrepareRecordUsage(ctx, &RecordUsageInput{
 		Result: &ForwardResult{
-			RequestID: "gateway_token_billing_charge_multiplier",
-			Model:     "claude-sonnet-4",
-			Usage: ClaudeUsage{
-				InputTokens:  1000,
-				OutputTokens: 500,
-			},
-			Duration: time.Second,
+			RequestID:  "gateway_async_image_billing_charge_multiplier",
+			Model:      "gemini-image",
+			ImageCount: 1,
+			ImageSize:  ImageBillingSize2K,
+			Duration:   time.Second,
 		},
 		APIKey: &APIKey{
-			ID:      812,
-			GroupID: i64p(911),
-			Group:   &Group{ID: 911, RateMultiplier: 1},
+			ID:      814,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:             groupID,
+				RateMultiplier: 1,
+				ImagePrice2K:   &imagePrice2K,
+			},
 		},
-		User:    &User{ID: 612, Balance: 100},
-		Account: &Account{ID: 712},
+		User:    &User{ID: 614, Balance: 100},
+		Account: &Account{ID: 714},
 	})
 
 	require.NoError(t, err)
-	require.NotNil(t, usageRepo.lastLog)
-	require.Positive(t, usageRepo.lastLog.TotalCost)
-	require.InDelta(t, usageRepo.lastLog.TotalCost*1.1, usageRepo.lastLog.ActualCost, 1e-12)
-	require.NotNil(t, billingRepo.lastCmd)
-	require.InDelta(t, usageRepo.lastLog.ActualCost, billingRepo.lastCmd.BalanceCost, 1e-12)
+	require.NotNil(t, prepared)
+	require.InDelta(t, 0.20, prepared.ActualCost(), 1e-12)
+	require.InDelta(t, 0.20, prepared.Command.BalanceCost, 1e-12)
+	require.Zero(t, usageRepo.calls, "prepare must defer the usage-log write")
+}
+
+func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		groupID    int64
+		wantFactor float64
+	}{
+		{name: "selected group", groupID: 911, wantFactor: 1.1},
+		{name: "unselected group", groupID: 912, wantFactor: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			billingRepo := &openAIRecordUsageBillingRepoStub{}
+			svc := newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+			settingSvc := &SettingService{}
+			settingSvc.storeBillingChargeMultiplierPolicyCache(1.1, false, []int64{911})
+			svc.settingService = settingSvc
+
+			err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+				Result: &ForwardResult{
+					RequestID: "gateway_token_billing_charge_multiplier",
+					Model:     "claude-sonnet-4",
+					Usage: ClaudeUsage{
+						InputTokens:  1000,
+						OutputTokens: 500,
+					},
+					Duration: time.Second,
+				},
+				APIKey: &APIKey{
+					ID:      812,
+					GroupID: i64p(tt.groupID),
+					Group:   &Group{ID: tt.groupID, RateMultiplier: 1},
+				},
+				User:    &User{ID: 612, Balance: 100},
+				Account: &Account{ID: 712},
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.Positive(t, usageRepo.lastLog.TotalCost)
+			require.InDelta(t, usageRepo.lastLog.TotalCost*tt.wantFactor, usageRepo.lastLog.ActualCost, 1e-12)
+			require.NotNil(t, billingRepo.lastCmd)
+			require.InDelta(t, usageRepo.lastLog.ActualCost, billingRepo.lastCmd.BalanceCost, 1e-12)
+		})
+	}
 }

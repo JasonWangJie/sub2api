@@ -146,20 +146,22 @@ type SystemSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	DefaultConcurrency           int
-	DefaultBalance               float64
-	BillingChargeMultiplier      float64 // 系统扣款系数（默认 1）
-	RiskControlEnabled           bool
-	CyberSessionBlockEnabled     bool
-	CyberSessionBlockTTLSeconds  int
-	AffiliateEnabled             bool
-	AffiliateRebateRate          float64
-	AffiliateRebateFreezeHours   int
-	AffiliateRebateDurationDays  int
-	AffiliateRebatePerInviteeCap float64
-	AdminRechargeRebateEnabled   bool
-	DefaultUserRPMLimit          int
-	DefaultSubscriptions         []DefaultSubscriptionSetting
+	DefaultConcurrency               int
+	DefaultBalance                   float64
+	BillingChargeMultiplier          float64 // 系统扣款系数（默认 1）
+	BillingChargeMultiplierAllGroups bool
+	BillingChargeMultiplierGroupIDs  []int64
+	RiskControlEnabled               bool
+	CyberSessionBlockEnabled         bool
+	CyberSessionBlockTTLSeconds      int
+	AffiliateEnabled                 bool
+	AffiliateRebateRate              float64
+	AffiliateRebateFreezeHours       int
+	AffiliateRebateDurationDays      int
+	AffiliateRebatePerInviteeCap     float64
+	AdminRechargeRebateEnabled       bool
+	DefaultUserRPMLimit              int
+	DefaultSubscriptions             []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`

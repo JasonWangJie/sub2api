@@ -87,6 +87,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := validateBillingChargeMultiplier(settings.BillingChargeMultiplier); err != nil {
 		return nil, err
 	}
+	settings.BillingChargeMultiplierGroupIDs = normalizeBillingChargeMultiplierGroupIDs(settings.BillingChargeMultiplierGroupIDs)
 	settings.PaymentVisibleMethodAlipaySource = alipaySource
 	settings.PaymentVisibleMethodWxpaySource = wxpaySource
 	settings.WeChatConnectAppID = strings.TrimSpace(settings.WeChatConnectAppID)
@@ -300,6 +301,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
 	updates[SettingKeyBillingChargeMultiplier] = strconv.FormatFloat(settings.BillingChargeMultiplier, 'f', -1, 64)
+	updates[SettingKeyBillingChargeMultiplierAllGroups] = strconv.FormatBool(settings.BillingChargeMultiplierAllGroups)
+	billingChargeGroupIDsJSON, err := json.Marshal(settings.BillingChargeMultiplierGroupIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal billing charge multiplier group IDs: %w", err)
+	}
+	updates[SettingKeyBillingChargeMultiplierGroupIDs] = string(billingChargeGroupIDsJSON)
 	settings.AffiliateRebateRate = clampAffiliateRebateRate(settings.AffiliateRebateRate)
 	updates[SettingKeyAffiliateRebateRate] = strconv.FormatFloat(settings.AffiliateRebateRate, 'f', 8, 64)
 	if settings.AffiliateRebateFreezeHours < 0 {
@@ -599,8 +606,17 @@ func (s *SettingService) refreshCachedSettings(ctx context.Context, settings *Sy
 		})
 	}
 	s.billingChargeMultiplierSF.Forget(billingChargeMultiplierRefreshKey)
-	s.storeBillingChargeMultiplierCache(settings.BillingChargeMultiplier)
-	s.publishBillingChargeMultiplier(ctx, settings.BillingChargeMultiplier)
+	s.storeBillingChargeMultiplierPolicyCache(
+		settings.BillingChargeMultiplier,
+		settings.BillingChargeMultiplierAllGroups,
+		settings.BillingChargeMultiplierGroupIDs,
+	)
+	s.publishBillingChargePolicy(
+		ctx,
+		settings.BillingChargeMultiplier,
+		settings.BillingChargeMultiplierAllGroups,
+		settings.BillingChargeMultiplierGroupIDs,
+	)
 	if s.cfg != nil {
 		s.cfg.SetForwardedClientIPSettings(settings.APIKeyACLTrustForwardedIP, settings.ForwardedClientIPHeaders)
 	}

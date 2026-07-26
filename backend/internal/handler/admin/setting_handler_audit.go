@@ -2,6 +2,7 @@ package admin
 
 import (
 	"log/slog"
+	"slices"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -307,6 +308,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.BillingChargeMultiplier != after.BillingChargeMultiplier {
 		changed = append(changed, "billing_charge_multiplier")
+	}
+	if before.BillingChargeMultiplierAllGroups != after.BillingChargeMultiplierAllGroups {
+		changed = append(changed, "billing_charge_multiplier_all_groups")
+	}
+	if !slices.Equal(before.BillingChargeMultiplierGroupIDs, after.BillingChargeMultiplierGroupIDs) {
+		changed = append(changed, "billing_charge_multiplier_group_ids")
 	}
 	if before.AffiliateRebateRate != after.AffiliateRebateRate {
 		changed = append(changed, "affiliate_rebate_rate")

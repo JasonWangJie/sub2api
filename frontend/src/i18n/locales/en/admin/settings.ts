@@ -281,7 +281,12 @@ export default {
         defaultBalanceHint: 'Initial balance for new users',
         billingChargeMultiplier: 'System Charge Multiplier',
         billingChargeMultiplierHint:
-          'Applied after group/user/peak rates; affects both usage display amounts and actual deductions. Normal image generation and batch image settlement are excluded; video remains covered. Default 1; e.g. 1.1 means 10% more. Valid range: (0, 10].',
+          'Applied after group/user/peak rates; affects both usage display amounts and actual deductions. Normal, asynchronous, and batch image generation plus video settlement are excluded. Default 1; e.g. 1.1 means 10% more for selected groups. Valid range: (0, 10].',
+        billingChargeMultiplierScope: 'Charge Multiplier Scope',
+        billingChargeMultiplierScopeHint: 'Matched against the billing group bound to the API key. Ungrouped keys are included only in all-groups mode.',
+        billingChargeMultiplierAllGroups: 'All groups',
+        billingChargeMultiplierSelectedGroups: 'Selected groups',
+        billingChargeMultiplierNoGroups: 'No groups are selected, so the system charge multiplier will not apply to any requests.',
         affiliateRebateRate: 'Affiliate Rebate Rate',
         affiliateRebateRateHint:
           'Rebate percentage credited to inviter after recharge (0-100%, e.g. 10 means 10%)',

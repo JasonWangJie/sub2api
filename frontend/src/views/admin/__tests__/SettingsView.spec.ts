@@ -352,6 +352,8 @@ const baseSettingsResponse = {
   totp_encryption_key_configured: false,
   default_balance: 0,
   billing_charge_multiplier: 1,
+  billing_charge_multiplier_all_groups: true,
+  billing_charge_multiplier_group_ids: [],
   default_concurrency: 1,
   default_subscriptions: [],
   site_name: "Sub2API",
@@ -671,6 +673,41 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(wrapper.text()).not.toContain("可见方式");
     expect(wrapper.text()).not.toContain("支付来源");
+  });
+
+  it("loads and saves selected groups for the system charge multiplier", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      billing_charge_multiplier: 1.25,
+      billing_charge_multiplier_all_groups: false,
+      billing_charge_multiplier_group_ids: [7],
+    });
+    getGroups.mockResolvedValueOnce([
+      { id: 7, name: "Claude", status: "active", rate_multiplier: 1 },
+      { id: 8, name: "OpenAI", status: "active", rate_multiplier: 1 },
+    ]);
+
+    const wrapper = mountView();
+    await flushPromises();
+
+    const allGroupsToggle = wrapper.get(
+      '[data-testid="billing-charge-multiplier-all-groups"]',
+    );
+    expect((allGroupsToggle.element as HTMLInputElement).checked).toBe(false);
+    const selected = wrapper.get('input[type="checkbox"][value="7"]');
+    const additional = wrapper.get('input[type="checkbox"][value="8"]');
+    expect((selected.element as HTMLInputElement).checked).toBe(true);
+    await additional.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        billing_charge_multiplier: 1.25,
+        billing_charge_multiplier_all_groups: false,
+        billing_charge_multiplier_group_ids: [7, 8],
+      }),
+    );
   });
 
   it("loads, edits, validates, and saves forwarded client-IP headers", async () => {

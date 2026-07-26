@@ -419,6 +419,49 @@ func TestOpenAIGatewayServiceRecordUsage_UsesUserSpecificGroupRate(t *testing.T)
 	require.Equal(t, 1, userRepo.deductCalls)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierUsesGroupScope(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 1000, OutputTokens: 500}
+	for _, tt := range []struct {
+		name       string
+		groupID    int64
+		wantFactor float64
+	}{
+		{name: "selected group", groupID: 21, wantFactor: 1.25},
+		{name: "unselected group", groupID: 22, wantFactor: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+			settingSvc := &SettingService{}
+			settingSvc.storeBillingChargeMultiplierPolicyCache(1.25, false, []int64{21})
+			svc.settingService = settingSvc
+
+			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{
+					RequestID: "resp_billing_charge_multiplier_group_scope",
+					Usage:     usage,
+					Model:     "gpt-5.1",
+					Duration:  time.Second,
+				},
+				APIKey: &APIKey{
+					ID:      1003,
+					GroupID: i64p(tt.groupID),
+					Group:   &Group{ID: tt.groupID, RateMultiplier: 1},
+				},
+				User:    &User{ID: 2003},
+				Account: &Account{ID: 3003},
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.Positive(t, usageRepo.lastLog.TotalCost)
+			require.InDelta(t, usageRepo.lastLog.TotalCost*tt.wantFactor, usageRepo.lastLog.ActualCost, 1e-12)
+			require.InDelta(t, usageRepo.lastLog.ActualCost, userRepo.lastAmount, 1e-12)
+		})
+	}
+}
+
 func TestOpenAIGatewayServiceRecordUsage_PeakRateAffectsTokenModeImageOutputTokens(t *testing.T) {
 	groupID := int64(14)
 	groupRate := 1.0
@@ -1942,6 +1985,51 @@ func TestOpenAIGatewayServicePrepareRecordUsage_SimpleModeCreatesNotBillableComm
 	require.Zero(t, usageRepo.calls, "prepare must defer the usage-log write until post-processing")
 }
 
+func TestOpenAIGatewayServicePrepareRecordUsage_BillingChargeMultiplierDoesNotScaleAsyncImageCost(t *testing.T) {
+	imagePrice1K := 0.20
+	groupID := int64(1208)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(
+		usageRepo,
+		&openAIRecordUsageUserRepoStub{},
+		&openAIRecordUsageSubRepoStub{},
+		nil,
+	)
+	settingSvc := &SettingService{}
+	settingSvc.storeBillingChargeMultiplierPolicyCache(1.5, false, []int64{groupID})
+	svc.settingService = settingSvc
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "async-image:multiplier-openai")
+
+	prepared, err := svc.PrepareRecordUsage(ctx, &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:  "openai_async_image_billing_charge_multiplier",
+			Model:      "gpt-image-2",
+			ImageCount: 1,
+			ImageSize:  ImageBillingSize1K,
+			Duration:   time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      11208,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:                   groupID,
+				RateMultiplier:       1,
+				ImageRateIndependent: true,
+				ImageRateMultiplier:  1,
+				ImagePrice1K:         &imagePrice1K,
+			},
+		},
+		User:    &User{ID: 21208, Balance: 100},
+		Account: &Account{ID: 31208},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, prepared)
+	require.InDelta(t, 0.20, prepared.ActualCost(), 1e-12)
+	require.InDelta(t, 0.20, prepared.Command.BalanceCost, 1e-12)
+	require.Zero(t, usageRepo.calls, "prepare must defer the usage-log write")
+}
+
 func TestOpenAIGatewayServiceRecordUsage_ImageOnlyUsageStillPersists(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
@@ -2369,7 +2457,7 @@ func TestOpenAIGatewayServiceRecordUsage_GroupImagePriceOverridesChannelImagePri
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
 	svc.resolver = newOpenAIImageChannelPricingResolverForTest(t, groupID, "grok-imagine-image-quality", channelPrice)
 	settingSvc := &SettingService{}
-	settingSvc.storeBillingChargeMultiplierCache(1.1)
+	settingSvc.storeBillingChargeMultiplierPolicyCache(1.1, false, []int64{groupID})
 	svc.settingService = settingSvc
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
@@ -2407,7 +2495,7 @@ func TestOpenAIGatewayServiceRecordUsage_GroupImagePriceOverridesChannelImagePri
 	require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_GroupVideoPriceOverridesChannelImagePrice(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierDoesNotScaleVideoCost(t *testing.T) {
 	groupID := int64(128)
 	channelPrice := 0.201
 	groupVideoPrice720P := 0.037
@@ -2415,7 +2503,7 @@ func TestOpenAIGatewayServiceRecordUsage_GroupVideoPriceOverridesChannelImagePri
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
 	svc.resolver = newOpenAIImageChannelPricingResolverForTest(t, groupID, "grok-imagine-video", channelPrice)
 	settingSvc := &SettingService{}
-	settingSvc.storeBillingChargeMultiplierCache(1.1)
+	settingSvc.storeBillingChargeMultiplierPolicyCache(1.1, false, []int64{groupID})
 	svc.settingService = settingSvc
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
@@ -2450,7 +2538,7 @@ func TestOpenAIGatewayServiceRecordUsage_GroupVideoPriceOverridesChannelImagePri
 	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
 	require.Nil(t, usageRepo.lastLog.ImageSize)
 	require.InDelta(t, 0.037, usageRepo.lastLog.TotalCost, 1e-12)
-	require.InDelta(t, 0.037*1.1, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, 0.037, usageRepo.lastLog.ActualCost, 1e-12)
 	require.NotNil(t, usageRepo.lastLog.BillingMode)
 	require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
 }

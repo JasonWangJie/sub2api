@@ -376,6 +376,8 @@ export interface SystemSettings {
   // Default settings
   default_balance: number;
   billing_charge_multiplier: number;
+  billing_charge_multiplier_all_groups: boolean;
+  billing_charge_multiplier_group_ids: number[];
   affiliate_rebate_rate: number;
   affiliate_rebate_freeze_hours: number;
   affiliate_rebate_duration_days: number;
@@ -684,6 +686,8 @@ export interface UpdateSettingsRequest {
   login_agreement_documents?: LoginAgreementDocument[];
   default_balance?: number;
   billing_charge_multiplier?: number;
+  billing_charge_multiplier_all_groups?: boolean;
+  billing_charge_multiplier_group_ids?: number[];
   affiliate_rebate_rate?: number;
   affiliate_rebate_freeze_hours?: number;
   affiliate_rebate_duration_days?: number;

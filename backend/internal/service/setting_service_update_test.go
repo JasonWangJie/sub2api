@@ -453,10 +453,20 @@ func TestSettingService_UpdateSettings_BillingChargeMultiplier(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
-	err := svc.UpdateSettings(context.Background(), &SystemSettings{BillingChargeMultiplier: 1.1})
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		BillingChargeMultiplier:          1.1,
+		BillingChargeMultiplierAllGroups: false,
+		BillingChargeMultiplierGroupIDs:  []int64{9, 7, 9, -1},
+	})
 	require.NoError(t, err)
 	require.Equal(t, "1.1", repo.updates[SettingKeyBillingChargeMultiplier])
+	require.Equal(t, "false", repo.updates[SettingKeyBillingChargeMultiplierAllGroups])
+	require.JSONEq(t, `[7,9]`, repo.updates[SettingKeyBillingChargeMultiplierGroupIDs])
 	require.Equal(t, 1.1, svc.GetBillingChargeMultiplier(context.Background()))
+	selected := int64(7)
+	unselected := int64(8)
+	require.Equal(t, 1.1, svc.GetBillingChargeMultiplierForGroup(context.Background(), &selected))
+	require.Equal(t, 1.0, svc.GetBillingChargeMultiplierForGroup(context.Background(), &unselected))
 
 	err = svc.UpdateSettings(context.Background(), &SystemSettings{BillingChargeMultiplier: 0})
 	require.NoError(t, err)
@@ -470,9 +480,24 @@ func TestSettingService_UpdateSettings_BillingChargeMultiplier(t *testing.T) {
 
 func TestSettingService_ParseSettingsDefaultsBillingChargeMultiplier(t *testing.T) {
 	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
-	require.Equal(t, 1.0, svc.parseSettings(map[string]string{}).BillingChargeMultiplier)
+	defaults := svc.parseSettings(map[string]string{})
+	require.Equal(t, 1.0, defaults.BillingChargeMultiplier)
+	require.True(t, defaults.BillingChargeMultiplierAllGroups)
+	require.Empty(t, defaults.BillingChargeMultiplierGroupIDs)
 	require.Equal(t, 1.25, svc.parseSettings(map[string]string{SettingKeyBillingChargeMultiplier: "1.25"}).BillingChargeMultiplier)
 	require.Equal(t, 1.0, svc.parseSettings(map[string]string{SettingKeyBillingChargeMultiplier: "0"}).BillingChargeMultiplier)
+	selected := svc.parseSettings(map[string]string{
+		SettingKeyBillingChargeMultiplierAllGroups: "false",
+		SettingKeyBillingChargeMultiplierGroupIDs:  `[9,7,9,-1]`,
+	})
+	require.False(t, selected.BillingChargeMultiplierAllGroups)
+	require.Equal(t, []int64{7, 9}, selected.BillingChargeMultiplierGroupIDs)
+	invalid := svc.parseSettings(map[string]string{
+		SettingKeyBillingChargeMultiplierAllGroups: "false",
+		SettingKeyBillingChargeMultiplierGroupIDs:  `invalid`,
+	})
+	require.True(t, invalid.BillingChargeMultiplierAllGroups)
+	require.Empty(t, invalid.BillingChargeMultiplierGroupIDs)
 }
 
 func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerWeightSums(t *testing.T) {

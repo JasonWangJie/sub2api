@@ -36,11 +36,12 @@ func TestAsyncImageInvocationTimedOutUsesStartedAtWallClock(t *testing.T) {
 
 func TestApplyCapturedGeminiImageDimensionsUsesRequestedTierForBilling(t *testing.T) {
 	requested := "0.5K"
-	result := &service.ForwardResult{ImageCount: 1, ImageSize: service.ImageBillingSize2K}
+	result := &service.ForwardResult{ImageSize: service.ImageBillingSize2K}
 
 	applyCapturedGeminiImageDimensions(result, []asyncImageCapturedOutput{{Width: 512, Height: 512}}, &requested)
 
 	require.Equal(t, service.ImageBillingSize1K, result.ImageSize)
+	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "0.5K", result.ImageInputSize)
 	require.Equal(t, "512x512", result.ImageOutputSize)
 	require.Equal(t, service.ImageSizeSourceInput, result.ImageSizeSource)
@@ -49,13 +50,14 @@ func TestApplyCapturedGeminiImageDimensionsUsesRequestedTierForBilling(t *testin
 
 func TestApplyCapturedOpenAIImageDimensionsUsesRequestedTierOverPixels(t *testing.T) {
 	requested := "1K"
-	result := &service.OpenAIForwardResult{ImageCount: 1, ImageSize: service.ImageBillingSize2K}
+	result := &service.OpenAIForwardResult{ImageSize: service.ImageBillingSize2K}
 
 	applyCapturedOpenAIImageDimensions(result, []asyncImageCapturedOutput{
 		{Width: 1536, Height: 1024},
 	}, &requested)
 
 	require.Equal(t, service.ImageBillingSize1K, result.ImageSize)
+	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "1K", result.ImageInputSize)
 	require.Equal(t, "1536x1024", result.ImageOutputSize)
 	require.Equal(t, service.ImageSizeSourceInput, result.ImageSizeSource)
@@ -64,7 +66,7 @@ func TestApplyCapturedOpenAIImageDimensionsUsesRequestedTierOverPixels(t *testin
 
 func TestApplyCapturedOpenAIImageDimensionsUsesLargestActualTier(t *testing.T) {
 	requested := "1024x1024"
-	result := &service.OpenAIForwardResult{ImageCount: 2, ImageSize: service.ImageBillingSize1K}
+	result := &service.OpenAIForwardResult{ImageSize: service.ImageBillingSize1K}
 
 	applyCapturedOpenAIImageDimensions(result, []asyncImageCapturedOutput{
 		{Width: 1024, Height: 1024},
@@ -72,6 +74,7 @@ func TestApplyCapturedOpenAIImageDimensionsUsesLargestActualTier(t *testing.T) {
 	}, &requested)
 
 	require.Equal(t, service.ImageBillingSize4K, result.ImageSize)
+	require.Equal(t, 2, result.ImageCount)
 	require.Equal(t, "1024x1024", result.ImageInputSize)
 	require.Equal(t, "1024x1024", result.ImageOutputSize)
 	require.Equal(t, service.ImageSizeSourceOutput, result.ImageSizeSource)

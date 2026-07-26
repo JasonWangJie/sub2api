@@ -238,6 +238,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		DefaultConcurrency:                                     settings.DefaultConcurrency,
 		DefaultBalance:                                         settings.DefaultBalance,
 		BillingChargeMultiplier:                                settings.BillingChargeMultiplier,
+		BillingChargeMultiplierAllGroups:                       settings.BillingChargeMultiplierAllGroups,
+		BillingChargeMultiplierGroupIDs:                        settings.BillingChargeMultiplierGroupIDs,
 		RiskControlEnabled:                                     settings.RiskControlEnabled,
 		CyberSessionBlockEnabled:                               settings.CyberSessionBlockEnabled,
 		CyberSessionBlockTTLSeconds:                            settings.CyberSessionBlockTTLSeconds,

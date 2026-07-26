@@ -815,6 +815,9 @@ func applyCapturedGeminiImageDimensions(result *service.ForwardResult, outputs [
 	if result == nil {
 		return
 	}
+	if len(outputs) > 0 {
+		result.ImageCount = len(outputs)
+	}
 	if requestedSize != nil && strings.TrimSpace(result.ImageInputSize) == "" {
 		result.ImageInputSize = strings.TrimSpace(*requestedSize)
 	}
@@ -828,6 +831,9 @@ func applyCapturedGeminiImageDimensions(result *service.ForwardResult, outputs [
 func applyCapturedOpenAIImageDimensions(result *service.OpenAIForwardResult, outputs []asyncImageCapturedOutput, requestedSize *string) {
 	if result == nil {
 		return
+	}
+	if len(outputs) > 0 {
+		result.ImageCount = len(outputs)
 	}
 	if requestedSize != nil && strings.TrimSpace(result.ImageInputSize) == "" {
 		result.ImageInputSize = strings.TrimSpace(*requestedSize)

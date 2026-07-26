@@ -458,8 +458,14 @@ const (
 	SettingKeyOpenAIOAuthSchedulingRateMultiplier = "openai_oauth_scheduling_rate_multiplier"
 	// SettingKeyBillingChargeMultiplier 系统扣款系数：在分组/用户/高峰倍率之后再乘，
 	// 同时影响 usage_logs.actual_cost（前端用量展示）与余额/订阅实际扣款；
-	// 普通及批量生图结算不应用该系数。默认 1。
+	// 普通、异步及批量生图和视频结算不应用该系数。默认 1。
 	SettingKeyBillingChargeMultiplier = "billing_charge_multiplier"
+	// SettingKeyBillingChargeMultiplierAllGroups defaults to true so existing
+	// installations retain the historical global behavior.
+	SettingKeyBillingChargeMultiplierAllGroups = "billing_charge_multiplier_all_groups"
+	// SettingKeyBillingChargeMultiplierGroupIDs stores the selected billing
+	// group IDs as a JSON array when all-groups mode is disabled.
+	SettingKeyBillingChargeMultiplierGroupIDs = "billing_charge_multiplier_group_ids"
 	// SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled OpenAI 高级调度下是否启用粘性加权。
 	SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled = "openai_advanced_scheduler_sticky_weighted_enabled"
 	// SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled OpenAI 高级调度下是否优先使用订阅账号池。

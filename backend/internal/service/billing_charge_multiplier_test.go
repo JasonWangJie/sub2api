@@ -20,6 +20,17 @@ func TestApplyBillingChargeMultiplier(t *testing.T) {
 	require.InDelta(t, 10.0, applyBillingChargeMultiplier(1.0, 11), 1e-12)
 }
 
+func TestShouldApplyBillingChargeMultiplierExcludesMediaGeneration(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 0, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(nil, 0, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 1, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeImage)}, 0, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeVideo)}, 0, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 0, true))
+}
+
 func TestParseBillingChargeMultiplier(t *testing.T) {
 	t.Parallel()
 
@@ -54,9 +65,11 @@ func TestValidateBillingChargeMultiplier(t *testing.T) {
 }
 
 type billingChargeMultiplierSettingRepo struct {
-	value string
-	err   error
-	hits  atomic.Int64
+	value        string
+	allGroupsRaw string
+	groupIDsRaw  string
+	err          error
+	hits         atomic.Int64
 }
 
 func (r *billingChargeMultiplierSettingRepo) Get(ctx context.Context, key string) (*Setting, error) {
@@ -76,11 +89,23 @@ func (r *billingChargeMultiplierSettingRepo) Set(ctx context.Context, key, value
 	return nil
 }
 func (r *billingChargeMultiplierSettingRepo) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	r.hits.Add(1)
+	if r.err != nil {
+		return nil, r.err
+	}
 	out := make(map[string]string, len(keys))
 	for _, key := range keys {
-		value, err := r.GetValue(ctx, key)
-		if err == nil {
-			out[key] = value
+		switch key {
+		case SettingKeyBillingChargeMultiplier:
+			out[key] = r.value
+		case SettingKeyBillingChargeMultiplierAllGroups:
+			if r.allGroupsRaw != "" {
+				out[key] = r.allGroupsRaw
+			}
+		case SettingKeyBillingChargeMultiplierGroupIDs:
+			if r.groupIDsRaw != "" {
+				out[key] = r.groupIDsRaw
+			}
 		}
 	}
 	return out, nil
@@ -116,6 +141,54 @@ func TestGetBillingChargeMultiplier_ColdCacheLoadsBeforeReturning(t *testing.T) 
 	require.Equal(t, int64(1), repo.hits.Load())
 }
 
+func TestGetBillingChargeMultiplierForGroup_DefaultsToAllGroups(t *testing.T) {
+	repo := &billingChargeMultiplierSettingRepo{value: "1.5"}
+	svc := &SettingService{settingRepo: repo}
+
+	require.Equal(t, 1.5, svc.GetBillingChargeMultiplierForGroup(context.Background(), nil))
+	groupID := int64(42)
+	require.Equal(t, 1.5, svc.GetBillingChargeMultiplierForGroup(context.Background(), &groupID))
+}
+
+func TestGetBillingChargeMultiplierForGroup_SelectedGroupsOnly(t *testing.T) {
+	repo := &billingChargeMultiplierSettingRepo{
+		value:        "1.5",
+		allGroupsRaw: "false",
+		groupIDsRaw:  `[9, 7, 9, 0, -1]`,
+	}
+	svc := &SettingService{settingRepo: repo}
+
+	selected := int64(7)
+	unselected := int64(8)
+	require.Equal(t, 1.5, svc.GetBillingChargeMultiplierForGroup(context.Background(), &selected))
+	require.Equal(t, 1.0, svc.GetBillingChargeMultiplierForGroup(context.Background(), &unselected))
+	require.Equal(t, 1.0, svc.GetBillingChargeMultiplierForGroup(context.Background(), nil))
+}
+
+func TestGetBillingChargeMultiplierForGroup_ExplicitEmptyScopeDisablesMultiplier(t *testing.T) {
+	repo := &billingChargeMultiplierSettingRepo{
+		value:        "1.5",
+		allGroupsRaw: "false",
+		groupIDsRaw:  `[]`,
+	}
+	svc := &SettingService{settingRepo: repo}
+	groupID := int64(7)
+
+	require.Equal(t, 1.0, svc.GetBillingChargeMultiplierForGroup(context.Background(), &groupID))
+}
+
+func TestGetBillingChargeMultiplierForGroup_InvalidScopeFallsBackToAllGroups(t *testing.T) {
+	repo := &billingChargeMultiplierSettingRepo{
+		value:        "1.5",
+		allGroupsRaw: "false",
+		groupIDsRaw:  `invalid`,
+	}
+	svc := &SettingService{settingRepo: repo}
+	groupID := int64(7)
+
+	require.Equal(t, 1.5, svc.GetBillingChargeMultiplierForGroup(context.Background(), &groupID))
+}
+
 func TestStoreBillingChargeMultiplierCache_WriteThrough(t *testing.T) {
 	svc := &SettingService{}
 	svc.storeBillingChargeMultiplierCache(1.1)
@@ -136,6 +209,16 @@ func (r *blockingBillingChargeMultiplierRepo) GetValue(ctx context.Context, key 
 		return "", ctx.Err()
 	}
 	return r.billingChargeMultiplierSettingRepo.GetValue(ctx, key)
+}
+
+func (r *blockingBillingChargeMultiplierRepo) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	close(r.started)
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return r.billingChargeMultiplierSettingRepo.GetMultiple(ctx, keys)
 }
 
 func TestBillingChargeMultiplier_StaleRefreshCannotOverwriteAdminUpdate(t *testing.T) {
@@ -201,12 +284,19 @@ func TestBillingChargeMultiplierSubscriberUpdatesCacheAndIgnoresInvalidPayload(t
 	invalidation.updates <- "1.75"
 	<-invalidation.handled
 	require.Equal(t, 1.75, svc.GetBillingChargeMultiplier(context.Background()))
+
+	invalidation.updates <- `{"multiplier":1.5,"all_groups":false,"group_ids":[7]}`
+	<-invalidation.handled
+	selected := int64(7)
+	unselected := int64(8)
+	require.Equal(t, 1.5, svc.GetBillingChargeMultiplierForGroup(context.Background(), &selected))
+	require.Equal(t, 1.0, svc.GetBillingChargeMultiplierForGroup(context.Background(), &unselected))
 	svc.StopBillingSettingInvalidationSubscriber()
 }
 
-func TestPublishBillingChargeMultiplierUsesNormalizedPayload(t *testing.T) {
+func TestPublishBillingChargePolicyUsesNormalizedPayload(t *testing.T) {
 	invalidation := &billingSettingInvalidationStub{published: make(chan string, 1)}
 	svc := &SettingService{billingSettingInvalidation: invalidation}
-	svc.publishBillingChargeMultiplier(context.Background(), 1.25)
-	require.Equal(t, "1.25", <-invalidation.published)
+	svc.publishBillingChargePolicy(context.Background(), 1.25, false, []int64{9, 7, 9, -1})
+	require.JSONEq(t, `{"multiplier":1.25,"all_groups":false,"group_ids":[7,9]}`, <-invalidation.published)
 }

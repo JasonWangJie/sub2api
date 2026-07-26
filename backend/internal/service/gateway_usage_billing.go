@@ -756,10 +756,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			input.ChannelID,
 		)
 	}
-	if cost != nil && result.ImageCount <= 0 {
+	if shouldApplyBillingChargeMultiplier(cost, result.ImageCount, false) {
 		cost.ActualCost = applyBillingChargeMultiplier(
 			cost.ActualCost,
-			ResolveBillingChargeMultiplier(s.settingService, ctx),
+			ResolveBillingChargeMultiplierForGroup(s.settingService, ctx, apiKey.GroupID),
 		)
 	}
 

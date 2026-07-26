@@ -3238,6 +3238,41 @@
                     {{ t("admin.settings.defaults.billingChargeMultiplierHint") }}
                   </p>
                 </div>
+                <div class="md:col-span-2">
+                  <div class="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {{ t("admin.settings.defaults.billingChargeMultiplierScope") }}
+                      </label>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.defaults.billingChargeMultiplierScopeHint") }}
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <span class="text-sm text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.defaults.billingChargeMultiplierAllGroups") }}
+                      </span>
+                      <Toggle
+                        v-model="form.billing_charge_multiplier_all_groups"
+                        data-testid="billing-charge-multiplier-all-groups"
+                      />
+                    </div>
+                  </div>
+                  <GroupSelector
+                    v-if="!form.billing_charge_multiplier_all_groups"
+                    v-model="form.billing_charge_multiplier_group_ids"
+                    class="mt-4"
+                    :groups="billingChargeGroups"
+                    :label="t('admin.settings.defaults.billingChargeMultiplierSelectedGroups')"
+                    searchable
+                  />
+                  <p
+                    v-if="!form.billing_charge_multiplier_all_groups && form.billing_charge_multiplier_group_ids.length === 0"
+                    class="mt-2 text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    {{ t("admin.settings.defaults.billingChargeMultiplierNoGroups") }}
+                  </p>
+                </div>
                 <div>
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -7810,6 +7845,7 @@ import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
 import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
+import GroupSelector from "@/components/common/GroupSelector.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
@@ -7959,6 +7995,7 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
+const billingChargeGroups = ref<AdminGroup[]>([]);
 
 // Upstream billing probe state
 const upstreamBillingProbeLoading = ref(true);
@@ -8525,6 +8562,8 @@ const form = reactive<SettingsForm>({
   login_agreement_documents: defaultLoginAgreementDocuments(),
   default_balance: 0,
   billing_charge_multiplier: 1,
+  billing_charge_multiplier_all_groups: true,
+  billing_charge_multiplier_group_ids: [],
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   affiliate_rebate_rate: 20,
   affiliate_rebate_freeze_hours: 0,
@@ -9805,11 +9844,13 @@ async function loadSettings() {
 async function loadSubscriptionGroups() {
   try {
     const groups = await adminAPI.groups.getAll();
+    billingChargeGroups.value = groups.filter((group) => group.status === "active");
     subscriptionGroups.value = groups.filter(
       (group) =>
         group.subscription_type === "subscription" && group.status === "active",
     );
   } catch (_error: unknown) {
+    billingChargeGroups.value = [];
     subscriptionGroups.value = [];
   }
 }
@@ -10043,6 +10084,10 @@ async function saveSettings() {
       login_agreement_documents: form.login_agreement_documents,
       default_balance: form.default_balance,
       billing_charge_multiplier: form.billing_charge_multiplier,
+      billing_charge_multiplier_all_groups:
+        form.billing_charge_multiplier_all_groups,
+      billing_charge_multiplier_group_ids:
+        form.billing_charge_multiplier_group_ids,
       affiliate_rebate_rate: Math.min(
         100,
         Math.max(0, Number(form.affiliate_rebate_rate) || 0),

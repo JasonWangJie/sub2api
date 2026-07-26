@@ -218,6 +218,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "false",
 		SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "1",
 		SettingKeyBillingChargeMultiplier:                            "1",
+		SettingKeyBillingChargeMultiplierAllGroups:                   "true",
+		SettingKeyBillingChargeMultiplierGroupIDs:                    "[]",
 		SettingKeyEnableAnthropicCacheTTL1hInjection:                 "false",
 		SettingKeyRewriteMessageCacheControl:                         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyEnableClientDatelineNormalization:                  "true",
@@ -361,6 +363,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.DefaultBalance = s.cfg.Default.UserBalance
 	}
 	result.BillingChargeMultiplier = parseBillingChargeMultiplier(settings[SettingKeyBillingChargeMultiplier])
+	result.BillingChargeMultiplierAllGroups = settings[SettingKeyBillingChargeMultiplierAllGroups] != "false"
+	billingChargeGroupIDs, validBillingChargeGroupIDs := parseBillingChargeMultiplierGroupIDsValue(settings[SettingKeyBillingChargeMultiplierGroupIDs])
+	result.BillingChargeMultiplierGroupIDs = billingChargeGroupIDs
+	if !result.BillingChargeMultiplierAllGroups && !validBillingChargeGroupIDs {
+		slog.Warn("invalid billing charge multiplier group scope in settings; falling back to all groups")
+		result.BillingChargeMultiplierAllGroups = true
+	}
 	if rebateRate, err := strconv.ParseFloat(settings[SettingKeyAffiliateRebateRate], 64); err == nil {
 		result.AffiliateRebateRate = clampAffiliateRebateRate(rebateRate)
 	} else {
