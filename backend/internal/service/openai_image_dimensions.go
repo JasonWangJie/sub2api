@@ -131,6 +131,7 @@ func MapOpenAIImageDimensions(resolution, aspectRatio string) (string, error) {
 //   - resolution + size as aspect ratio (e.g. size="9:16")
 //   - size as WxH / auto (legacy OpenAI Images)
 //   - size as 1K/2K/4K (treated as resolution)
+//
 // Explicit aspect_ratio wins over size-as-ratio. Legacy WxH size wins over
 // resolution mapping when size is a concrete pixel size.
 func normalizeOpenAIImagesDimensions(req *OpenAIImagesRequest) error {
@@ -183,6 +184,13 @@ func normalizeOpenAIImagesDimensions(req *OpenAIImagesRequest) error {
 			req.Size = ""
 			size = ""
 		default:
+			// Unknown legacy size values are owned by the upstream endpoint. Keep
+			// them intact instead of blocking passthrough. Dimension aliases stay
+			// strict because combining them with an unknown size is ambiguous.
+			if req.Resolution == "" && req.AspectRatio == "" {
+				req.Size = size
+				return nil
+			}
 			return fmt.Errorf("unsupported_image_dimensions: unsupported size %q", size)
 		}
 	}

@@ -20,7 +20,7 @@
       <span
         v-if="description"
         :class="[
-          'mt-1.5 w-full text-left text-xs leading-relaxed line-clamp-2',
+          'mt-1.5 w-full whitespace-pre-line [overflow-wrap:anywhere] text-left text-xs leading-relaxed line-clamp-3',
           variant === 'tech'
             ? 'text-sky-700/70 dark:text-sky-200/55'
             : 'text-gray-500 dark:text-gray-400'

@@ -92,6 +92,16 @@ func TestResolveImageBillingSizeExplicitTierWinsOverOutputPixels(t *testing.T) {
 	got = ResolveImageBillingSize("0.5K", []string{"512x512"})
 	require.Equal(t, ImageBillingSize1K, got.BillingSize)
 	require.Equal(t, ImageSizeSourceInput, got.Source)
+
+	got = ResolveImageBillingSize("4K", []string{"1024x1024", "3840x2160"})
+	require.Equal(t, ImageBillingSize4K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceOutput, got.Source)
+	require.Equal(t, map[string]int{ImageBillingSize1K: 1, ImageBillingSize4K: 1}, got.Breakdown)
+
+	got = ResolveGeminiImageBillingSize("1K", []string{"1024x768", "3840x2160"})
+	require.Equal(t, ImageBillingSize1K, got.BillingSize)
+	require.Equal(t, ImageSizeSourceInput, got.Source)
+	require.Equal(t, map[string]int{ImageBillingSize1K: 2}, got.Breakdown)
 }
 
 func TestApplyForwardImageBillingResolutionUsesGeminiShortEdge(t *testing.T) {

@@ -122,25 +122,6 @@ func resolveImageBillingSize(inputSize string, outputSizes []string, gemini bool
 	}
 
 	outputSize := firstDisplayImageOutputSize(outputSizes)
-
-	// Workbench / async clients select an explicit 1K/2K/4K (or 0.5K→1K) tariff.
-	// Aspect-ratio mapped WxH must not reclassify a requested 1K into 2K/4K.
-	if isExplicitImageBillingTier(inputSize) {
-		if tier, ok := classify(inputSize); ok {
-			breakdown := map[string]int{}
-			if n := len(outputSizes); n > 0 {
-				breakdown[tier] = n
-			}
-			return ImageBillingSizeResolution{
-				BillingSize: tier,
-				InputSize:   inputSize,
-				OutputSize:  outputSize,
-				Source:      ImageSizeSourceInput,
-				Breakdown:   normalizeImageSizeBreakdown(breakdown),
-			}
-		}
-	}
-
 	breakdown := map[string]int{}
 	outputTier := ""
 	for _, output := range outputSizes {
@@ -153,6 +134,41 @@ func resolveImageBillingSize(inputSize string, outputSizes []string, gemini bool
 			outputTier = tier
 		}
 	}
+
+	explicitTier := ""
+	if isExplicitImageBillingTier(inputSize) {
+		explicitTier, _ = classify(inputSize)
+	}
+
+	// Distinct observed output tiers are authoritative when they do not exceed
+	// an explicit request tier. This allows exact mixed-size charging without
+	// turning decoded dimensions into an unexpected upgrade for the client.
+	if len(breakdown) > 1 && (explicitTier == "" || imageTierRank(outputTier) <= imageTierRank(explicitTier)) {
+		return ImageBillingSizeResolution{
+			BillingSize: outputTier,
+			InputSize:   inputSize,
+			OutputSize:  outputSize,
+			Source:      ImageSizeSourceOutput,
+			Breakdown:   normalizeImageSizeBreakdown(breakdown),
+		}
+	}
+
+	// Workbench / async clients select an explicit 1K/2K/4K (or 0.5K→1K) tariff.
+	// Aspect-ratio mapped WxH must not reclassify a requested 1K into 2K/4K.
+	if explicitTier != "" {
+		explicitBreakdown := map[string]int{}
+		if n := len(outputSizes); n > 0 {
+			explicitBreakdown[explicitTier] = n
+		}
+		return ImageBillingSizeResolution{
+			BillingSize: explicitTier,
+			InputSize:   inputSize,
+			OutputSize:  outputSize,
+			Source:      ImageSizeSourceInput,
+			Breakdown:   normalizeImageSizeBreakdown(explicitBreakdown),
+		}
+	}
+
 	if outputTier != "" {
 		return ImageBillingSizeResolution{
 			BillingSize: outputTier,
