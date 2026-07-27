@@ -607,7 +607,7 @@ main,
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .home-brand-sub {
