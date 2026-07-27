@@ -560,7 +560,7 @@ onUnmounted(() => {
 .select-dropdown-portal .select-option-group {
   @apply cursor-default select-none;
   @apply bg-gray-50 dark:bg-dark-900;
-  @apply text-[11px] font-bold uppercase tracking-wider;
+  @apply text-[11px] font-bold tracking-wide;
   @apply text-gray-500 dark:text-gray-400;
 }
 
@@ -639,8 +639,8 @@ onUnmounted(() => {
   color: rgb(3 105 161);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .dark .select-dropdown-portal.select-portal--tech .select-option-group {

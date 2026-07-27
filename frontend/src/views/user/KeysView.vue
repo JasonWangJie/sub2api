@@ -2045,8 +2045,7 @@ onUnmounted(() => {
   padding: 0.4rem 0.75rem;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: rgb(3 105 161);
 }
 
