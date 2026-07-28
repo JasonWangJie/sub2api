@@ -29,6 +29,8 @@ func TestMapOpenAIImageDimensions(t *testing.T) {
 		{resolution: "4K", aspectRatio: "16:9", wantSize: "4096x2304"},
 		{resolution: "4K", aspectRatio: "9:16", wantSize: "2304x4096"},
 		{resolution: "auto", aspectRatio: "1:1", wantSize: "auto"},
+		{resolution: "1K", aspectRatio: "auto", wantSize: "auto"},
+		{resolution: "2K", aspectRatio: "auto", wantSize: "auto"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.resolution+"/"+tt.aspectRatio, func(t *testing.T) {
@@ -114,6 +116,32 @@ func TestParseOpenAIImagesRequest_AspectRatioWinsOverSizeRatio(t *testing.T) {
 	require.Equal(t, "1024x1024", parsed.Size)
 }
 
+func TestParseOpenAIImagesRequest_AspectRatioAutoMapsToSizeAuto(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{}
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","resolution":"2K","aspect_ratio":"auto"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	require.Equal(t, "2K", parsed.Resolution)
+	require.Equal(t, "auto", parsed.AspectRatio)
+	require.Equal(t, "auto", parsed.Size)
+	require.Equal(t, "2K", parsed.SizeTier)
+	require.True(t, parsed.NeedsSizeRewrite)
+
+	rewritten, _, err := rewriteOpenAIImagesDimensions(body, "application/json", parsed)
+	require.NoError(t, err)
+	require.Equal(t, "auto", gjson.GetBytes(rewritten, "size").String())
+	require.False(t, gjson.GetBytes(rewritten, "resolution").Exists())
+	require.False(t, gjson.GetBytes(rewritten, "aspect_ratio").Exists())
+}
+
 func TestParseOpenAIImagesRequest_LegacySizeStillWorks(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{}
@@ -143,5 +171,5 @@ func TestImageWorkbenchCapabilitiesOpenAIExposesResolutionAspect(t *testing.T) {
 	got, err := svc.GetCapabilities(context.Background(), 7, 10)
 	require.NoError(t, err)
 	require.Equal(t, []string{"1K", "2K", "4K"}, got.ImageSizes)
-	require.Equal(t, []string{"1:1", "3:2", "2:3", "16:9", "9:16"}, got.AspectRatios)
+	require.Equal(t, []string{"auto", "1:1", "3:2", "2:3", "16:9", "9:16"}, got.AspectRatios)
 }

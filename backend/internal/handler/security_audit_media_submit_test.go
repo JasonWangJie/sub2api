@@ -169,7 +169,7 @@ func TestDurableAsyncImagePromptGuardUsesPlatformHandlerAndResponseDialect(t *te
 			body: asyncImageGeminiModerationBody(&service.AsyncImageNormalizedRequest{Parts: []service.AsyncImageInputPart{
 				{Type: "text", Text: "blocked durable Gemini prompt"},
 			}}),
-			wantBodyFragment: `"code":403`,
+			wantBodyFragment: `"error"`,
 		},
 	}
 

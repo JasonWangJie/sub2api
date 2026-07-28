@@ -54,7 +54,7 @@ func TestImageWorkbenchCapabilitiesOpenAIAsyncUsesGroupModelList(t *testing.T) {
 	require.Equal(t, ImageWorkbenchModeAsync, got.ExecutionMode)
 	require.Equal(t, ImageWorkbenchProtocolOpenAIAsync, got.Protocol)
 	require.Equal(t, "/v1/images/generations_oa", got.Endpoints.Generation)
-	require.Equal(t, "/v1/images/edits_oa", got.Endpoints.Edit)
+	require.Equal(t, "/v1/images/generations_oa", got.Endpoints.Edit)
 	require.Equal(t, []ImageWorkbenchModel{{ID: "gpt-image-2", Label: "GPT Image 2"}}, got.Models)
 	require.Equal(t, 4, got.MaxOutputImages)
 	require.Equal(t, 5, got.MaxReferenceImages)

@@ -59,8 +59,9 @@ func TestParseSCGeminiImageRequestDimensions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0.5K", halfK.ImageSize)
 
-	_, err = ParseSCGeminiImageRequest([]byte(`{"model":"m","prompt":"p","aspect_ratio":"auto"}`), "")
-	require.ErrorContains(t, err, "requires at least one reference image")
+	autoT2I, err := ParseSCGeminiImageRequest([]byte(`{"model":"m","prompt":"p","aspect_ratio":"auto"}`), "")
+	require.NoError(t, err)
+	require.Empty(t, autoT2I.AspectRatio, "auto without refs also omits upstream ratio")
 }
 
 func TestParseSCGeminiImageRequestSizeAlias(t *testing.T) {

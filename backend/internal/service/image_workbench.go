@@ -155,7 +155,7 @@ func configureImageWorkbenchPlatform(out *ImageWorkbenchCapabilities, group *Gro
 			out.Protocol = ImageWorkbenchProtocolOpenAIAsync
 			out.Endpoints = ImageWorkbenchEndpoints{
 				Generation: "/v1/images/generations_oa",
-				Edit:       "/v1/images/edits_oa",
+				Edit:       "/v1/images/generations_oa",
 				Query:      "/v1/images/tasks_async/{task_id}",
 			}
 		} else {
@@ -175,7 +175,7 @@ func configureImageWorkbenchPlatform(out *ImageWorkbenchCapabilities, group *Gro
 			out.Endpoints = ImageWorkbenchEndpoints{
 				Generation: "/v1/images/generations_sc",
 				Upload:     "/v1/uploads/images_sc",
-				Query:      "/v1/tasks_sc/{task_id}",
+				Query:      "/v1/images/tasks_async/{task_id}",
 			}
 		} else {
 			out.ExecutionMode = ImageWorkbenchModeRealtime

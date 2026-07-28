@@ -282,7 +282,7 @@ func resolveSCGeminiDimensionAliases(resolution, aspectRatio, size string) (stri
 	return resolution, aspectRatio
 }
 
-func normalizeAsyncGeminiDimensions(rawSize, rawRatio string, hasReference bool) (string, string, error) {
+func normalizeAsyncGeminiDimensions(rawSize, rawRatio string, _ bool) (string, string, error) {
 	size := strings.ToUpper(strings.TrimSpace(rawSize))
 	if size != "" && size != "0.5K" && size != "1K" && size != "2K" && size != "4K" {
 		return "", "", fmt.Errorf("unsupported_image_dimensions: unsupported image size %q", rawSize)
@@ -293,9 +293,7 @@ func normalizeAsyncGeminiDimensions(rawSize, rawRatio string, hasReference bool)
 		ratio = "auto"
 	}
 	if ratio == "auto" {
-		if !hasReference {
-			return "", "", errors.New("unsupported_image_dimensions: aspect_ratio=auto requires at least one reference image")
-		}
+		// auto means omit upstream aspectRatio (model/default decides), with or without refs.
 		return size, "", nil
 	}
 	if ratio == "" {

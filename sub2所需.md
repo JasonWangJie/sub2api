@@ -63,3 +63,65 @@ sudo -u postgres psql
 ```
 
 成功后会进入`postgres=#`数据库交互终端。
+
+
+
+## 将用户key 移动到其他分组
+
+1. 先查清楚
+-- 看分组
+SELECT id, name, status, platform, deleted_at
+FROM groups
+WHERE deleted_at IS NULL
+ORDER BY id;
+-- 看某用户的 Key 及当前分组
+SELECT k.id, k.name, k.key, k.user_id, k.group_id, g.name AS group_name, k.status
+FROM api_keys k
+LEFT JOIN groups g ON g.id = k.group_id
+WHERE k.deleted_at IS NULL
+  AND k.user_id IN (123, 456)          -- 改成你的用户 ID
+ORDER BY k.user_id, k.id;
+记下：源分组 ID、目标分组 ID、要动的 api_keys.id。
+
+2. 移动 Key 到新分组
+BEGIN;
+-- 例：把指定 Key 从分组 10 挪到分组 20
+UPDATE api_keys
+SET group_id = 20,          -- 目标分组 ID
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND group_id = 10         -- 源分组（可去掉，若按 Key ID 精确改）
+  AND id IN (101, 102, 103) -- 要迁移的 Key ID
+RETURNING id, user_id, name, group_id;
+COMMIT;
+按用户批量挪（该用户在源分组下的全部 Key）：
+
+BEGIN;
+UPDATE api_keys
+SET group_id = 20,
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND group_id = 10
+  AND user_id IN (123, 456)
+RETURNING id, user_id, group_id;
+COMMIT;
+3. 若目标是专属/受限分组，还要给用户开权限
+-- 允许这些用户使用目标分组 20
+INSERT INTO user_allowed_groups (user_id, group_id)
+SELECT u.uid, 20
+FROM (VALUES (123), (456)) AS u(uid)
+ON CONFLICT DO NOTHING;
+（若你们表还有 created_at 等非空列，按实际表结构补上。）
+
+4. 迁移前建议确认
+
+-- 目标分组是否有上游账号
+SELECT ag.account_id, a.name, a.platform, a.status
+FROM account_groups ag
+JOIN accounts a ON a.id = ag.account_id
+WHERE ag.group_id = 20
+  AND a.deleted_at IS NULL;
+-- 源/目标平台是否一致（OpenAI ↔ Gemini 不要硬挪）
+SELECT id, name, platform
+FROM groups
+WHERE id IN (10, 20);

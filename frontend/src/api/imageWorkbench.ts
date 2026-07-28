@@ -258,7 +258,9 @@ export async function prepareOpenAIAsyncSubmission(
   idempotencyKey: string,
 ): Promise<PreparedAsyncSubmission> {
   const editing = Boolean(params.imageFiles?.length)
-  const path = editing ? '/v1/images/edits_oa' : '/v1/images/generations_oa'
+  // Unified async OpenAI entry: generations_oa auto-routes to image-to-image
+  // when multipart image files (or image_urls) are present.
+  const path = '/v1/images/generations_oa'
   let body: BodyInit
   let headers: HeadersInit = { 'Idempotency-Key': idempotencyKey }
 
@@ -366,9 +368,9 @@ export function prepareGeminiAsyncSubmission(
         body,
         signal,
       })
-      const taskID = String(result?.data?.id || result?.task_id || result?.id || '')
+      const taskID = String(result?.task_id || result?.id || '')
       if (!taskID) throw new Error('Task submission did not return a task ID')
-      return { task_id: taskID, status: result?.data?.status || 'pending', protocol: 'sc' }
+      return { task_id: taskID, query_url: result.query_url, status: result.status || 'queued', protocol: 'sc' }
     },
   }
 }
@@ -388,32 +390,10 @@ export async function pollAsyncImage(
   protocol: 'bb' | 'sc',
   signal?: AbortSignal,
 ): Promise<AsyncImagePollResult> {
-  const path = protocol === 'sc'
-    ? `/v1/tasks_sc/${encodeURIComponent(taskID)}`
-    : `/v1/images/tasks_async/${encodeURIComponent(taskID)}`
+  // OpenAI and Gemini async share GET /v1/images/tasks_async/{task_id}.
+  void protocol
+  const path = `/v1/images/tasks_async/${encodeURIComponent(taskID)}`
   const result = await gatewayJSON<any>(path, apiKey, { method: 'GET', signal })
-
-  if (protocol === 'sc') {
-    const data = result?.data || {}
-    const status = data.status === 'completed'
-      ? 'succeeded'
-      : data.status === 'failed'
-        ? 'failed'
-        : data.status === 'pending'
-          ? 'queued'
-          : 'processing'
-    const images = (data?.result?.images || []).flatMap((item: any) =>
-      (Array.isArray(item?.url) ? item.url : item?.url ? [item.url] : [])
-        .map((url: unknown) => ({ url: String(url), expires_at: item?.expires_at ?? null })),
-    )
-    return {
-      task_id: String(data.id || taskID),
-      status,
-      progress: Number(data.progress ?? (status === 'succeeded' ? 100 : 0)),
-      images,
-      fail_reason: data?.fail_reason || result?.message,
-    }
-  }
 
   const status = result?.status === 'succeeded'
     ? 'succeeded'

@@ -68,15 +68,8 @@ func TestAsyncImagePublicQueriesDoNotReleaseResultsBeforeBillingSucceeds(t *test
 	scContext, _ := gin.CreateTestContext(scRecorder)
 	h.writeSCQuery(scContext, details, cfg)
 	require.Equal(t, http.StatusOK, scRecorder.Code)
-	require.NotContains(t, scRecorder.Body.String(), "result")
 	require.NotContains(t, scRecorder.Body.String(), "must-not-leak")
-	var sc struct {
-		Data struct {
-			Status string `json:"status"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(scRecorder.Body.Bytes(), &sc))
-	require.Equal(t, "processing", sc.Data.Status)
+	require.JSONEq(t, `{"status":"processing","task_id":"asyncimg_unbilled"}`, scRecorder.Body.String())
 }
 
 func TestAsyncImageAbsoluteURL(t *testing.T) {
@@ -130,30 +123,26 @@ func TestWriteBBQueryFailedIncludesTaskIDAndFailReason(t *testing.T) {
 	require.JSONEq(t, `{"status":"failed","task_id":"asyncimg_failed","fail_reason":"upstream image generation failed"}`, recorder.Body.String())
 }
 
-func TestWriteAsyncImageSubmitResponsesKeepDialectsSeparate(t *testing.T) {
+func TestWriteAsyncImageSubmitResponsesAlignGeminiSCWithOpenAI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &DurableAsyncImageHandler{}
-	task := &service.AsyncImageTask{TaskID: "asyncimg_abc", Platform: service.PlatformGemini}
 	cfg := service.AsyncImageRuntimeConfig{PublicBaseURL: "https://api.example.com"}
 
-	bbRecorder := httptest.NewRecorder()
-	bbContext, _ := gin.CreateTestContext(bbRecorder)
-	h.writeSubmitResponse(bbContext, service.AsyncImageProtocolBB, task, cfg)
-	require.Equal(t, http.StatusAccepted, bbRecorder.Code)
-	var bb map[string]any
-	require.NoError(t, json.Unmarshal(bbRecorder.Body.Bytes(), &bb))
-	require.Equal(t, "asyncimg_abc", bb["task_id"])
-	require.Equal(t, "https://api.example.com/v1/images/tasks_async/asyncimg_abc", bb["query_url"])
-	require.NotContains(t, bb, "code")
+	openaiRecorder := httptest.NewRecorder()
+	openaiContext, _ := gin.CreateTestContext(openaiRecorder)
+	h.writeSubmitResponse(openaiContext, service.AsyncImageProtocolBB, &service.AsyncImageTask{
+		TaskID: "asyncimg_oa", Platform: service.PlatformOpenAI,
+	}, cfg)
+	require.Equal(t, http.StatusAccepted, openaiRecorder.Code)
+	require.JSONEq(t, `{"task_id":"asyncimg_oa","query_url":"https://api.example.com/v1/images/tasks_async/asyncimg_oa"}`, openaiRecorder.Body.String())
 
 	scRecorder := httptest.NewRecorder()
 	scContext, _ := gin.CreateTestContext(scRecorder)
-	h.writeSubmitResponse(scContext, service.AsyncImageProtocolSC, task, cfg)
-	require.Equal(t, http.StatusOK, scRecorder.Code)
-	var sc map[string]any
-	require.NoError(t, json.Unmarshal(scRecorder.Body.Bytes(), &sc))
-	require.Equal(t, float64(200), sc["code"])
-	require.NotContains(t, sc, "task_id")
+	h.writeSubmitResponse(scContext, service.AsyncImageProtocolSC, &service.AsyncImageTask{
+		TaskID: "asyncimg_sc", Platform: service.PlatformGemini,
+	}, cfg)
+	require.Equal(t, http.StatusAccepted, scRecorder.Code)
+	require.JSONEq(t, `{"task_id":"asyncimg_sc","query_url":"https://api.example.com/v1/images/tasks_async/asyncimg_sc"}`, scRecorder.Body.String())
 }
 
 func TestAsyncImageFailureMessageExecutionTimeout(t *testing.T) {

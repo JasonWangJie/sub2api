@@ -70,8 +70,8 @@
                 <p class="api-lead">
                   {{
                     isEn
-                      ? 'POST generations_oa (text-to-image) / edits_oa (image-to-image). Accept: HTTP 202 + task_id.'
-                      : 'POST generations_oa（文生图）/ edits_oa（图生图）。受理成功：HTTP 202 + task_id。'
+                      ? 'POST generations_oa for both text-to-image and image-to-image (route by image_urls / multipart image). Accept: HTTP 202 + task_id.'
+                      : 'POST generations_oa 同时覆盖文生图与图生图（按 image_urls / multipart image 分流）。受理成功：HTTP 202 + task_id。'
                   }}
                 </p>
                 <AsyncImageApiEndpointCard
@@ -95,8 +95,8 @@
                 <p class="api-lead">
                   {{
                     isEn
-                      ? 'POST generations_sc for both text-to-image and image-to-image. Use image_urls for references; size holds the aspect ratio (e.g. 3:2). Accept: HTTP 200.'
-                      : '统一路径 generations_sc：文生图 / 图生图。图生图传 image_urls；size 表示宽高比（如 3:2）。受理成功：HTTP 200。'
+                      ? 'POST generations_sc for both text-to-image and image-to-image. Use image_urls for references; size holds the aspect ratio (e.g. 3:2). Accept: HTTP 202 (same body as OpenAI async).'
+                      : '统一路径 generations_sc：文生图 / 图生图。图生图传 image_urls；size 表示宽高比（如 3:2）。受理成功：HTTP 202（与 OpenAI 异步同格式）。'
                   }}
                 </p>
                 <AsyncImageApiEndpointCard
@@ -121,12 +121,7 @@
                   <div class="api-endpoint-head">
                     <span class="api-method api-method-get">{{ doc.query.method }}</span>
                     <code class="api-path">{{ doc.query.path }}</code>
-                    <span class="api-path-tag">OpenAI</span>
-                  </div>
-                  <div class="api-endpoint-head">
-                    <span class="api-method api-method-get">{{ doc.query.method }}</span>
-                    <code class="api-path">{{ doc.query.geminiPath }}</code>
-                    <span class="api-path-tag">Gemini</span>
+                    <span class="api-path-tag">OpenAI / Gemini</span>
                   </div>
                 </div>
                 <p class="api-lead mt-3">{{ doc.query.summary }}</p>

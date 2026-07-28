@@ -24,7 +24,6 @@ import (
 
 const (
 	asyncImageBBTaskPath          = "/v1/images/tasks_async/"
-	asyncImageSCTaskPath          = "/v1/tasks_sc/"
 	asyncImageSCMultipartOverhead = int64(1 << 20)
 	asyncImageMaxSignedUploadBody = int64(1<<63 - 1)
 )
@@ -365,22 +364,14 @@ func validateAsyncImageGroup(apiKey *service.APIKey, expectedPlatform string) er
 }
 
 func (h *DurableAsyncImageHandler) writeSubmitResponse(c *gin.Context, protocol string, task *service.AsyncImageTask, cfg service.AsyncImageRuntimeConfig) {
-	queryPath := asyncImageBBTaskPath + task.TaskID
-	if protocol == service.AsyncImageProtocolSC {
-		queryPath = asyncImageSCTaskPath + task.TaskID
-	}
-	queryURL := asyncImageAbsoluteURL(cfg.PublicBaseURL, queryPath)
+	// OpenAI and Gemini async both poll GET /v1/images/tasks_async/{task_id}.
+	// /v1/tasks_sc/{task_id} remains a compatibility alias with the same body.
+	queryURL := asyncImageAbsoluteURL(cfg.PublicBaseURL, asyncImageBBTaskPath+task.TaskID)
 	c.Header("Cache-Control", "no-store")
 	c.Header("Location", queryURL)
 	c.Header("Retry-After", "3")
-	if protocol == service.AsyncImageProtocolSC {
-		c.JSON(http.StatusOK, gin.H{
-			"code": 200, "message": "success",
-			"data": gin.H{"id": task.TaskID, "status": "pending", "type": "image", "progress": 0},
-		})
-		return
-	}
-	if task.Platform == service.PlatformOpenAI {
+	// Gemini SC accept/query bodies match OpenAI async (task_id + query_url / status + data).
+	if protocol == service.AsyncImageProtocolSC || task.Platform == service.PlatformOpenAI {
 		c.JSON(http.StatusAccepted, gin.H{"task_id": task.TaskID, "query_url": queryURL})
 		return
 	}
@@ -452,38 +443,8 @@ func (h *DurableAsyncImageHandler) writeBBQuery(c *gin.Context, details *service
 }
 
 func (h *DurableAsyncImageHandler) writeSCQuery(c *gin.Context, details *service.AsyncImageTaskDetails, cfg service.AsyncImageRuntimeConfig) {
-	task := details.Task
-	status := asyncImagePublicStatus(task, cfg)
-	data := gin.H{"id": task.TaskID, "status": status, "progress": task.Progress, "type": "image"}
-	switch status {
-	case "succeeded":
-		accesses, err := h.resolveResultAccess(c.Request.Context(), details.Results, cfg)
-		if err != nil {
-			h.writeProtocolError(c, service.AsyncImageProtocolSC, http.StatusServiceUnavailable, "storage_unavailable", "image results are temporarily unavailable")
-			return
-		}
-		images := make([]gin.H, 0, len(accesses))
-		for _, access := range accesses {
-			expiresAt := int64(0)
-			if !access.ExpiresAt.IsZero() {
-				expiresAt = access.ExpiresAt.Unix()
-			}
-			images = append(images, gin.H{"url": []string{access.URL}, "expires_at": expiresAt})
-		}
-		data["status"], data["progress"] = "completed", 100
-		data["result"] = gin.H{"images": images, "videos": []any{}}
-	case "failed":
-		message := asyncImageFailureMessage(task)
-		data["error"] = gin.H{"message": message, "type": "task_failed"}
-		data["failReason"] = message
-	case "queued":
-		data["status"] = "pending"
-		c.Header("Retry-After", "3")
-	default:
-		data["status"] = "processing"
-		c.Header("Retry-After", "3")
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
+	// Gemini SC query responses use the same OpenAI async shape.
+	h.writeBBQuery(c, details, cfg)
 }
 
 func (h *DurableAsyncImageHandler) resolveResultAccess(ctx context.Context, results []service.AsyncImageResult, cfg service.AsyncImageRuntimeConfig) ([]service.ObjectAccess, error) {
@@ -943,10 +904,7 @@ func (h *DurableAsyncImageHandler) writeError(c *gin.Context, protocol string, e
 }
 
 func (h *DurableAsyncImageHandler) writeProtocolError(c *gin.Context, protocol string, status int, code, message string) {
+	_ = protocol
 	c.Header("Cache-Control", "no-store")
-	if protocol == service.AsyncImageProtocolSC {
-		c.JSON(status, gin.H{"code": status, "message": message, "data": nil, "error": gin.H{"type": code, "message": message}})
-		return
-	}
 	c.JSON(status, gin.H{"error": gin.H{"type": code, "code": code, "message": message}})
 }

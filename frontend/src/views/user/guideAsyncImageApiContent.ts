@@ -51,9 +51,9 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       overview: {
         bullets: [
           'Only OpenAI / Gemini image groups with async image generation enabled.',
-          'OpenAI accept: HTTP 202 + task_id. Gemini (SC) accept: HTTP 200 + data.id.',
+          'OpenAI / Gemini accept: HTTP 202 + task_id + query_url.',
           'On success, result URLs are OSS links valid for 1 day — download promptly.',
-          'Poll with the same API key that submitted the job (OpenAI: tasks_async; Gemini: tasks_sc).',
+          'Poll with GET /v1/images/tasks_async/{task_id} using the same API key (OpenAI and Gemini share this path).',
         ],
       },
       auth: {
@@ -66,14 +66,14 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         title: 'OpenAI · Text-to-image',
         method: 'POST' as const,
         path: `${v1}/images/generations_oa`,
-        summary: 'Create images from a text prompt. No reference images.',
+        summary: 'Same path as image-to-image. Omit image_urls (or pass null / []) for text-to-image.',
         contentType: 'application/json',
         params: [
           { name: 'model', required: true, type: 'string', desc: 'Image model available for the group.' },
           { name: 'prompt', required: true, type: 'string', desc: 'Text description of the image.' },
           { name: 'n', required: false, type: 'number', desc: 'Number of images (model-dependent).' },
           { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K preferred.' },
-          { name: 'aspect_ratio', required: false, type: 'string', desc: '1:1, 3:2, 2:3, 16:9, 9:16.' },
+          { name: 'aspect_ratio', required: false, type: 'string', desc: '1:1, 3:2, 2:3, 16:9, 9:16, auto.' },
           { name: 'size', required: false, type: 'string', desc: 'Compat: ratio (9:16), WxH (1024x1024), auto, or 2K as resolution.' },
           { name: 'quality', required: false, type: 'string', desc: 'e.g. high / medium / low (model-dependent).' },
           { name: 'background', required: false, type: 'string', desc: 'Background option if the model supports it.' },
@@ -97,16 +97,16 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         id: 'openai-i2i',
         title: 'OpenAI · Image-to-image',
         method: 'POST' as const,
-        path: `${v1}/images/edits_oa`,
-        summary: 'Edit / restyle with reference images. JSON (image_urls) or multipart file upload.',
+        path: `${v1}/images/generations_oa`,
+        summary: 'Same path as text-to-image. Provide non-empty image_urls (JSON) or multipart image file to route to image-to-image.',
         contentType: 'application/json  or  multipart/form-data',
         params: [
           { name: 'model', required: true, type: 'string', desc: 'Image model available for the group.' },
           { name: 'prompt', required: true, type: 'string', desc: 'Edit instruction.' },
-          { name: 'image_urls', required: true, type: 'string[]', desc: 'Required in JSON mode: HTTPS reference URLs.' },
-          { name: 'image', required: true, type: 'file', desc: 'Required in multipart mode: form field name image.' },
+          { name: 'image_urls', required: false, type: 'string[]', desc: 'JSON mode: at least one non-empty HTTPS URL (image-to-image). Mutually exclusive with multipart image.' },
+          { name: 'image', required: false, type: 'file', desc: 'Multipart mode: form field name image (image-to-image). Mutually exclusive with image_urls.' },
           { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K.' },
-          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Same as text-to-image; auto when refs allow.' },
+          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Same as text-to-image; auto maps to upstream size=auto.' },
           { name: 'mask.image_url', required: false, type: 'string', desc: 'Optional mask URL for masked edits.' },
         ],
         bodyExample: `{
@@ -123,9 +123,10 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
         notes: [
-          'JSON uses image_urls (string array). Legacy images[].image_url is also accepted.',
-          'images[].file_id is not supported.',
+          'Image-to-image requires either JSON image_urls or multipart image (choose one mode).',
+          'JSON uses image_urls as a string array of HTTPS URLs.',
           'Multipart: -F model=... -F prompt=... -F image=@file.png',
+          'Reference formats: PNG / JPG / WEBP.',
         ],
       },
       geminiT2I: {
@@ -133,14 +134,14 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         title: 'Gemini · Text-to-image',
         method: 'POST' as const,
         path: `${v1}/images/generations_sc`,
-        summary: 'Simple JSON body. Omit image_urls for text-to-image. Accept: HTTP 200.',
+        summary: 'Simple JSON body. Omit image_urls for text-to-image. Accept: HTTP 202 (same body as OpenAI async).',
         contentType: 'application/json',
         params: [
           { name: 'model', required: true, type: 'string', desc: 'Gemini image model mapped for the group.' },
           { name: 'prompt', required: true, type: 'string', desc: 'Text description of the image.' },
           { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K.' },
           { name: 'size', required: false, type: 'string', desc: 'Aspect ratio alias: 1:1, 3:2, 16:9, … Or tier 2K when resolution is empty.' },
-          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Same ratios as size. auto only when image_urls is present.' },
+          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Same ratios as size, including auto (omits upstream ratio).' },
         ],
         bodyExample: `{
   "model": "gemini-3-pro-image-preview",
@@ -149,17 +150,11 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "size": "16:9"
 }`,
         acceptExample: `{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "id": "asyncimg_0123456789abcdef",
-    "status": "pending",
-    "type": "image",
-    "progress": 0
-  }
+  "task_id": "asyncimg_0123456789abcdef",
+  "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
         notes: [
-          'Query with GET /v1/tasks_sc/{task_id} using the same API key.',
+          'Query with GET /v1/images/tasks_async/{task_id} using the same API key (shared with OpenAI).',
         ],
       },
       geminiI2I: {
@@ -167,7 +162,7 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         title: 'Gemini · Image-to-image',
         method: 'POST' as const,
         path: `${v1}/images/generations_sc`,
-        summary: 'Same path as text-to-image. Pass one or more reference URLs in image_urls. Accept: HTTP 200.',
+        summary: 'Same path as text-to-image. Pass one or more reference URLs in image_urls. Accept: HTTP 202.',
         contentType: 'application/json',
         params: [
           { name: 'model', required: true, type: 'string', desc: 'Gemini image model.' },
@@ -175,7 +170,7 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
           { name: 'image_urls', required: true, type: 'string[]', desc: 'HTTPS reference image URLs (PNG / JPG / WEBP).' },
           { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K.' },
           { name: 'size', required: false, type: 'string', desc: 'Aspect ratio, e.g. 3:2. Equivalent to aspect_ratio.' },
-          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Optional; size is preferred by many clients. auto allowed with references.' },
+          { name: 'aspect_ratio', required: false, type: 'string', desc: 'Optional; size is preferred by many clients. auto omits upstream ratio.' },
         ],
         bodyExample: `{
   "image_urls": [
@@ -187,19 +182,13 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "resolution": "4K"
 }`,
         acceptExample: `{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "id": "asyncimg_0123456789abcdef",
-    "status": "pending",
-    "type": "image",
-    "progress": 0
-  }
+  "task_id": "asyncimg_0123456789abcdef",
+  "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
         notes: [
           'image_urls order is 图1, 图2, … in the prompt.',
           'size / aspect_ratio are optional; omit to use upstream default ratio.',
-          'Query: GET /v1/tasks_sc/{id} — success status is completed with result.images[].url (OSS, 1 day).',
+          'Query: GET /v1/images/tasks_async/{id} — same path and body as OpenAI (succeeded + data[].url).',
         ],
       },
       query: {
@@ -207,13 +196,12 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         title: 'Query task status',
         method: 'GET' as const,
         path: `${v1}/images/tasks_async/{task_id}`,
-        geminiPath: `${v1}/tasks_sc/{task_id}`,
-        summary: 'Poll every 30–60 seconds with the same API key. OpenAI uses tasks_async; Gemini uses tasks_sc. HTTP 200 does not mean success — check status.',
+        summary: 'OpenAI and Gemini share this path. Poll every 30–60 seconds with the same API key. Check status, not only HTTP 200.',
         statuses: [
-          { status: 'queued / pending', meaning: 'Accepted, waiting for worker' },
+          { status: 'queued', meaning: 'Accepted, waiting for worker' },
           { status: 'processing', meaning: 'Upstream / upload / billing in progress' },
-          { status: 'succeeded / completed', meaning: 'Done — read OSS URLs (valid 1 day)' },
-          { status: 'failed', meaning: 'Terminal failure' },
+          { status: 'succeeded', meaning: 'Done — read data[].url (OSS, valid 1 day)' },
+          { status: 'failed', meaning: 'Terminal failure — read fail_reason' },
         ],
         queuedExample: `{
   "status": "queued",
@@ -275,9 +263,9 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
     overview: {
       bullets: [
         '仅「已开启异步生图」的 OpenAI / Gemini 系列的生图分组可用。',
-        'OpenAI 受理：HTTP 202 + task_id；Gemini（SC）受理：HTTP 200 + data.id。',
+        'OpenAI / Gemini 受理：HTTP 202 + task_id + query_url。',
         '成功后结果 URL 为 OSS 链接，有效期 1 天，请及时下载转存。',
-        '查询必须使用提交该任务的同一个 API Key（OpenAI：tasks_async；Gemini：tasks_sc）。',
+        '查询统一使用 GET /v1/images/tasks_async/{task_id}，且必须使用提交该任务的同一个 API Key。',
       ],
     },
     auth: {
@@ -290,15 +278,15 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       title: 'OpenAI · 文生图',
       method: 'POST' as const,
       path: `${v1}/images/generations_oa`,
-      summary: '仅文本提示词生成图片，不携带参考图。',
+      summary: '与图生图同一路径。不传 image_urls（或传 null / []）即文生图。',
       contentType: 'application/json',
       params: [
         { name: 'model', required: true, type: 'string', desc: '分组可用的图片模型名。' },
         { name: 'prompt', required: true, type: 'string', desc: '画面描述提示词。' },
         { name: 'n', required: false, type: 'number', desc: '生成张数（受模型能力限制）。' },
         { name: 'resolution', required: false, type: 'string', desc: '推荐：1K / 2K / 4K。' },
-        { name: 'aspect_ratio', required: false, type: 'string', desc: '1:1、3:2、2:3、16:9、9:16。' },
-        { name: 'size', required: false, type: 'string', desc: '兼容字段：比例（如 9:16）、WxH（如 1024x1024）、auto，或档位（如 2K）。' },
+        { name: 'aspect_ratio', required: false, type: 'string', desc: '1:1、3:2、2:3、16:9、9:16、auto。' },
+        { name: 'size', required: false, type: 'string', desc: '可写：比例（如 9:16）、WxH（如 1024x1024）、auto，或档位（如 2K）。' },
         { name: 'quality', required: false, type: 'string', desc: '如 high / medium / low（视模型支持）。' },
         { name: 'background', required: false, type: 'string', desc: '背景相关参数（视模型支持）。' },
         { name: 'output_format', required: false, type: 'string', desc: '输出格式：png / jpeg / webp（视模型支持）。' },
@@ -321,16 +309,16 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       id: 'openai-i2i',
       title: 'OpenAI · 图生图',
       method: 'POST' as const,
-      path: `${v1}/images/edits_oa`,
-      summary: '带参考图改图。支持 JSON（image_urls）或 multipart 文件上传。',
+      path: `${v1}/images/generations_oa`,
+      summary: '与文生图同一路径。JSON 传入非空 image_urls，或 multipart 上传 image 文件，即走图生图。',
       contentType: 'application/json  或  multipart/form-data',
       params: [
         { name: 'model', required: true, type: 'string', desc: '分组可用的图片模型名。' },
         { name: 'prompt', required: true, type: 'string', desc: '改图指令。' },
-        { name: 'image_urls', required: true, type: 'string[]', desc: 'JSON 模式必填：参考图 HTTPS URL 数组。' },
-        { name: 'image', required: true, type: 'file', desc: 'multipart 模式必填：表单文件字段名 image。' },
+        { name: 'image_urls', required: false, type: 'string[]', desc: 'JSON 模式：至少一个非空 HTTPS URL（图生图）。与 multipart 的 image 二选一。' },
+        { name: 'image', required: false, type: 'file', desc: 'multipart 模式：表单文件字段名 image（图生图）。与 image_urls 二选一。' },
         { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K。' },
-        { name: 'aspect_ratio', required: false, type: 'string', desc: '同文生图；有参考图时可按模型支持使用 auto。' },
+        { name: 'aspect_ratio', required: false, type: 'string', desc: '同文生图；auto 时上游 size 为 auto。' },
         { name: 'mask.image_url', required: false, type: 'string', desc: '可选遮罩图 URL（局部编辑）。' },
       ],
       bodyExample: `{
@@ -347,8 +335,8 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
       notes: [
-        'JSON 使用 image_urls（字符串数组）；也兼容旧字段 images[].image_url。',
-        '不支持 images[].file_id。',
+        '图生图需二选一：JSON 传 image_urls，或 multipart 上传 image。',
+        'JSON 使用 image_urls（HTTPS URL 字符串数组）。',
         'multipart 示例：-F model=... -F prompt=... -F image=@reference.png',
         '参考图格式建议：PNG / JPG / WEBP。',
       ],
@@ -358,14 +346,14 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       title: 'Gemini · 文生图',
       method: 'POST' as const,
       path: `${v1}/images/generations_sc`,
-      summary: '简洁 JSON 请求体。文生图不传 image_urls。受理响应 HTTP 200。',
+      summary: '简洁 JSON 请求体。文生图不传 image_urls。受理响应 HTTP 202（与 OpenAI 异步同格式）。',
       contentType: 'application/json',
       params: [
         { name: 'model', required: true, type: 'string', desc: '分组映射的 Gemini 图片模型。' },
         { name: 'prompt', required: true, type: 'string', desc: '图片描述提示词。' },
         { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K。' },
         { name: 'size', required: false, type: 'string', desc: '比例别名：1:1、3:2、16:9 等；未传 resolution 时也可写 2K 表示清晰度。' },
-        { name: 'aspect_ratio', required: false, type: 'string', desc: '与 size 同系列比例。文生图不可用 auto。' },
+        { name: 'aspect_ratio', required: false, type: 'string', desc: '与 size 同系列比例，含 auto（省略上游比例，由模型决定）。' },
       ],
       bodyExample: `{
   "model": "gemini-3-pro-image-preview",
@@ -374,17 +362,11 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "size": "16:9"
 }`,
       acceptExample: `{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "id": "asyncimg_0123456789abcdef",
-    "status": "pending",
-    "type": "image",
-    "progress": 0
-  }
+  "task_id": "asyncimg_0123456789abcdef",
+  "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
       notes: [
-        '查询请使用 GET /v1/tasks_sc/{task_id}，与提交使用同一 API Key。',
+        '查询请使用 GET /v1/images/tasks_async/{task_id}（与 OpenAI 共用同一路径与响应格式）。',
       ],
     },
     geminiI2I: {
@@ -392,7 +374,7 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       title: 'Gemini · 图生图',
       method: 'POST' as const,
       path: `${v1}/images/generations_sc`,
-      summary: '与文生图同一路径。通过 image_urls 传入一张或多张参考图。受理响应 HTTP 200。',
+      summary: '与文生图同一路径。通过 image_urls 传入一张或多张参考图。受理响应 HTTP 202。',
       contentType: 'application/json',
       params: [
         { name: 'model', required: true, type: 'string', desc: 'Gemini 图片模型。' },
@@ -400,7 +382,7 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
         { name: 'image_urls', required: true, type: 'string[]', desc: '参考图公网 HTTPS URL（PNG / JPG / WEBP）。' },
         { name: 'resolution', required: false, type: 'string', desc: '1K / 2K / 4K。' },
         { name: 'size', required: false, type: 'string', desc: '宽高比，例如 3:2；与 aspect_ratio 等价。' },
-        { name: 'aspect_ratio', required: false, type: 'string', desc: '可选；多数客户端优先用 size。有参考图时可用 auto。' },
+        { name: 'aspect_ratio', required: false, type: 'string', desc: '可选；多数客户端优先用 size。可用 auto（省略上游比例）。' },
       ],
       bodyExample: `{
   "image_urls": [
@@ -412,19 +394,13 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
   "resolution": "4K"
 }`,
       acceptExample: `{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "id": "asyncimg_0123456789abcdef",
-    "status": "pending",
-    "type": "image",
-    "progress": 0
-  }
+  "task_id": "asyncimg_0123456789abcdef",
+  "query_url": "${v1}/images/tasks_async/asyncimg_0123456789abcdef"
 }`,
       notes: [
         'image_urls 顺序对应提示词中的图1、图2…',
         'size / aspect_ratio 可选；不传则使用上游默认比例。',
-        '查询：GET /v1/tasks_sc/{id}；成功状态为 completed，结果在 result.images[].url（OSS，有效期 1 天）。',
+        '查询：GET /v1/images/tasks_async/{id}（与 OpenAI 相同）；成功状态为 succeeded，结果在 data[].url。',
       ],
     },
     query: {
@@ -432,13 +408,12 @@ export function getAsyncImageApiDoc(locale: string, apiRoot: string) {
       title: '任务状态查询',
       method: 'GET' as const,
       path: `${v1}/images/tasks_async/{task_id}`,
-      geminiPath: `${v1}/tasks_sc/{task_id}`,
-      summary: '建议每 30～60 秒轮询一次。OpenAI 用 tasks_async，Gemini 用 tasks_sc。HTTP 200 不代表成功，必须以 status 为准。',
+      summary: 'OpenAI 与 Gemini 共用此路径。建议每 30～60 秒轮询一次；HTTP 200 不代表成功，必须以 status 为准。',
       statuses: [
-        { status: 'queued / pending', meaning: '已受理，等待执行' },
+        { status: 'queued', meaning: '已受理，等待执行' },
         { status: 'processing', meaning: '上游生成 / 上传 OSS / 计费确认中' },
-        { status: 'succeeded / completed', meaning: '成功，读取 OSS URL（有效期 1 天）' },
-        { status: 'failed', meaning: '失败终态' },
+        { status: 'succeeded', meaning: '成功，读取 data[].url（有效期 1 天）' },
+        { status: 'failed', meaning: '失败终态，读取 fail_reason' },
       ],
       queuedExample: `{
   "status": "queued",

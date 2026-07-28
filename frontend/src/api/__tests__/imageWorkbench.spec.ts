@@ -45,7 +45,7 @@ describe('image workbench async submissions', () => {
     await prepared.send()
 
     expect(calls).toHaveLength(2)
-    expect(calls[0].url).toContain('/v1/images/edits_oa')
+    expect(calls[0].url).toContain('/v1/images/generations_oa')
     const firstHeaders = calls[0].init.headers as Record<string, string>
     const secondHeaders = calls[1].init.headers as Record<string, string>
     expect(firstHeaders['Idempotency-Key']).toBe('same-operation-key')
@@ -112,7 +112,7 @@ describe('image workbench async submissions', () => {
     const calls: RequestInit[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init = {}) => {
       calls.push(init)
-      return jsonResponse({ code: 200, data: { id: 'asyncimg_gemini', status: 'pending' } })
+      return jsonResponse({ task_id: 'asyncimg_gemini', query_url: '/v1/images/tasks_async/asyncimg_gemini', status: 'queued' })
     })
     const prepared = prepareGeminiAsyncSubmission('sk-gemini', {
       model: 'gemini-image',

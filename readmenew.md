@@ -55,9 +55,9 @@
 | API Key 当前分组 | 执行模式 | 实际入口 |
 |---|---|---|
 | OpenAI，异步开关关闭 | 实时 | `/v1/images/generations`、`/v1/images/edits` |
-| OpenAI，异步开关开启 | 异步 | `/v1/images/generations_oa`、`/v1/images/edits_oa` |
+| OpenAI，异步开关开启 | 异步 | `/v1/images/generations_oa`（有有效 `image_urls` / 参考图 → 图生图，否则文生图）；查询 `/v1/images/tasks_async/{task_id}` |
 | Gemini，异步开关关闭 | 实时 | `/v1beta/models/{model}:generateContent` |
-| Gemini，异步开关开启 | 异步 | `/v1/uploads/images_sc`、`/v1/images/generations_sc` |
+| Gemini，异步开关开启 | 异步 | `/v1/uploads/images_sc`、`/v1/images/generations_sc`；查询同 OpenAI：`/v1/images/tasks_async/{task_id}` |
 | Grok 图片分组 | 仅实时 | 现有 `/v1/images/generations`、`/v1/images/edits` |
 | Antigravity 或其他平台 | 不可用 | 不在图片工作台显示为可用 Key |
 

@@ -45,7 +45,7 @@ func openAIImageWorkbenchResolutions() []string {
 }
 
 func openAIImageWorkbenchAspectRatios() []string {
-	return []string{"1:1", "3:2", "2:3", "16:9", "9:16"}
+	return []string{"auto", "1:1", "3:2", "2:3", "16:9", "9:16"}
 }
 
 func normalizeOpenAIImageResolution(raw string) string {
@@ -112,7 +112,11 @@ func MapOpenAIImageDimensions(resolution, aspectRatio string) (string, error) {
 	if rawAspect != "" && aspectRatio == "" {
 		return "", fmt.Errorf("unsupported_image_dimensions: unsupported aspect_ratio %q", rawAspect)
 	}
-	if aspectRatio == "" || aspectRatio == "auto" {
+	if aspectRatio == "auto" {
+		// Upstream OpenAI Images accepts size=auto and picks dimensions itself.
+		return "auto", nil
+	}
+	if aspectRatio == "" {
 		aspectRatio = "1:1"
 	}
 	byRatio, ok := openAIImageSizeByResolutionAspect[resolution]

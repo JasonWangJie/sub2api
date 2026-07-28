@@ -487,10 +487,7 @@ const sizeOptions = computed(() => {
   if (!capabilities.value) return []
   return usesResolutionAspect.value ? capabilities.value.resolutions : capabilities.value.sizes
 })
-const aspectRatioOptions = computed(() => {
-  const options = capabilities.value?.aspect_ratios || []
-  return referenceImages.value.length ? options : options.filter((item) => item !== 'auto')
-})
+const aspectRatioOptions = computed(() => capabilities.value?.aspect_ratios || [])
 const qualityOptions = computed(() => capabilities.value?.qualities || [])
 const formatOptions = computed(() => capabilities.value?.output_formats || [])
 const backgroundOptions = computed(() => capabilities.value?.backgrounds || [])
@@ -655,8 +652,7 @@ function applyCapabilityDefaults(next: ImageWorkbenchCapabilities) {
   if (!modelIDs.includes(form.model)) form.model = modelIDs[0] || ''
   const sizes = usesResolutionAspectFor(next) ? next.resolutions : next.sizes
   if (!sizes.includes(form.size)) form.size = sizes[0] || ''
-  const ratios = next.aspect_ratios.filter((ratio) => ratio !== 'auto' || referenceImages.value.length > 0)
-  if (!ratios.includes(form.aspectRatio)) form.aspectRatio = ratios[0] || ''
+  if (!next.aspect_ratios.includes(form.aspectRatio)) form.aspectRatio = next.aspect_ratios[0] || ''
   if (!next.qualities.includes(form.quality)) form.quality = next.qualities[0] || ''
   if (!next.output_formats.includes(form.format)) form.format = next.output_formats[0] || ''
   if (!next.backgrounds.includes(form.background)) form.background = next.backgrounds[0] || ''
@@ -691,23 +687,18 @@ async function onReferenceChange(event: Event) {
     referenceImages.value.push({ id: randomID('ref'), file, previewUrl: URL.createObjectURL(file) })
   }
   if (files.length > room) appStore.showError(t('imageWorkbench.referenceLimit', { n: maxReferences.value }))
-  if (form.aspectRatio === 'auto' && !referenceImages.value.length) form.aspectRatio = aspectRatioOptions.value[0] || ''
 }
 
 function removeReference(id: string) {
   const target = referenceImages.value.find((item) => item.id === id)
   if (target) URL.revokeObjectURL(target.previewUrl)
   referenceImages.value = referenceImages.value.filter((item) => item.id !== id)
-  if (!referenceImages.value.length && form.aspectRatio === 'auto') form.aspectRatio = aspectRatioOptions.value[0] || ''
 }
 
 function clearReferences() {
   referenceImages.value.forEach((item) => URL.revokeObjectURL(item.previewUrl))
   referenceImages.value = []
   if (fileInput.value) fileInput.value.value = ''
-  if (form.aspectRatio === 'auto') {
-    form.aspectRatio = (capabilities.value?.aspect_ratios || []).find((ratio) => ratio !== 'auto') || ''
-  }
 }
 
 async function startGenerate() {

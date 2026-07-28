@@ -218,6 +218,17 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 		}
 	}
 
+	// Unified OpenAI images entry: generations path auto-routes to edits when
+	// image_urls (or multipart image uploads) actually contain reference inputs.
+	// Missing / null / [] / all-empty image_urls stay text-to-image.
+	promoteOpenAIImagesEditsFromInputs(req)
+	if req.IsEdits() && len(req.Uploads) == 0 && len(req.InputImageURLs) == 0 {
+		if req.Multipart {
+			return nil, fmt.Errorf("image_urls or image file is required")
+		}
+		return nil, fmt.Errorf("image_urls is required")
+	}
+
 	applyOpenAIImagesDefaults(req)
 	if err := validateOpenAIImagesModel(req.Model); err != nil {
 		return nil, err
@@ -230,6 +241,17 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
+}
+
+// promoteOpenAIImagesEditsFromInputs upgrades a generations request to edits when
+// the client supplied usable reference images (URL or multipart upload).
+func promoteOpenAIImagesEditsFromInputs(req *OpenAIImagesRequest) {
+	if req == nil || req.IsEdits() {
+		return
+	}
+	if len(req.InputImageURLs) > 0 || len(req.Uploads) > 0 {
+		req.Endpoint = openAIImagesEditsEndpoint
+	}
 }
 
 func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
@@ -291,20 +313,21 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		v := int(partialImages.Int())
 		req.PartialImages = &v
 	}
-	if req.IsEdits() {
-		if err := parseOpenAIImagesEditReferenceURLs(body, req); err != nil {
+	// Parse reference inputs on both generations and edits paths so a single
+	// generations endpoint can decide text-to-image vs image-to-image by whether
+	// image_urls actually has values.
+	allowEmptyRefs := !req.IsEdits()
+	if req.IsEdits() || gjson.GetBytes(body, "image_urls").Exists() || gjson.GetBytes(body, "images").Exists() {
+		if err := parseOpenAIImagesEditReferenceURLs(body, req, allowEmptyRefs); err != nil {
 			return err
 		}
-		if maskImageURL := strings.TrimSpace(gjson.GetBytes(body, "mask.image_url").String()); maskImageURL != "" {
-			req.MaskImageURL = maskImageURL
-			req.HasMask = true
-		}
-		if gjson.GetBytes(body, "mask.file_id").Exists() {
-			return fmt.Errorf("mask.file_id is not supported (use mask.image_url instead)")
-		}
-		if len(req.InputImageURLs) == 0 {
-			return fmt.Errorf("image_urls is required")
-		}
+	}
+	if maskImageURL := strings.TrimSpace(gjson.GetBytes(body, "mask.image_url").String()); maskImageURL != "" {
+		req.MaskImageURL = maskImageURL
+		req.HasMask = true
+	}
+	if gjson.GetBytes(body, "mask.file_id").Exists() {
+		return fmt.Errorf("mask.file_id is not supported (use mask.image_url instead)")
 	}
 	req.HasNativeOptions = hasOpenAINativeImageOptions(func(path string) bool {
 		return gjson.GetBytes(body, path).Exists()
@@ -314,7 +337,9 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 
 // parseOpenAIImagesEditReferenceURLs accepts image_urls as a string array, and
 // keeps legacy images[].image_url objects for compatibility.
-func parseOpenAIImagesEditReferenceURLs(body []byte, req *OpenAIImagesRequest) error {
+// When allowEmpty is true (generations unified entry), missing/null/[]/blank
+// values are ignored so the request can stay text-to-image.
+func parseOpenAIImagesEditReferenceURLs(body []byte, req *OpenAIImagesRequest, allowEmpty bool) error {
 	if req == nil {
 		return nil
 	}
@@ -322,6 +347,9 @@ func parseOpenAIImagesEditReferenceURLs(body []byte, req *OpenAIImagesRequest) e
 	appendURL := func(raw string) error {
 		imageURL := strings.TrimSpace(raw)
 		if imageURL == "" {
+			if allowEmpty {
+				return nil
+			}
 			return fmt.Errorf("image_urls must not contain empty values")
 		}
 		if _, ok := seen[imageURL]; ok {
@@ -333,21 +361,35 @@ func parseOpenAIImagesEditReferenceURLs(body []byte, req *OpenAIImagesRequest) e
 	}
 
 	if urls := gjson.GetBytes(body, "image_urls"); urls.Exists() {
-		if !urls.IsArray() {
+		if urls.Type == gjson.Null {
+			if !allowEmpty {
+				return fmt.Errorf("image_urls must not be empty")
+			}
+		} else if !urls.IsArray() {
 			return fmt.Errorf("invalid image_urls field type")
-		}
-		if len(urls.Array()) == 0 {
-			return fmt.Errorf("image_urls must not be empty")
-		}
-		for _, item := range urls.Array() {
-			if item.Type != gjson.String {
-				return fmt.Errorf("image_urls must be an array of URL strings")
+		} else {
+			arr := urls.Array()
+			if len(arr) == 0 {
+				if !allowEmpty {
+					return fmt.Errorf("image_urls must not be empty")
+				}
+			} else {
+				before := len(req.InputImageURLs)
+				for _, item := range arr {
+					if item.Type != gjson.String {
+						return fmt.Errorf("image_urls must be an array of URL strings")
+					}
+					if err := appendURL(item.String()); err != nil {
+						return err
+					}
+				}
+				if len(req.InputImageURLs) > before {
+					req.NeedsInputRewrite = true
+				} else if !allowEmpty {
+					return fmt.Errorf("image_urls must not be empty")
+				}
 			}
-			if err := appendURL(item.String()); err != nil {
-				return err
-			}
 		}
-		req.NeedsInputRewrite = true
 	}
 
 	if images := gjson.GetBytes(body, "images"); images.Exists() {
@@ -458,7 +500,12 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "image_urls":
 			value = strings.TrimSpace(value)
 			if value == "" {
-				return fmt.Errorf("image_urls must not contain empty values")
+				// Unified generations entry: empty image_urls form field is ignored
+				// (text-to-image). Strict edits path still rejects empty values.
+				if req.IsEdits() {
+					return fmt.Errorf("image_urls must not contain empty values")
+				}
+				continue
 			}
 			req.InputImageURLs = append(req.InputImageURLs, value)
 			req.NeedsInputRewrite = true
@@ -515,9 +562,6 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		}
 	}
 
-	if req.IsEdits() && len(req.Uploads) == 0 && len(req.InputImageURLs) == 0 {
-		return fmt.Errorf("image_urls or image file is required")
-	}
 	return nil
 }
 

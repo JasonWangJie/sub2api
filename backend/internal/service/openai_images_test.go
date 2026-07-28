@@ -396,6 +396,95 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSONEditURLs(t *testing.T)
 	require.Equal(t, "https://example.com/source.png", gjson.GetBytes(rewritten, "images.0.image_url").String())
 }
 
+func TestParseOpenAIImagesRequest_GenerationsOARoutesByImageURLs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{}
+
+	t.Run("missing_image_urls_is_text_to_image", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2","prompt":"a cat on the beach"}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		require.False(t, parsed.IsEdits())
+		require.Equal(t, openAIImagesGenerationsEndpoint, parsed.Endpoint)
+		require.Empty(t, parsed.InputImageURLs)
+	})
+
+	t.Run("empty_array_image_urls_is_text_to_image", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2","prompt":"a cat","image_urls":[]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		require.False(t, parsed.IsEdits())
+		require.Empty(t, parsed.InputImageURLs)
+	})
+
+	t.Run("null_image_urls_is_text_to_image", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2","prompt":"a cat","image_urls":null}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		require.False(t, parsed.IsEdits())
+		require.Empty(t, parsed.InputImageURLs)
+	})
+
+	t.Run("blank_string_image_urls_is_text_to_image", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2","prompt":"a cat","image_urls":["", "  "]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		require.False(t, parsed.IsEdits())
+		require.Empty(t, parsed.InputImageURLs)
+	})
+
+	t.Run("non_empty_image_urls_is_image_to_image", func(t *testing.T) {
+		body := []byte(`{
+			"model":"gpt-image-2",
+			"prompt":"replace the background",
+			"image_urls":["https://example.com/source.png"]
+		}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.NoError(t, err)
+		require.True(t, parsed.IsEdits())
+		require.Equal(t, openAIImagesEditsEndpoint, parsed.Endpoint)
+		require.Equal(t, []string{"https://example.com/source.png"}, parsed.InputImageURLs)
+		require.True(t, parsed.NeedsInputRewrite)
+	})
+
+	t.Run("edits_oa_still_requires_image_urls", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-image-2","prompt":"replace the background","image_urls":[]}`)
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/edits_oa", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = req
+
+		_, err := svc.ParseOpenAIImagesRequest(c, body)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "image_urls")
+	})
+}
+
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_LegacyImagesCompat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{
