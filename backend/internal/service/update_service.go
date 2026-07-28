@@ -30,7 +30,11 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+
+	// Fork release source (install / in-app update / rollback)
+	forkGithubRepo = "JasonWangJie/sub2api"
+	// Upstream author — notify only; never download/apply from here
+	upstreamGithubRepo = "Wei-Shaw/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -43,6 +47,9 @@ const (
 	maxRollbackVersions = 3
 	// Fetch a few extra releases so filtering (current/newer/prerelease) still leaves enough candidates
 	rollbackFetchPageSize = 15
+
+	// Version compare supports fork four-segment tags (e.g. 0.1.162.1)
+	maxVersionParts = 4
 )
 
 // UpdateCache defines cache operations for update service
@@ -79,13 +86,17 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 
 // UpdateInfo contains update information
 type UpdateInfo struct {
-	CurrentVersion string       `json:"current_version"`
-	LatestVersion  string       `json:"latest_version"`
-	HasUpdate      bool         `json:"has_update"`
-	ReleaseInfo    *ReleaseInfo `json:"release_info,omitempty"`
-	Cached         bool         `json:"cached"`
-	Warning        string       `json:"warning,omitempty"`
-	BuildType      string       `json:"build_type"` // "source" or "release"
+	CurrentVersion        string       `json:"current_version"`
+	LatestVersion         string       `json:"latest_version"` // fork latest (apply target)
+	HasUpdate             bool         `json:"has_update"`     // badge: fork or upstream ahead
+	HasForkUpdate         bool         `json:"has_fork_update"`
+	HasUpstreamUpdate     bool         `json:"has_upstream_update"`
+	UpstreamLatestVersion string       `json:"upstream_latest_version,omitempty"`
+	UpstreamReleaseInfo   *ReleaseInfo `json:"upstream_release_info,omitempty"`
+	ReleaseInfo           *ReleaseInfo `json:"release_info,omitempty"` // fork release
+	Cached                bool         `json:"cached"`
+	Warning               string       `json:"warning,omitempty"`
+	BuildType             string       `json:"build_type"` // "source" or "release"
 }
 
 // ReleaseInfo contains GitHub release details
@@ -147,11 +158,13 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			return cached, nil
 		}
 		return &UpdateInfo{
-			CurrentVersion: s.currentVersion,
-			LatestVersion:  s.currentVersion,
-			HasUpdate:      false,
-			Warning:        err.Error(),
-			BuildType:      s.buildType,
+			CurrentVersion:    s.currentVersion,
+			LatestVersion:     s.currentVersion,
+			HasUpdate:         false,
+			HasForkUpdate:     false,
+			HasUpstreamUpdate: false,
+			Warning:           err.Error(),
+			BuildType:         s.buildType,
 		}, nil
 	}
 
@@ -160,16 +173,19 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	return info, nil
 }
 
-// PerformUpdate downloads and applies the update
-// Uses atomic file replacement pattern for safe in-place updates
+// PerformUpdate downloads and applies the update from the Fork release only.
+// Uses atomic file replacement pattern for safe in-place updates.
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	info, err := s.CheckUpdate(ctx, true)
 	if err != nil {
 		return err
 	}
 
-	if !info.HasUpdate {
+	if !info.HasForkUpdate {
 		return ErrNoUpdateAvailable
+	}
+	if info.ReleaseInfo == nil || len(info.ReleaseInfo.Assets) == 0 {
+		return fmt.Errorf("fork release assets unavailable")
 	}
 
 	return s.applyReleaseAssets(ctx, info.ReleaseInfo.Assets)
@@ -363,7 +379,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, forkGithubRepo, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,13 +416,72 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
-	if err != nil {
-		return nil, err
+	type fetchResult struct {
+		release *GitHubRelease
+		err     error
 	}
 
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	forkCh := make(chan fetchResult, 1)
+	upstreamCh := make(chan fetchResult, 1)
 
+	go func() {
+		r, err := s.githubClient.FetchLatestRelease(ctx, forkGithubRepo)
+		forkCh <- fetchResult{release: r, err: err}
+	}()
+	go func() {
+		r, err := s.githubClient.FetchLatestRelease(ctx, upstreamGithubRepo)
+		upstreamCh <- fetchResult{release: r, err: err}
+	}()
+
+	forkRes := <-forkCh
+	upstreamRes := <-upstreamCh
+
+	if forkRes.err != nil && upstreamRes.err != nil {
+		return nil, fmt.Errorf("fork: %v; upstream: %v", forkRes.err, upstreamRes.err)
+	}
+
+	info := &UpdateInfo{
+		CurrentVersion: s.currentVersion,
+		LatestVersion:  s.currentVersion,
+		Cached:         false,
+		BuildType:      s.buildType,
+	}
+
+	var warnings []string
+
+	if forkRes.err != nil {
+		warnings = append(warnings, "fork check failed: "+forkRes.err.Error())
+	} else if forkRes.release != nil {
+		latestVersion := strings.TrimPrefix(forkRes.release.TagName, "v")
+		info.LatestVersion = latestVersion
+		info.HasForkUpdate = compareVersions(s.currentVersion, latestVersion) < 0
+		info.ReleaseInfo = releaseToInfo(forkRes.release)
+	}
+
+	if upstreamRes.err != nil {
+		warnings = append(warnings, "upstream check failed: "+upstreamRes.err.Error())
+	} else if upstreamRes.release != nil {
+		upstreamLatest := strings.TrimPrefix(upstreamRes.release.TagName, "v")
+		info.UpstreamLatestVersion = upstreamLatest
+		info.HasUpstreamUpdate = compareVersions(s.currentVersion, upstreamLatest) < 0
+		info.UpstreamReleaseInfo = releaseToInfo(upstreamRes.release)
+		// Strip assets from upstream — apply path must never use them
+		if info.UpstreamReleaseInfo != nil {
+			info.UpstreamReleaseInfo.Assets = nil
+		}
+	}
+
+	info.HasUpdate = info.HasForkUpdate || info.HasUpstreamUpdate
+	if len(warnings) > 0 {
+		info.Warning = strings.Join(warnings, "; ")
+	}
+	return info, nil
+}
+
+func releaseToInfo(release *GitHubRelease) *ReleaseInfo {
+	if release == nil {
+		return nil
+	}
 	assets := make([]Asset, len(release.Assets))
 	for i, a := range release.Assets {
 		assets[i] = Asset{
@@ -415,21 +490,13 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 			Size:        a.Size,
 		}
 	}
-
-	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  latestVersion,
-		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
-		ReleaseInfo: &ReleaseInfo{
-			Name:        release.Name,
-			Body:        release.Body,
-			PublishedAt: release.PublishedAt,
-			HTMLURL:     release.HTMLURL,
-			Assets:      assets,
-		},
-		Cached:    false,
-		BuildType: s.buildType,
-	}, nil
+	return &ReleaseInfo{
+		Name:        release.Name,
+		Body:        release.Body,
+		PublishedAt: release.PublishedAt,
+		HTMLURL:     release.HTMLURL,
+		Assets:      assets,
+	}
 }
 
 func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest string) error {
@@ -600,9 +667,11 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	}
 
 	var cached struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
+		Latest              string       `json:"latest"`
+		ReleaseInfo         *ReleaseInfo `json:"release_info"`
+		UpstreamLatest      string       `json:"upstream_latest"`
+		UpstreamReleaseInfo *ReleaseInfo `json:"upstream_release_info"`
+		Timestamp           int64        `json:"timestamp"`
 	}
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		return nil, err
@@ -612,37 +681,52 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		return nil, fmt.Errorf("cache expired")
 	}
 
+	latest := cached.Latest
+	if latest == "" {
+		latest = s.currentVersion
+	}
+	hasFork := compareVersions(s.currentVersion, latest) < 0
+	hasUpstream := cached.UpstreamLatest != "" && compareVersions(s.currentVersion, cached.UpstreamLatest) < 0
+
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  cached.Latest,
-		HasUpdate:      compareVersions(s.currentVersion, cached.Latest) < 0,
-		ReleaseInfo:    cached.ReleaseInfo,
-		Cached:         true,
-		BuildType:      s.buildType,
+		CurrentVersion:        s.currentVersion,
+		LatestVersion:         latest,
+		HasUpdate:             hasFork || hasUpstream,
+		HasForkUpdate:         hasFork,
+		HasUpstreamUpdate:     hasUpstream,
+		UpstreamLatestVersion: cached.UpstreamLatest,
+		UpstreamReleaseInfo:   cached.UpstreamReleaseInfo,
+		ReleaseInfo:           cached.ReleaseInfo,
+		Cached:                true,
+		BuildType:             s.buildType,
 	}, nil
 }
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
+		Latest              string       `json:"latest"`
+		ReleaseInfo         *ReleaseInfo `json:"release_info"`
+		UpstreamLatest      string       `json:"upstream_latest"`
+		UpstreamReleaseInfo *ReleaseInfo `json:"upstream_release_info"`
+		Timestamp           int64        `json:"timestamp"`
 	}{
-		Latest:      info.LatestVersion,
-		ReleaseInfo: info.ReleaseInfo,
-		Timestamp:   time.Now().Unix(),
+		Latest:              info.LatestVersion,
+		ReleaseInfo:         info.ReleaseInfo,
+		UpstreamLatest:      info.UpstreamLatestVersion,
+		UpstreamReleaseInfo: info.UpstreamReleaseInfo,
+		Timestamp:           time.Now().Unix(),
 	}
 
 	data, _ := json.Marshal(cacheData)
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// compareVersions compares two semantic versions (up to 4 segments for fork tags).
 func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < maxVersionParts; i++ {
 		if currentParts[i] < latestParts[i] {
 			return -1
 		}
@@ -653,11 +737,15 @@ func compareVersions(current, latest string) int {
 	return 0
 }
 
-func parseVersion(v string) [3]int {
+func parseVersion(v string) [maxVersionParts]int {
 	v = strings.TrimPrefix(v, "v")
+	// Drop pre-release / build metadata for numeric compare
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
-	for i := 0; i < len(parts) && i < 3; i++ {
+	result := [maxVersionParts]int{}
+	for i := 0; i < len(parts) && i < maxVersionParts; i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
 			result[i] = parsed
 		}

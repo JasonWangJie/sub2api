@@ -15,6 +15,10 @@ export interface VersionInfo {
   current_version: string
   latest_version: string
   has_update: boolean
+  has_fork_update?: boolean
+  has_upstream_update?: boolean
+  upstream_latest_version?: string
+  upstream_release_info?: ReleaseInfo
   release_info?: ReleaseInfo
   cached: boolean
   warning?: string

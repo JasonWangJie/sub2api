@@ -42,6 +42,10 @@ export const useAppStore = defineStore('app', () => {
   const currentVersion = ref<string>('')
   const latestVersion = ref<string>('')
   const hasUpdate = ref<boolean>(false)
+  const hasForkUpdate = ref<boolean>(false)
+  const hasUpstreamUpdate = ref<boolean>(false)
+  const upstreamLatestVersion = ref<string>('')
+  const upstreamReleaseInfo = ref<ReleaseInfo | null>(null)
   const buildType = ref<string>('source')
   const releaseInfo = ref<ReleaseInfo | null>(null)
 
@@ -248,6 +252,10 @@ export const useAppStore = defineStore('app', () => {
         current_version: currentVersion.value,
         latest_version: latestVersion.value,
         has_update: hasUpdate.value,
+        has_fork_update: hasForkUpdate.value,
+        has_upstream_update: hasUpstreamUpdate.value,
+        upstream_latest_version: upstreamLatestVersion.value || undefined,
+        upstream_release_info: upstreamReleaseInfo.value || undefined,
         build_type: buildType.value,
         release_info: releaseInfo.value || undefined,
         cached: true
@@ -265,6 +273,10 @@ export const useAppStore = defineStore('app', () => {
       currentVersion.value = data.current_version
       latestVersion.value = data.latest_version
       hasUpdate.value = data.has_update
+      hasForkUpdate.value = !!data.has_fork_update
+      hasUpstreamUpdate.value = !!data.has_upstream_update
+      upstreamLatestVersion.value = data.upstream_latest_version || ''
+      upstreamReleaseInfo.value = data.upstream_release_info || null
       buildType.value = data.build_type || 'source'
       releaseInfo.value = data.release_info || null
       versionLoaded.value = true
@@ -283,6 +295,8 @@ export const useAppStore = defineStore('app', () => {
   function clearVersionCache(): void {
     versionLoaded.value = false
     hasUpdate.value = false
+    hasForkUpdate.value = false
+    hasUpstreamUpdate.value = false
   }
 
   // ==================== Public Settings Management ====================
@@ -453,6 +467,10 @@ export const useAppStore = defineStore('app', () => {
     currentVersion,
     latestVersion,
     hasUpdate,
+    hasForkUpdate,
+    hasUpstreamUpdate,
+    upstreamLatestVersion,
+    upstreamReleaseInfo,
     buildType,
     releaseInfo,
 

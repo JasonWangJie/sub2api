@@ -28,12 +28,29 @@ func (s *updateServiceCacheStub) SetUpdateInfo(_ context.Context, data string, _
 }
 
 type updateServiceGitHubClientStub struct {
-	release        *GitHubRelease
-	recentReleases []*GitHubRelease
-	recentErr      error
+	release         *GitHubRelease
+	releasesByRepo  map[string]*GitHubRelease
+	latestErr       error
+	latestErrByRepo map[string]error
+	recentReleases  []*GitHubRelease
+	recentErr       error
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	if s.latestErrByRepo != nil {
+		if err, ok := s.latestErrByRepo[repo]; ok {
+			return nil, err
+		}
+	}
+	if s.latestErr != nil {
+		return nil, s.latestErr
+	}
+	if s.releasesByRepo != nil {
+		if r, ok := s.releasesByRepo[repo]; ok {
+			return r, nil
+		}
+		return nil, errors.New("release not found for " + repo)
+	}
 	return s.release, nil
 }
 
@@ -184,4 +201,74 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
+}
+
+func TestCompareVersionsFourSegments(t *testing.T) {
+	require.Equal(t, -1, compareVersions("0.1.162", "0.1.162.1"))
+	require.Equal(t, 1, compareVersions("0.1.162.2", "0.1.162.1"))
+	require.Equal(t, 0, compareVersions("0.1.162.1", "v0.1.162.1"))
+	require.Equal(t, -1, compareVersions("0.1.162.1", "0.1.163"))
+}
+
+func TestUpdateServiceCheckUpdateDualSource(t *testing.T) {
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{
+			releasesByRepo: map[string]*GitHubRelease{
+				forkGithubRepo: {
+					TagName: "v0.1.162.1",
+					Name:    "fork",
+					HTMLURL: "https://github.com/JasonWangJie/sub2api/releases/tag/v0.1.162.1",
+					Assets: []GitHubAsset{{
+						Name:               "sub2api_0.1.162.1_linux_amd64.tar.gz",
+						BrowserDownloadURL: "https://github.com/JasonWangJie/sub2api/releases/download/v0.1.162.1/a.tar.gz",
+					}},
+				},
+				upstreamGithubRepo: {
+					TagName: "v0.1.163",
+					Name:    "upstream",
+					HTMLURL: "https://github.com/Wei-Shaw/sub2api/releases/tag/v0.1.163",
+				},
+			},
+		},
+		"0.1.162",
+		"release",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.True(t, info.HasUpdate)
+	require.True(t, info.HasForkUpdate)
+	require.True(t, info.HasUpstreamUpdate)
+	require.Equal(t, "0.1.162.1", info.LatestVersion)
+	require.Equal(t, "0.1.163", info.UpstreamLatestVersion)
+	require.NotNil(t, info.ReleaseInfo)
+	require.NotEmpty(t, info.ReleaseInfo.Assets)
+	require.NotNil(t, info.UpstreamReleaseInfo)
+	require.Empty(t, info.UpstreamReleaseInfo.Assets)
+}
+
+func TestUpdateServicePerformUpdateIgnoresUpstreamOnly(t *testing.T) {
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{
+			releasesByRepo: map[string]*GitHubRelease{
+				forkGithubRepo: {
+					TagName: "v0.1.162",
+					Name:    "fork",
+				},
+				upstreamGithubRepo: {
+					TagName: "v0.1.163",
+					Name:    "upstream",
+				},
+			},
+		},
+		"0.1.162",
+		"release",
+	)
+
+	err := svc.PerformUpdate(context.Background())
+
+	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
