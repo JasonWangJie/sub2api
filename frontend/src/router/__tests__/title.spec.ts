@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDocumentTitle, resolveRouteDocumentTitle } from '@/router/title'
+import { HOME_SEO_TITLE, resolveDocumentTitle, resolveRouteDocumentTitle } from '@/router/title'
 
 describe('resolveDocumentTitle', () => {
   it('路由存在标题时，使用“路由标题 - 站点名”格式', () => {
@@ -25,6 +25,19 @@ describe('resolveDocumentTitle', () => {
 })
 
 describe('resolveRouteDocumentTitle', () => {
+  it('首页始终使用 TokensFree SEO 标题', () => {
+    const route = {
+      name: 'Home',
+      params: {},
+      meta: {
+        title: 'Home'
+      }
+    }
+
+    expect(resolveRouteDocumentTitle(route, 'TokensFree')).toBe(HOME_SEO_TITLE)
+    expect(resolveRouteDocumentTitle(route, 'Custom Site Name')).toBe(HOME_SEO_TITLE)
+  })
+
   it('自定义页面菜单加载后，使用菜单名称作为标题', () => {
     const route = {
       name: 'CustomPage',
