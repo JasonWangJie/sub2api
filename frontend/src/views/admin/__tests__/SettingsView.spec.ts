@@ -362,6 +362,10 @@ const baseSettingsResponse = {
   password_reset_enabled: false,
   totp_enabled: false,
   totp_encryption_key_configured: false,
+  passkey_enabled: true,
+  passkey_configured: true,
+  passkey_rp_id: "sub3.nebula-spaces.com",
+  passkey_rp_origins: ["https://sub3.nebula-spaces.com"],
   default_balance: 0,
   billing_charge_multiplier: 1,
   billing_charge_multiplier_all_groups: true,
@@ -748,6 +752,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const additional = wrapper.get('input[type="checkbox"][value="8"]');
     expect((selected.element as HTMLInputElement).checked).toBe(true);
     await additional.setValue(true);
+
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
@@ -757,6 +762,47 @@ describe("admin SettingsView payment visible method controls", () => {
         billing_charge_multiplier_all_groups: false,
         billing_charge_multiplier_group_ids: [7, 8],
       }),
+    );
+  });
+
+  it("shows valid passkey RP configuration and persists the sign-in toggle", async () => {
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const settings = wrapper.get('[data-testid="passkey-settings"]');
+    const toggle = settings.get('[data-testid="passkey-toggle"]');
+    expect(toggle.attributes("disabled")).toBeUndefined();
+    expect(settings.text()).toContain("sub3.nebula-spaces.com");
+    expect(settings.text()).toContain("https://sub3.nebula-spaces.com");
+
+    await toggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ passkey_enabled: false }),
+    );
+  });
+
+  it("disables passkey sign-in when the RP configuration is unavailable", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      passkey_enabled: false,
+      passkey_configured: false,
+      passkey_rp_id: "",
+      passkey_rp_origins: [],
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const settings = wrapper.get('[data-testid="passkey-settings"]');
+    expect(settings.get('[data-testid="passkey-toggle"]').attributes("disabled")).toBeDefined();
+    expect(settings.get('[data-testid="passkey-config-status"]').text()).toContain(
+      "admin.settings.security.passkeyNotConfigured",
     );
   });
 
