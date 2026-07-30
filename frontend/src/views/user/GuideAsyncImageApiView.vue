@@ -190,10 +190,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import { useAppStore } from '@/stores'
 import AsyncImageApiEndpointCard from './AsyncImageApiEndpointCard.vue'
 import { getAsyncImageApiDoc } from './guideAsyncImageApiContent'
 
 const { t, locale } = useI18n()
+const appStore = useAppStore()
 const contentRef = ref<HTMLElement | null>(null)
 const tocVisible = ref(typeof window !== 'undefined' ? window.innerWidth > 768 : true)
 const activeHeadingId = ref('overview')
@@ -201,16 +203,20 @@ const copyBtn = ref('')
 let scrollRafId = 0
 let copyTimer = 0
 
-const apiRoot = 'https://api.tokensfree.xyz'
+const apiRoot = computed(() => {
+  const configured = appStore.apiBaseUrl.trim()
+  const fallback = typeof window !== 'undefined' ? window.location.origin : ''
+  return (configured || fallback).replace(/\/+$/, '')
+})
 const isEn = computed(() => String(locale.value).toLowerCase().startsWith('en'))
-const doc = computed(() => getAsyncImageApiDoc(String(locale.value), apiRoot))
+const doc = computed(() => getAsyncImageApiDoc(String(locale.value), apiRoot.value))
 const descHeader = computed(() => (isEn.value ? 'Description' : '说明'))
 const geminiLabels = computed(() => ({
   ...doc.value.labels,
   acceptResponse: isEn.value ? 'Accept response (200)' : '受理响应（200）',
 }))
 
-copyBtn.value = getAsyncImageApiDoc(String(locale.value), apiRoot).labels.copy
+copyBtn.value = getAsyncImageApiDoc(String(locale.value), apiRoot.value).labels.copy
 
 function scrollToHeading(id: string) {
   const container = contentRef.value

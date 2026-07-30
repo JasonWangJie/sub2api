@@ -218,6 +218,13 @@ export interface PublicSettings {
   table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
+  seo_indexing_enabled: boolean
+  seo_site_url: string
+  seo_title: string
+  seo_keywords: string[]
+  seo_description: string
+  seo_social_image_url: string
+  seo_verification_tags: string
   linuxdo_oauth_enabled: boolean
   dingtalk_oauth_enabled?: boolean
   wechat_oauth_enabled: boolean

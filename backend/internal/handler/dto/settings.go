@@ -149,6 +149,13 @@ type SystemSettings struct {
 	TablePageSizeOptions        []int            `json:"table_page_size_options"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
+	SEOIndexingEnabled          bool             `json:"seo_indexing_enabled"`
+	SEOSiteURL                  string           `json:"seo_site_url"`
+	SEOTitle                    string           `json:"seo_title"`
+	SEOKeywords                 []string         `json:"seo_keywords"`
+	SEODescription              string           `json:"seo_description"`
+	SEOSocialImageURL           string           `json:"seo_social_image_url"`
+	SEOVerificationTags         string           `json:"seo_verification_tags"`
 
 	DefaultConcurrency               int                          `json:"default_concurrency"`
 	DefaultBalance                   float64                      `json:"default_balance"`
@@ -355,6 +362,13 @@ type PublicSettings struct {
 	TablePageSizeOptions             []int                    `json:"table_page_size_options"`
 	CustomMenuItems                  []CustomMenuItem         `json:"custom_menu_items"`
 	CustomEndpoints                  []CustomEndpoint         `json:"custom_endpoints"`
+	SEOIndexingEnabled               bool                     `json:"seo_indexing_enabled"`
+	SEOSiteURL                       string                   `json:"seo_site_url"`
+	SEOTitle                         string                   `json:"seo_title"`
+	SEOKeywords                      []string                 `json:"seo_keywords"`
+	SEODescription                   string                   `json:"seo_description"`
+	SEOSocialImageURL                string                   `json:"seo_social_image_url"`
+	SEOVerificationTags              string                   `json:"seo_verification_tags"`
 	DingTalkOAuthEnabled             bool                     `json:"dingtalk_oauth_enabled"`
 	LinuxDoOAuthEnabled              bool                     `json:"linuxdo_oauth_enabled"`
 	WeChatOAuthEnabled               bool                     `json:"wechat_oauth_enabled"`

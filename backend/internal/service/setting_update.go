@@ -115,6 +115,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, infraerrors.BadRequest("INVALID_FORWARDED_CLIENT_IP_HEADERS", err.Error())
 	}
 	settings.ForwardedClientIPHeaders = normalizedForwardedClientIPHeaders
+	if err := NormalizeSEOSettings(settings); err != nil {
+		return nil, err
+	}
 	alipaySource, err := normalizeVisibleMethodSettingSource("alipay", settings.PaymentVisibleMethodAlipaySource, settings.PaymentVisibleMethodAlipayEnabled)
 	if err != nil {
 		return nil, err
@@ -344,6 +347,17 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
+	seoKeywordsJSON, err := json.Marshal(settings.SEOKeywords)
+	if err != nil {
+		return nil, fmt.Errorf("marshal SEO keywords: %w", err)
+	}
+	updates[SettingKeySEOIndexingEnabled] = strconv.FormatBool(settings.SEOIndexingEnabled)
+	updates[SettingKeySEOSiteURL] = settings.SEOSiteURL
+	updates[SettingKeySEOTitle] = settings.SEOTitle
+	updates[SettingKeySEOKeywords] = string(seoKeywordsJSON)
+	updates[SettingKeySEODescription] = settings.SEODescription
+	updates[SettingKeySEOSocialImageURL] = settings.SEOSocialImageURL
+	updates[SettingKeySEOVerificationTags] = settings.SEOVerificationTags
 
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)

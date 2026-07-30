@@ -149,6 +149,13 @@ type UpdateSettingsRequest struct {
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
+	SEOIndexingEnabled          bool                  `json:"seo_indexing_enabled"`
+	SEOSiteURL                  string                `json:"seo_site_url"`
+	SEOTitle                    string                `json:"seo_title"`
+	SEOKeywords                 []string              `json:"seo_keywords"`
+	SEODescription              string                `json:"seo_description"`
+	SEOSocialImageURL           string                `json:"seo_social_image_url"`
+	SEOVerificationTags         string                `json:"seo_verification_tags"`
 
 	// 默认配置
 	DefaultConcurrency                        int                               `json:"default_concurrency"`
@@ -1440,6 +1447,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TablePageSizeOptions:                   req.TablePageSizeOptions,
 		CustomMenuItems:                        customMenuJSON,
 		CustomEndpoints:                        customEndpointsJSON,
+		SEOIndexingEnabled:                     req.SEOIndexingEnabled,
+		SEOSiteURL:                             req.SEOSiteURL,
+		SEOTitle:                               req.SEOTitle,
+		SEOKeywords:                            req.SEOKeywords,
+		SEODescription:                         req.SEODescription,
+		SEOSocialImageURL:                      req.SEOSocialImageURL,
+		SEOVerificationTags:                    req.SEOVerificationTags,
 		DefaultConcurrency:                     req.DefaultConcurrency,
 		DefaultBalance:                         req.DefaultBalance,
 		BillingChargeMultiplier: func() float64 {
@@ -2010,6 +2024,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TablePageSizeOptions:                                   updatedSettings.TablePageSizeOptions,
 		CustomMenuItems:                                        dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
+		SEOIndexingEnabled:                                     updatedSettings.SEOIndexingEnabled,
+		SEOSiteURL:                                             updatedSettings.SEOSiteURL,
+		SEOTitle:                                               updatedSettings.SEOTitle,
+		SEOKeywords:                                            updatedSettings.SEOKeywords,
+		SEODescription:                                         updatedSettings.SEODescription,
+		SEOSocialImageURL:                                      updatedSettings.SEOSocialImageURL,
+		SEOVerificationTags:                                    updatedSettings.SEOVerificationTags,
 		DefaultConcurrency:                                     updatedSettings.DefaultConcurrency,
 		DefaultBalance:                                         updatedSettings.DefaultBalance,
 		BillingChargeMultiplier:                                updatedSettings.BillingChargeMultiplier,

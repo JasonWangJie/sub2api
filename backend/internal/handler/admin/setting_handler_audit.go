@@ -300,6 +300,27 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.HomeContent != after.HomeContent {
 		changed = append(changed, "home_content")
 	}
+	if before.SEOIndexingEnabled != after.SEOIndexingEnabled {
+		changed = append(changed, "seo_indexing_enabled")
+	}
+	if before.SEOSiteURL != after.SEOSiteURL {
+		changed = append(changed, "seo_site_url")
+	}
+	if before.SEOTitle != after.SEOTitle {
+		changed = append(changed, "seo_title")
+	}
+	if !equalStringSlice(before.SEOKeywords, after.SEOKeywords) {
+		changed = append(changed, "seo_keywords")
+	}
+	if before.SEODescription != after.SEODescription {
+		changed = append(changed, "seo_description")
+	}
+	if before.SEOSocialImageURL != after.SEOSocialImageURL {
+		changed = append(changed, "seo_social_image_url")
+	}
+	if before.SEOVerificationTags != after.SEOVerificationTags {
+		changed = append(changed, "seo_verification_tags")
+	}
 	if before.HideCcsImportButton != after.HideCcsImportButton {
 		changed = append(changed, "hide_ccs_import_button")
 	}

@@ -87,6 +87,23 @@ func (s *FrontendServer) InvalidateCache() {
 func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+		if path == "/home" {
+			location := "/"
+			if c.Request.URL.RawQuery != "" {
+				location += "?" + c.Request.URL.RawQuery
+			}
+			c.Redirect(http.StatusMovedPermanently, location)
+			c.Abort()
+			return
+		}
+		if path == "/robots.txt" {
+			s.serveRobotsTXT(c)
+			return
+		}
+		if path == "/sitemap.xml" {
+			s.serveSitemapXML(c)
+			return
+		}
 
 		// Skip API routes
 		if shouldBypassEmbeddedFrontend(path) {
@@ -149,6 +166,9 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	// Check cache first
 	cached := s.cache.Get()
 	if cached != nil {
+		applyFrontendIndexingHeader(c, cached.SettingsJSON)
+		c.Header("ETag", cached.ETag)
+		c.Header("Cache-Control", "no-cache")
 		// Check If-None-Match for 304 response
 		if match := c.GetHeader("If-None-Match"); match == cached.ETag {
 			c.Status(http.StatusNotModified)
@@ -158,9 +178,6 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 		// Replace nonce placeholder with actual nonce before serving
 		content := replaceNoncePlaceholder(cached.Content, nonce)
-
-		c.Header("ETag", cached.ETag)
-		c.Header("Cache-Control", "no-cache") // Must revalidate
 		c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 		c.Abort()
 		return
@@ -173,6 +190,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settings, err := s.settings.GetPublicSettingsForInjection(ctx)
 	if err != nil {
 		// Fallback: serve without injection
+		c.Header("X-Robots-Tag", seoNoIndexDirective)
 		c.Data(http.StatusOK, "text/html; charset=utf-8", s.baseHTML)
 		c.Abort()
 		return
@@ -181,6 +199,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
 		// Fallback: serve without injection
+		c.Header("X-Robots-Tag", seoNoIndexDirective)
 		c.Data(http.StatusOK, "text/html; charset=utf-8", s.baseHTML)
 		c.Abort()
 		return
@@ -191,6 +210,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 
 	// Replace nonce placeholder with actual nonce before serving
 	content := replaceNoncePlaceholder(rendered, nonce)
+	applyFrontendIndexingHeader(c, settingsJSON)
 
 	cached = s.cache.Get()
 	if cached != nil {
@@ -211,10 +231,102 @@ func (s *FrontendServer) injectSettings(settingsJSON []byte) []byte {
 	result := bytes.Replace(s.baseHTML, headClose, append(script, headClose...), 1)
 
 	// Apply custom branding before the browser paints the static defaults.
-	result = injectSiteTitle(result, settingsJSON)
+	result = injectSEOSettings(result, settingsJSON)
 	result = injectSiteFavicon(result, settingsJSON)
 
 	return result
+}
+
+func (s *FrontendServer) getSettingsJSON(ctx context.Context) ([]byte, error) {
+	if cached := s.cache.Get(); cached != nil {
+		return cached.SettingsJSON, nil
+	}
+	settings, err := s.settings.GetPublicSettingsForInjection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return nil, err
+	}
+	s.cache.Set(s.injectSettings(settingsJSON), settingsJSON)
+	return settingsJSON, nil
+}
+
+func (s *FrontendServer) serveRobotsTXT(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	settingsJSON, err := s.getSettingsJSON(ctx)
+	if err != nil {
+		c.Header("Cache-Control", "no-cache")
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("User-agent: *\nDisallow: /\n"))
+		c.Abort()
+		return
+	}
+	content := buildRobotsTXT(resolveSEOSettings(settingsJSON))
+	s.serveSEOAsset(c, settingsJSON, "robots", "text/plain; charset=utf-8", content)
+}
+
+func (s *FrontendServer) serveSitemapXML(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	settingsJSON, err := s.getSettingsJSON(ctx)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		c.Abort()
+		return
+	}
+	settings := resolveSEOSettings(settingsJSON)
+	if !settings.IndexingEnabled || settings.SiteURL == "" {
+		c.Status(http.StatusNotFound)
+		c.Abort()
+		return
+	}
+	content := buildSitemapXML(settings)
+	s.serveSEOAsset(c, settingsJSON, "sitemap", "application/xml; charset=utf-8", content)
+}
+
+func (s *FrontendServer) serveSEOAsset(c *gin.Context, settingsJSON []byte, asset, contentType string, content []byte) {
+	etag := s.cache.generateAssetETag(settingsJSON, asset)
+	c.Header("ETag", etag)
+	c.Header("Cache-Control", "no-cache")
+	if c.GetHeader("If-None-Match") == etag {
+		c.Status(http.StatusNotModified)
+		c.Abort()
+		return
+	}
+	c.Data(http.StatusOK, contentType, content)
+	c.Abort()
+}
+
+func applyFrontendIndexingHeader(c *gin.Context, settingsJSON []byte) {
+	settings := resolveSEOSettings(settingsJSON)
+	if !settings.IndexingEnabled || c.Request.URL.Path != "/" {
+		c.Header("X-Robots-Tag", seoNoIndexDirective)
+	}
+}
+
+func buildRobotsTXT(settings resolvedSEOSettings) []byte {
+	if !settings.IndexingEnabled {
+		return []byte("User-agent: *\nDisallow: /\n")
+	}
+	var content strings.Builder
+	content.WriteString("User-agent: *\nAllow: /\n")
+	for _, path := range []string{"/api/", "/v1/", "/v1beta/", "/backend-api/", "/setup/"} {
+		content.WriteString("Disallow: " + path + "\n")
+	}
+	if settings.SiteURL != "" {
+		content.WriteString("Sitemap: " + settings.SiteURL + "sitemap.xml\n")
+	}
+	return []byte(content.String())
+}
+
+func buildSitemapXML(settings resolvedSEOSettings) []byte {
+	location := htmlpkg.EscapeString(settings.SiteURL)
+	return []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+		"<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n" +
+		"  <url><loc>" + location + "</loc></url>\n" +
+		"</urlset>\n")
 }
 
 // injectSiteFavicon replaces the static favicon with a configured, browser-safe image URL.
@@ -310,6 +422,26 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+		if path == "/home" {
+			location := "/"
+			if c.Request.URL.RawQuery != "" {
+				location += "?" + c.Request.URL.RawQuery
+			}
+			c.Redirect(http.StatusMovedPermanently, location)
+			c.Abort()
+			return
+		}
+		if path == "/robots.txt" {
+			c.Header("Cache-Control", "no-cache")
+			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte("User-agent: *\nDisallow: /\n"))
+			c.Abort()
+			return
+		}
+		if path == "/sitemap.xml" {
+			c.Status(http.StatusNotFound)
+			c.Abort()
+			return
+		}
 
 		if shouldBypassEmbeddedFrontend(path) {
 			c.Next()
@@ -385,6 +517,7 @@ func serveIndexHTML(c *gin.Context, fsys fs.FS) {
 		return
 	}
 
+	c.Header("X-Robots-Tag", seoNoIndexDirective)
 	c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 	c.Abort()
 }

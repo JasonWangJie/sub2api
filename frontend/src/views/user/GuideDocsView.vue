@@ -75,7 +75,11 @@ const tocVisible = ref(typeof window !== 'undefined' ? window.innerWidth > 768 :
 const activeHeadingId = ref('')
 let scrollRafId = 0
 
-const apiV1Base = computed(() => 'https://api.tokensfree.xyz')
+const apiV1Base = computed(() => {
+  const configured = appStore.apiBaseUrl.trim()
+  const fallback = typeof window !== 'undefined' ? window.location.origin : ''
+  return (configured || fallback).replace(/\/+$/, '')
+})
 
 function generateHeadingId(text: string, index: number): string {
   const base = text

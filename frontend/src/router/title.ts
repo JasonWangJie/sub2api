@@ -2,8 +2,6 @@ import { i18n } from '@/i18n'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import type { CustomMenuItem } from '@/types'
 
-export const HOME_SEO_TITLE = 'TokensFree - 高速、稳定的 AI API 中转站 - TokensFree API 高效的AI模型API中转api供应商，全网最低价，性价比最高'
-
 /**
  * 统一生成页面标题，避免多处写入 document.title 产生覆盖冲突。
  * 优先使用 titleKey 通过 i18n 翻译，fallback 到静态 routeTitle。
@@ -29,9 +27,13 @@ export function resolveRouteDocumentTitle(
   route: Pick<RouteLocationNormalizedLoaded, 'name' | 'params' | 'meta'>,
   siteName: string | undefined,
   customMenuItems: CustomMenuItem[] = [],
+  homeSEOTitle?: string,
 ): string {
   if (route.name === 'Home') {
-    return HOME_SEO_TITLE
+    const configuredTitle = homeSEOTitle?.trim()
+    if (configuredTitle) return configuredTitle
+    const normalizedSiteName = siteName?.trim() || 'Sub2API'
+    return `${normalizedSiteName} - AI API Gateway`
   }
 
   const id = typeof route.params.id === 'string' ? route.params.id : ''

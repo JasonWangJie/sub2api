@@ -278,6 +278,13 @@ const (
 	SettingKeyTablePageSizeOptions        = "table_page_size_options"       // 表格可选每页条数（JSON 数组）
 	SettingKeyCustomMenuItems             = "custom_menu_items"             // 自定义菜单项（JSON 数组）
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
+	SettingKeySEOIndexingEnabled          = "seo_indexing_enabled"
+	SettingKeySEOSiteURL                  = "seo_site_url"
+	SettingKeySEOTitle                    = "seo_title"
+	SettingKeySEOKeywords                 = "seo_keywords"
+	SettingKeySEODescription              = "seo_description"
+	SettingKeySEOSocialImageURL           = "seo_social_image_url"
+	SettingKeySEOVerificationTags         = "seo_verification_tags"
 
 	// 默认配置
 	SettingKeyDefaultConcurrency   = "default_concurrency"    // 新用户默认并发量

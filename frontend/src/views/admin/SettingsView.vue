@@ -6238,6 +6238,404 @@
 	        </div>
 	        <!-- /Tab: General -->
 
+        <!-- Tab: SEO -->
+        <div v-show="activeTab === 'seo'" class="space-y-6">
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <div
+                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div>
+                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    {{ t("admin.settings.seo.indexingTitle") }}
+                  </h2>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.seo.indexingDescription") }}
+                  </p>
+                </div>
+                <div class="flex shrink-0 items-center gap-3">
+                  <span
+                    class="inline-flex items-center gap-2 text-sm font-medium"
+                    :class="
+                      form.seo_indexing_enabled
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-gray-500 dark:text-gray-400'
+                    "
+                  >
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      :class="
+                        form.seo_indexing_enabled
+                          ? 'bg-emerald-500'
+                          : 'bg-gray-400'
+                      "
+                    ></span>
+                    {{
+                      form.seo_indexing_enabled
+                        ? t("admin.settings.seo.indexingOn")
+                        : t("admin.settings.seo.indexingOff")
+                    }}
+                  </span>
+                  <Toggle v-model="form.seo_indexing_enabled" />
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-5 p-6">
+              <div>
+                <label
+                  for="seo-site-url"
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.seo.siteURL") }}
+                </label>
+                <input
+                  id="seo-site-url"
+                  v-model.trim="form.seo_site_url"
+                  type="url"
+                  inputmode="url"
+                  maxlength="2048"
+                  class="input font-mono text-sm"
+                  :placeholder="t('admin.settings.seo.siteURLPlaceholder')"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.seo.siteURLHint") }}
+                </p>
+                <p
+                  v-if="seoSiteURLState === 'empty'"
+                  class="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+                >
+                  <Icon name="exclamationTriangle" size="xs" />
+                  {{ t("admin.settings.seo.siteURLMissing") }}
+                </p>
+                <p
+                  v-else-if="seoSiteURLState === 'invalid'"
+                  class="mt-2 flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400"
+                >
+                  <Icon name="xCircle" size="xs" />
+                  {{ t("admin.settings.seo.siteURLInvalid") }}
+                </p>
+                <p
+                  v-else-if="seoSiteURLIsHTTP"
+                  class="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+                >
+                  <Icon name="exclamationTriangle" size="xs" />
+                  {{ t("admin.settings.seo.httpsWarning") }}
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div
+                  class="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-dark-600"
+                >
+                  <div>
+                    <p class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      robots.txt
+                    </p>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        form.seo_indexing_enabled
+                          ? t("admin.settings.seo.robotsOpen")
+                          : t("admin.settings.seo.robotsClosed")
+                      }}
+                    </p>
+                  </div>
+                  <a
+                    href="/robots.txt"
+                    target="_blank"
+                    rel="noopener"
+                    class="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-gray-100"
+                    :aria-label="t('admin.settings.seo.openRobots')"
+                    :title="t('admin.settings.seo.openRobots')"
+                  >
+                    <Icon name="externalLink" size="sm" />
+                  </a>
+                </div>
+                <div
+                  class="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-dark-600"
+                >
+                  <div>
+                    <p class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      sitemap.xml
+                    </p>
+                    <p
+                      class="mt-0.5 text-xs"
+                      :class="
+                        seoSitemapAvailable
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-gray-500 dark:text-gray-400'
+                      "
+                    >
+                      {{
+                        seoSitemapAvailable
+                          ? t("admin.settings.seo.sitemapReady")
+                          : t("admin.settings.seo.sitemapUnavailable")
+                      }}
+                    </p>
+                  </div>
+                  <a
+                    v-if="seoSitemapAvailable"
+                    href="/sitemap.xml"
+                    target="_blank"
+                    rel="noopener"
+                    class="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-gray-100"
+                    :aria-label="t('admin.settings.seo.openSitemap')"
+                    :title="t('admin.settings.seo.openSitemap')"
+                  >
+                    <Icon name="externalLink" size="sm" />
+                  </a>
+                  <Icon v-else name="ban" size="sm" class="text-gray-400" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.seo.metadataTitle") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.seo.metadataDescription") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-4">
+                  <label
+                    for="seo-title"
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.seo.title") }}
+                  </label>
+                  <span
+                    class="text-xs tabular-nums"
+                    :class="
+                      seoTitleRecommendation === 'ideal'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    "
+                  >
+                    {{ seoTitleLength }}/200 ·
+                    {{
+                      t(
+                        `admin.settings.seo.recommendation.${seoTitleRecommendation}`,
+                      )
+                    }}
+                  </span>
+                </div>
+                <input
+                  id="seo-title"
+                  v-model="form.seo_title"
+                  type="text"
+                  maxlength="200"
+                  class="input"
+                  :placeholder="seoPreviewTitle"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.seo.titleHint") }}
+                </p>
+              </div>
+
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-4">
+                  <label
+                    for="seo-description"
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.seo.description") }}
+                  </label>
+                  <span
+                    class="text-xs tabular-nums"
+                    :class="
+                      seoDescriptionRecommendation === 'ideal'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    "
+                  >
+                    {{ seoDescriptionLength }}/500 ·
+                    {{
+                      t(
+                        `admin.settings.seo.recommendation.${seoDescriptionRecommendation}`,
+                      )
+                    }}
+                  </span>
+                </div>
+                <textarea
+                  id="seo-description"
+                  v-model="form.seo_description"
+                  rows="4"
+                  maxlength="500"
+                  class="input resize-y"
+                  :placeholder="seoPreviewDescription"
+                ></textarea>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.seo.descriptionHint") }}
+                </p>
+              </div>
+
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-4">
+                  <label
+                    for="seo-keyword-input"
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.seo.keywords") }}
+                  </label>
+                  <span class="text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                    {{ form.seo_keywords.length }}/20
+                  </span>
+                </div>
+                <div
+                  class="flex min-h-[44px] flex-wrap items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:border-primary-500 focus-within:ring-1 focus-within:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+                >
+                  <span
+                    v-for="(keyword, index) in form.seo_keywords"
+                    :key="`${keyword}-${index}`"
+                    class="inline-flex max-w-full items-center gap-1 rounded bg-gray-100 px-2 py-1 text-sm text-gray-700 dark:bg-dark-700 dark:text-gray-200"
+                  >
+                    <span class="break-all">{{ keyword }}</span>
+                    <button
+                      type="button"
+                      class="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-dark-600 dark:hover:text-gray-100"
+                      :aria-label="t('admin.settings.seo.removeKeyword', { keyword })"
+                      :title="t('admin.settings.seo.removeKeyword', { keyword })"
+                      @click="removeSEOKeyword(index)"
+                    >
+                      <Icon name="x" size="xs" />
+                    </button>
+                  </span>
+                  <input
+                    id="seo-keyword-input"
+                    v-model="seoKeywordDraft"
+                    type="text"
+                    maxlength="100"
+                    class="min-w-[12rem] flex-1 border-0 bg-transparent p-0 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-white"
+                    :disabled="form.seo_keywords.length >= 20"
+                    :placeholder="t('admin.settings.seo.keywordsPlaceholder')"
+                    @keydown="handleSEOKeywordKeydown"
+                    @paste="handleSEOKeywordPaste"
+                    @blur="commitSEOKeywordDraft"
+                  />
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.seo.keywordsHint") }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.seo.discoveryTitle") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.seo.discoveryDescription") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div>
+                <label
+                  for="seo-social-image"
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.seo.socialImage") }}
+                </label>
+                <input
+                  id="seo-social-image"
+                  v-model.trim="form.seo_social_image_url"
+                  type="url"
+                  inputmode="url"
+                  maxlength="2048"
+                  class="input font-mono text-sm"
+                  :placeholder="t('admin.settings.seo.socialImagePlaceholder')"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.seo.socialImageHint") }}
+                </p>
+                <p
+                  v-if="seoSocialImageIsHTTP"
+                  class="mt-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+                >
+                  <Icon name="exclamationTriangle" size="xs" />
+                  {{ t("admin.settings.seo.imageHTTPSWarning") }}
+                </p>
+              </div>
+
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-4">
+                  <label
+                    for="seo-verification-tags"
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.seo.verificationTags") }}
+                  </label>
+                  <span class="text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                    {{ form.seo_verification_tags.length }}/10240
+                  </span>
+                </div>
+                <textarea
+                  id="seo-verification-tags"
+                  v-model="form.seo_verification_tags"
+                  rows="5"
+                  maxlength="10240"
+                  spellcheck="false"
+                  class="input resize-y font-mono text-sm"
+                  :placeholder="t('admin.settings.seo.verificationPlaceholder')"
+                ></textarea>
+                <div
+                  class="mt-2 flex items-start gap-2 rounded-lg bg-blue-50 px-3 py-2.5 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                >
+                  <Icon name="shield" size="xs" class="mt-0.5 shrink-0" />
+                  <span>{{ t("admin.settings.seo.verificationHint") }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.seo.previewTitle") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.seo.previewDescription") }}
+              </p>
+            </div>
+            <div class="p-6">
+              <div
+                class="min-h-[150px] max-w-2xl rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-dark-600 dark:bg-dark-800"
+                aria-live="polite"
+              >
+                <p class="break-all text-sm text-emerald-700 dark:text-emerald-400">
+                  {{ seoPreviewDisplayURL }}
+                </p>
+                <p
+                  class="mt-1 break-words text-xl font-medium leading-7 text-blue-700 dark:text-blue-400"
+                >
+                  {{ seoPreviewTitle }}
+                </p>
+                <p class="mt-1.5 break-words text-sm leading-6 text-gray-600 dark:text-gray-300">
+                  {{ seoPreviewDescription }}
+                </p>
+              </div>
+              <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.seo.previewDisclaimer") }}
+              </p>
+            </div>
+          </div>
+        </div>
+        <!-- /Tab: SEO -->
+
 	        <!-- Tab: Login Agreement -->
 	        <div v-show="activeTab === 'agreement'" class="space-y-6">
 	          <div class="card">
@@ -8200,6 +8598,7 @@ const paymentMethodsHref = computed(() =>
 
 type SettingsTab =
   | "general"
+  | "seo"
   | "agreement"
   | "features"
   | "security"
@@ -8211,6 +8610,7 @@ type SettingsTab =
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
+  { key: "seo" as SettingsTab, icon: "globe" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
   { key: "features" as SettingsTab, icon: "bolt" as const },
   { key: "security" as SettingsTab, icon: "shield" as const },
@@ -8284,6 +8684,7 @@ const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
 const tablePageSizeOptionsInput = ref("10, 20, 50, 100");
+const seoKeywordDraft = ref("");
 
 // Admin API Key 状态
 const adminApiKeyLoading = ref(true);
@@ -8889,6 +9290,13 @@ const form = reactive<SettingsForm>({
   site_name: "Sub2API",
   site_logo: "",
   site_subtitle: "Subscription to API Conversion Platform",
+  seo_indexing_enabled: true,
+  seo_site_url: "",
+  seo_title: "",
+  seo_keywords: [],
+  seo_description: "",
+  seo_social_image_url: "",
+  seo_verification_tags: "",
   api_base_url: "",
   contact_info: "",
   doc_url: "",
@@ -9999,6 +10407,133 @@ function removeCodexWhitelistRow(i: number): void {
   codexWhitelistRows.value.splice(i, 1);
 }
 
+function seoTextLength(value: string): number {
+  return Array.from(value).length;
+}
+
+function parseSEOSiteRoot(value: string): URL | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.pathname && parsed.pathname !== "/") ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    parsed.pathname = "/";
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+const seoTitleLength = computed(() => seoTextLength(form.seo_title));
+const seoDescriptionLength = computed(() =>
+  seoTextLength(form.seo_description),
+);
+const seoSiteURL = computed(() => parseSEOSiteRoot(form.seo_site_url));
+const seoSiteURLState = computed<"empty" | "valid" | "invalid">(() => {
+  if (!form.seo_site_url.trim()) return "empty";
+  return seoSiteURL.value ? "valid" : "invalid";
+});
+const seoSiteURLIsHTTP = computed(
+  () => seoSiteURL.value?.protocol === "http:",
+);
+const seoSocialImageIsHTTP = computed(() => {
+  const value = form.seo_social_image_url.trim();
+  return value.toLowerCase().startsWith("http://");
+});
+const seoTitleRecommendation = computed(() => {
+  if (seoTitleLength.value < 10) return "short";
+  if (seoTitleLength.value > 60) return "long";
+  return "ideal";
+});
+const seoDescriptionRecommendation = computed(() => {
+  if (seoDescriptionLength.value < 50) return "short";
+  if (seoDescriptionLength.value > 160) return "long";
+  return "ideal";
+});
+const seoPreviewTitle = computed(
+  () => form.seo_title.trim() || `${form.site_name.trim() || "Sub2API"} - AI API Gateway`,
+);
+const seoPreviewDescription = computed(
+  () =>
+    form.seo_description.trim() ||
+    form.site_subtitle.trim() ||
+    "Subscription to API Conversion Platform",
+);
+const seoPreviewURL = computed(() => {
+  const configured = seoSiteURL.value?.toString();
+  if (configured) return configured;
+  if (typeof window !== "undefined") return `${window.location.origin}/`;
+  return "https://example.com/";
+});
+const seoPreviewDisplayURL = computed(() =>
+  seoPreviewURL.value.replace(/^https?:\/\//, ""),
+);
+const seoSitemapAvailable = computed(
+  () => form.seo_indexing_enabled && seoSiteURLState.value === "valid",
+);
+
+function addSEOKeywords(raw: string): void {
+  const existing = new Set(
+    form.seo_keywords.map((keyword) => keyword.toLocaleLowerCase()),
+  );
+  const values = raw.split(/[,;，；\n\r]+/);
+  for (const value of values) {
+    const keyword = value.trim();
+    const normalized = keyword.toLocaleLowerCase();
+    if (
+      !keyword ||
+      seoTextLength(keyword) > 100 ||
+      existing.has(normalized) ||
+      form.seo_keywords.length >= 20
+    ) {
+      continue;
+    }
+    form.seo_keywords.push(keyword);
+    existing.add(normalized);
+  }
+}
+
+function commitSEOKeywordDraft(): void {
+  addSEOKeywords(seoKeywordDraft.value);
+  seoKeywordDraft.value = "";
+}
+
+function handleSEOKeywordKeydown(event: KeyboardEvent): void {
+  if (event.isComposing) return;
+  if (["Enter", ",", ";", "，", "；"].includes(event.key)) {
+    event.preventDefault();
+    commitSEOKeywordDraft();
+    return;
+  }
+  if (
+    event.key === "Backspace" &&
+    !seoKeywordDraft.value &&
+    form.seo_keywords.length > 0
+  ) {
+    form.seo_keywords.pop();
+  }
+}
+
+function handleSEOKeywordPaste(event: ClipboardEvent): void {
+  const pasted = event.clipboardData?.getData("text") || "";
+  if (!/[,;，；\n\r]/.test(pasted)) return;
+  event.preventDefault();
+  addSEOKeywords(pasted);
+}
+
+function removeSEOKeyword(index: number): void {
+  form.seo_keywords.splice(index, 1);
+}
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -10230,6 +10765,7 @@ function findDuplicateDefaultSubscription(
 async function saveSettings() {
   saving.value = true;
   try {
+    commitSEOKeywordDraft();
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -10420,6 +10956,13 @@ async function saveSettings() {
       site_name: form.site_name,
       site_logo: form.site_logo,
       site_subtitle: form.site_subtitle,
+      seo_indexing_enabled: form.seo_indexing_enabled,
+      seo_site_url: form.seo_site_url,
+      seo_title: form.seo_title,
+      seo_keywords: form.seo_keywords,
+      seo_description: form.seo_description,
+      seo_social_image_url: form.seo_social_image_url,
+      seo_verification_tags: form.seo_verification_tags,
       api_base_url: form.api_base_url,
       contact_info: form.contact_info,
       doc_url: form.doc_url,

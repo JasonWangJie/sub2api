@@ -71,7 +71,7 @@
             <span class="auth-tool-sheen" aria-hidden="true"></span>
             <Icon :name="isDark ? 'sun' : 'moon'" size="md" />
           </button>
-          <router-link to="/home" class="auth-home-chip">
+          <router-link to="/" class="auth-home-chip">
             <span>{{ t('home.authHome') }}</span>
             <Icon name="arrowRight" size="sm" />
           </router-link>

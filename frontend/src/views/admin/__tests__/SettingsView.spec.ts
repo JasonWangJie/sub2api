@@ -375,6 +375,13 @@ const baseSettingsResponse = {
   site_name: "Sub2API",
   site_logo: "",
   site_subtitle: "",
+  seo_indexing_enabled: true,
+  seo_site_url: "",
+  seo_title: "",
+  seo_keywords: [],
+  seo_description: "",
+  seo_social_image_url: "",
+  seo_verification_tags: "",
   api_base_url: "",
   contact_info: "",
   doc_url: "",
@@ -557,6 +564,16 @@ async function openPaymentTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openSEOTab(wrapper: ReturnType<typeof mountView>) {
+  const seoTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.seo"));
+
+  expect(seoTabButton).toBeDefined();
+  await seoTabButton?.trigger("click");
+  await flushPromises();
+}
+
 async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
   const securityTabButton = wrapper
     .findAll("button")
@@ -679,6 +696,95 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("supports keyboard navigation to SEO and loads the live preview", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      site_name: "Example Gateway",
+      site_subtitle: "Shared fallback description",
+      seo_site_url: "https://example.com/",
+      seo_title: "Configured search title",
+      seo_keywords: ["AI API", "Gateway"],
+      seo_description: "Configured search description for Google and Bing.",
+      seo_social_image_url: "https://example.com/card.jpg",
+      seo_verification_tags:
+        '<meta name="google-site-verification" content="token" />',
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    const generalTab = wrapper.get("#settings-tab-general");
+    const seoTab = wrapper.get("#settings-tab-seo");
+    expect(generalTab.attributes("aria-selected")).toBe("true");
+    await generalTab.trigger("keydown", { key: "ArrowRight" });
+    await flushPromises();
+    expect(seoTab.attributes("aria-selected")).toBe("true");
+
+    expect((wrapper.get("#seo-site-url").element as HTMLInputElement).value).toBe(
+      "https://example.com/",
+    );
+    expect((wrapper.get("#seo-title").element as HTMLInputElement).value).toBe(
+      "Configured search title",
+    );
+    expect(wrapper.text()).toContain("Configured search description for Google and Bing.");
+    expect(wrapper.text()).toContain("AI API");
+    expect(wrapper.text()).toContain("Gateway");
+  });
+
+  it("edits keywords, length guidance, preview, and saves every SEO field", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openSEOTab(wrapper);
+
+    await wrapper.get("#seo-site-url").setValue("https://search.example.com/");
+    await wrapper.get("#seo-title").setValue("A focused AI gateway title");
+    await wrapper
+      .get("#seo-description")
+      .setValue("A clear homepage description that search engines can read from the first HTML response.");
+    await wrapper
+      .get("#seo-social-image")
+      .setValue("https://search.example.com/social-card.jpg");
+    await wrapper
+      .get("#seo-verification-tags")
+      .setValue('<meta name="msvalidate.01" content="bing-token" />');
+
+    const keywordInput = wrapper.get("#seo-keyword-input");
+    await keywordInput.setValue("AI API");
+    await keywordInput.trigger("keydown", { key: "Enter" });
+    await keywordInput.trigger("paste", {
+      clipboardData: {
+        getData: () => "Gateway, Models; ai api\nDeveloper Tools",
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("A focused AI gateway title");
+    expect(wrapper.text()).toContain(
+      "A clear homepage description that search engines can read from the first HTML response.",
+    );
+    expect(wrapper.text()).toContain("4/20");
+
+    await wrapper.get("#seo-title").setValue("x".repeat(61));
+    expect(wrapper.text()).toContain("admin.settings.seo.recommendation.long");
+    await wrapper.get("#seo-title").setValue("A focused AI gateway title");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seo_indexing_enabled: true,
+        seo_site_url: "https://search.example.com/",
+        seo_title: "A focused AI gateway title",
+        seo_keywords: ["AI API", "Gateway", "Models", "Developer Tools"],
+        seo_description:
+          "A clear homepage description that search engines can read from the first HTML response.",
+        seo_social_image_url: "https://search.example.com/social-card.jpg",
+        seo_verification_tags:
+          '<meta name="msvalidate.01" content="bing-token" />',
+      }),
+    );
   });
 
   it("renders panel rate limit card and saves settings", async () => {

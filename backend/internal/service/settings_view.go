@@ -146,6 +146,13 @@ type SystemSettings struct {
 	TablePageSizeOptions        []int
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
+	SEOIndexingEnabled          bool
+	SEOSiteURL                  string
+	SEOTitle                    string
+	SEOKeywords                 []string
+	SEODescription              string
+	SEOSocialImageURL           string
+	SEOVerificationTags         string
 
 	DefaultConcurrency               int
 	DefaultBalance                   float64
@@ -310,6 +317,13 @@ type PublicSettings struct {
 	InfiniteCanvasURL                string
 	HomeContent                      string
 	HideCcsImportButton              bool
+	SEOIndexingEnabled               bool
+	SEOSiteURL                       string
+	SEOTitle                         string
+	SEOKeywords                      []string
+	SEODescription                   string
+	SEOSocialImageURL                string
+	SEOVerificationTags              string
 
 	PurchaseSubscriptionEnabled bool
 	PurchaseSubscriptionURL     string

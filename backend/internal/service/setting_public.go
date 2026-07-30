@@ -194,6 +194,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyTablePageSizeOptions,
 		SettingKeyCustomMenuItems,
 		SettingKeyCustomEndpoints,
+		SettingKeySEOIndexingEnabled,
+		SettingKeySEOSiteURL,
+		SettingKeySEOTitle,
+		SettingKeySEOKeywords,
+		SettingKeySEODescription,
+		SettingKeySEOSocialImageURL,
+		SettingKeySEOVerificationTags,
 		SettingKeyLinuxDoConnectEnabled,
 		SettingKeyDingTalkConnectEnabled,
 		SettingKeyWeChatConnectEnabled,
@@ -323,6 +330,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		TablePageSizeOptions:             tablePageSizeOptions,
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
+		SEOIndexingEnabled:               settings[SettingKeySEOIndexingEnabled] != "false",
+		SEOSiteURL:                       strings.TrimSpace(settings[SettingKeySEOSiteURL]),
+		SEOTitle:                         strings.TrimSpace(settings[SettingKeySEOTitle]),
+		SEOKeywords:                      ParseSEOKeywords(settings[SettingKeySEOKeywords]),
+		SEODescription:                   strings.TrimSpace(settings[SettingKeySEODescription]),
+		SEOSocialImageURL:                strings.TrimSpace(settings[SettingKeySEOSocialImageURL]),
+		SEOVerificationTags:              strings.TrimSpace(settings[SettingKeySEOVerificationTags]),
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
 		DingTalkOAuthEnabled:             dingTalkEnabled,
 		WeChatOAuthEnabled:               weChatEnabled,
@@ -512,6 +526,13 @@ type PublicSettingsInjectionPayload struct {
 	TablePageSizeOptions             []int                    `json:"table_page_size_options"`
 	CustomMenuItems                  json.RawMessage          `json:"custom_menu_items"`
 	CustomEndpoints                  json.RawMessage          `json:"custom_endpoints"`
+	SEOIndexingEnabled               bool                     `json:"seo_indexing_enabled"`
+	SEOSiteURL                       string                   `json:"seo_site_url"`
+	SEOTitle                         string                   `json:"seo_title"`
+	SEOKeywords                      []string                 `json:"seo_keywords"`
+	SEODescription                   string                   `json:"seo_description"`
+	SEOSocialImageURL                string                   `json:"seo_social_image_url"`
+	SEOVerificationTags              string                   `json:"seo_verification_tags"`
 	LinuxDoOAuthEnabled              bool                     `json:"linuxdo_oauth_enabled"`
 	DingTalkOAuthEnabled             bool                     `json:"dingtalk_oauth_enabled"`
 	WeChatOAuthEnabled               bool                     `json:"wechat_oauth_enabled"`
@@ -585,6 +606,13 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		TablePageSizeOptions:             settings.TablePageSizeOptions,
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
+		SEOIndexingEnabled:               settings.SEOIndexingEnabled,
+		SEOSiteURL:                       settings.SEOSiteURL,
+		SEOTitle:                         settings.SEOTitle,
+		SEOKeywords:                      settings.SEOKeywords,
+		SEODescription:                   settings.SEODescription,
+		SEOSocialImageURL:                settings.SEOSocialImageURL,
+		SEOVerificationTags:              settings.SEOVerificationTags,
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
 		DingTalkOAuthEnabled:             settings.DingTalkOAuthEnabled,
 		WeChatOAuthEnabled:               settings.WeChatOAuthEnabled,

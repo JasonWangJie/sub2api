@@ -26,15 +26,91 @@ function isSafeImageUrl(value: string): boolean {
   }
 }
 
-function injectBranding(html: string, config: { site_name?: string; site_logo?: string }): string {
-  let brandedHtml = html
-  const siteName = config.site_name?.trim()
-  if (siteName) {
-    brandedHtml = brandedHtml.replace(
-      /<title>[^<]*<\/title>/i,
-      `<title>${escapeHtml(siteName)} - AI API Gateway</title>`,
-    )
+interface PublicSEOConfig {
+  site_name?: string
+  site_logo?: string
+  site_subtitle?: string
+  seo_indexing_enabled?: boolean
+  seo_site_url?: string
+  seo_title?: string
+  seo_keywords?: string[]
+  seo_description?: string
+  seo_social_image_url?: string
+  seo_verification_tags?: string
+}
+
+function safeSiteRootUrl(value?: string): string {
+  if (!value?.trim()) return ''
+  try {
+    const parsed = new URL(value.trim())
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return ''
+    if ((parsed.pathname && parsed.pathname !== '/') || parsed.search || parsed.hash) return ''
+    parsed.pathname = '/'
+    return parsed.toString()
+  } catch {
+    return ''
   }
+}
+
+function injectSEO(html: string, config: PublicSEOConfig): string {
+  const siteName = config.site_name?.trim() || 'Sub2API'
+  const title = config.seo_title?.trim() || `${siteName} - AI API Gateway`
+  const description = config.seo_description?.trim() || config.site_subtitle?.trim() || 'Subscription to API Conversion Platform'
+  const siteUrl = safeSiteRootUrl(config.seo_site_url)
+  const socialImage = config.seo_social_image_url?.trim() && isSafeImageUrl(config.seo_social_image_url)
+    ? config.seo_social_image_url.trim()
+    : ''
+  const directive = config.seo_indexing_enabled === false
+    ? 'noindex, nofollow'
+    : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'
+  const lines = [
+    '<!-- SEO_SETTINGS_START -->',
+    `    <title>${escapeHtml(title)}</title>`,
+    `    <meta name="description" content="${escapeHtml(description)}" />`,
+  ]
+  if (config.seo_keywords?.length) {
+    lines.push(`    <meta name="keywords" content="${escapeHtml(config.seo_keywords.join(', '))}" />`)
+  }
+  for (const name of ['robots', 'googlebot', 'bingbot']) {
+    lines.push(`    <meta name="${name}" content="${directive}" />`)
+  }
+  lines.push(`    <meta name="application-name" content="${escapeHtml(siteName)}" />`)
+  if (siteUrl) lines.push(`    <link rel="canonical" href="${escapeHtml(siteUrl)}" />`)
+  lines.push('    <meta property="og:type" content="website" />')
+  lines.push(`    <meta property="og:site_name" content="${escapeHtml(siteName)}" />`)
+  if (siteUrl) lines.push(`    <meta property="og:url" content="${escapeHtml(siteUrl)}" />`)
+  lines.push(`    <meta property="og:title" content="${escapeHtml(title)}" />`)
+  lines.push(`    <meta property="og:description" content="${escapeHtml(description)}" />`)
+  if (socialImage) lines.push(`    <meta property="og:image" content="${escapeHtml(socialImage)}" />`)
+  lines.push(`    <meta name="twitter:card" content="${socialImage ? 'summary_large_image' : 'summary'}" />`)
+  lines.push(`    <meta name="twitter:title" content="${escapeHtml(title)}" />`)
+  lines.push(`    <meta name="twitter:description" content="${escapeHtml(description)}" />`)
+  if (socialImage) lines.push(`    <meta name="twitter:image" content="${escapeHtml(socialImage)}" />`)
+  if (siteUrl) {
+    const structuredData = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: siteName,
+      url: siteUrl,
+      description,
+    }).replace(/</g, '\\u003c')
+    lines.push(`    <script type="application/ld+json">${structuredData}</script>`)
+  }
+  for (const tag of config.seo_verification_tags?.split('\n') ?? []) {
+    const trimmed = tag.trim()
+    if (/^<meta name="[A-Za-z0-9._:-]+" content="[^"<>]*" \/>$/.test(trimmed)) {
+      lines.push(`    ${trimmed}`)
+    }
+  }
+  lines.push('    <!-- SEO_SETTINGS_END -->')
+  return html.replace(
+    /<!-- SEO_SETTINGS_START -->[\s\S]*?<!-- SEO_SETTINGS_END -->/,
+    lines.join('\n'),
+  )
+}
+
+function injectBranding(html: string, config: PublicSEOConfig): string {
+  let brandedHtml = injectSEO(html, config)
 
   const siteLogo = config.site_logo?.trim()
   if (siteLogo && isSafeImageUrl(siteLogo)) {
