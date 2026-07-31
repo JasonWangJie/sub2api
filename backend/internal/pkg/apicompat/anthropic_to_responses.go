@@ -236,7 +236,7 @@ func anthropicUserToResponses(raw json.RawMessage) ([]ResponsesInputItem, error)
 				parts = append(parts, ResponsesContentPart{Type: "input_text", Text: b.Text})
 			}
 		case "image":
-			if uri := anthropicImageToDataURI(b.Source); uri != "" {
+			if uri := anthropicImageToURL(b.Source); uri != "" {
 				parts = append(parts, ResponsesContentPart{Type: "input_image", ImageURL: uri})
 			}
 		}
@@ -350,7 +350,7 @@ func fromResponsesCallID(id string) string {
 }
 
 // anthropicImageToDataURI converts an AnthropicImageSource to a data URI string.
-// Returns "" if the source is nil or has no data.
+// Returns "" if the source is nil or has no data. URL sources are ignored.
 func anthropicImageToDataURI(src *AnthropicImageSource) string {
 	if src == nil || src.Data == "" {
 		return ""
@@ -360,6 +360,18 @@ func anthropicImageToDataURI(src *AnthropicImageSource) string {
 		mediaType = "image/png"
 	}
 	return "data:" + mediaType + ";base64," + src.Data
+}
+
+// anthropicImageToURL returns a chat/responses image URL for either a base64
+// data URI source or an HTTPS url source.
+func anthropicImageToURL(src *AnthropicImageSource) string {
+	if src == nil {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(src.Type), "url") {
+		return strings.TrimSpace(src.URL)
+	}
+	return anthropicImageToDataURI(src)
 }
 
 // convertToolResultOutput extracts text and image content from a tool_result
@@ -396,7 +408,7 @@ func convertToolResultOutput(b AnthropicContentBlock) (string, []ResponsesConten
 				textParts = append(textParts, ib.Text)
 			}
 		case "image":
-			if uri := anthropicImageToDataURI(ib.Source); uri != "" {
+			if uri := anthropicImageToURL(ib.Source); uri != "" {
 				imageParts = append(imageParts, ResponsesContentPart{Type: "input_image", ImageURL: uri})
 			}
 		}

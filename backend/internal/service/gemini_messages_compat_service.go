@@ -3315,7 +3315,9 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					})
 				case "image":
 					if src, ok := bm["source"].(map[string]any); ok {
-						if srcType, _ := src["type"].(string); srcType == "base64" {
+						srcType, _ := src["type"].(string)
+						switch strings.ToLower(strings.TrimSpace(srcType)) {
+						case "base64":
 							mediaType, _ := src["media_type"].(string)
 							data, _ := src["data"].(string)
 							if mediaType != "" && data != "" {
@@ -3326,6 +3328,19 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 									},
 								})
 							}
+						case "url":
+							fileURI, _ := src["url"].(string)
+							fileURI = strings.TrimSpace(fileURI)
+							if fileURI == "" {
+								break
+							}
+							fileData := map[string]any{"fileUri": fileURI}
+							if mediaType, _ := src["media_type"].(string); strings.TrimSpace(mediaType) != "" {
+								fileData["mimeType"] = strings.TrimSpace(mediaType)
+							} else if mime := guessGeminiImageMIMEFromURL(fileURI); mime != "" {
+								fileData["mimeType"] = mime
+							}
+							parts = append(parts, map[string]any{"fileData": fileData})
 						}
 					}
 				default:
@@ -3345,6 +3360,30 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 		})
 	}
 	return out, nil
+}
+
+func guessGeminiImageMIMEFromURL(raw string) string {
+	path := strings.ToLower(strings.TrimSpace(raw))
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	if i := strings.IndexByte(path, '#'); i >= 0 {
+		path = path[:i]
+	}
+	switch {
+	case strings.HasSuffix(path, ".png"):
+		return "image/png"
+	case strings.HasSuffix(path, ".jpg"), strings.HasSuffix(path, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(path, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(path, ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(path, ".bmp"):
+		return "image/bmp"
+	default:
+		return ""
+	}
 }
 
 func extractClaudeContentText(v any) string {

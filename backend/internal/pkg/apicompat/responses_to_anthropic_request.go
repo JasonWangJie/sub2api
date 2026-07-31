@@ -232,7 +232,7 @@ func responsesFunctionOutputToAnthropicContent(item ResponsesInputItem) json.Raw
 					blocks = append(blocks, AnthropicContentBlock{Type: "text", Text: part.Text})
 				}
 			case "input_image":
-				if source := dataURIToAnthropicImageSource(part.ImageURL); source != nil {
+				if source := imageURLToAnthropicImageSource(part.ImageURL); source != nil {
 					blocks = append(blocks, AnthropicContentBlock{Type: "image", Source: source})
 				}
 			}
@@ -422,7 +422,7 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 				})
 			}
 		case "input_image":
-			src := dataURIToAnthropicImageSource(p.ImageURL)
+			src := imageURLToAnthropicImageSource(p.ImageURL)
 			if src != nil {
 				blocks = append(blocks, AnthropicContentBlock{
 					Type:   "image",
@@ -514,6 +514,21 @@ func dataURIToAnthropicImageSource(dataURI string) *AnthropicImageSource {
 		MediaType: mediaType,
 		Data:      data,
 	}
+}
+
+// imageURLToAnthropicImageSource accepts data URIs or absolute HTTPS URLs.
+func imageURLToAnthropicImageSource(imageURL string) *AnthropicImageSource {
+	imageURL = strings.TrimSpace(imageURL)
+	if imageURL == "" {
+		return nil
+	}
+	if src := dataURIToAnthropicImageSource(imageURL); src != nil {
+		return src
+	}
+	if strings.HasPrefix(strings.ToLower(imageURL), "https://") {
+		return &AnthropicImageSource{Type: "url", URL: imageURL}
+	}
+	return nil
 }
 
 // mergeConsecutiveMessages merges consecutive messages with the same role

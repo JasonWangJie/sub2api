@@ -214,6 +214,29 @@ func TestBuildGeminiAsyncChatBodyWithDataURI(t *testing.T) {
     }`, string(body))
 }
 
+func TestBuildGeminiAsyncChatBodyPassesHTTPSURLThrough(t *testing.T) {
+	req := &AsyncImageNormalizedRequest{
+		Model:     "gemini-image",
+		ImageSize: "2K",
+		Parts: []AsyncImageInputPart{
+			{Type: "image_url", URL: "https://1.1.1.1/ref.png"},
+			{Type: "text", Text: "restyle"},
+		},
+	}
+	body, err := BuildGeminiAsyncChatBody(context.Background(), req, AsyncImageReferenceDownloader{
+		Budget: &AsyncImageReferenceBudget{MaxImages: 2},
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+      "model":"gemini-image","stream":false,
+      "messages":[{"role":"user","content":[
+        {"type":"image_url","image_url":{"url":"https://1.1.1.1/ref.png"}},
+        {"type":"text","text":"restyle"}
+      ]}],
+      "extra_body":{"google":{"image_config":{"image_size":"2K"}}}
+    }`, string(body))
+}
+
 func TestAsyncImageTaskRequestHashIncludesDialectAndEndpoint(t *testing.T) {
 	body := []byte(`{"model":"m"}`)
 	a := AsyncImageTaskRequestHash(PlatformGemini, AsyncImageDialectBB, "/a", body)

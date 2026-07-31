@@ -216,7 +216,7 @@ func anthropicUserToChatMessages(raw json.RawMessage) ([]ChatMessage, error) {
 				parts = append(parts, ChatContentPart{Type: "text", Text: b.Text})
 			}
 		case "image":
-			if uri := anthropicImageToDataURI(b.Source); uri != "" {
+			if uri := anthropicImageToURL(b.Source); uri != "" {
 				hasImage = true
 				parts = append(parts, ChatContentPart{
 					Type:     "image_url",

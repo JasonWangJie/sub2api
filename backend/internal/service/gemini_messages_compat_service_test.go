@@ -600,6 +600,40 @@ func TestConvertClaudeMessagesToGeminiGenerateContent_AddsThoughtSignatureForToo
 	}
 }
 
+func TestConvertClaudeMessagesToGeminiGenerateContent_ImageURLToFileData(t *testing.T) {
+	claudeReq := map[string]any{
+		"model": "gemini-image",
+		"messages": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type": "url",
+							"url":  "https://example.com/ref.png",
+						},
+					},
+					map[string]any{"type": "text", "text": "restyle"},
+				},
+			},
+		},
+	}
+	b, err := json.Marshal(claudeReq)
+	require.NoError(t, err)
+	out, err := convertClaudeMessagesToGeminiGenerateContent(b)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(out, &got))
+	contents := got["contents"].([]any)
+	parts := contents[0].(map[string]any)["parts"].([]any)
+	fileData := parts[0].(map[string]any)["fileData"].(map[string]any)
+	require.Equal(t, "https://example.com/ref.png", fileData["fileUri"])
+	require.Equal(t, "image/png", fileData["mimeType"])
+	require.Equal(t, "restyle", parts[1].(map[string]any)["text"])
+}
+
 func TestEnsureGeminiFunctionCallThoughtSignatures_InsertsWhenMissing(t *testing.T) {
 	geminiReq := map[string]any{
 		"contents": []any{

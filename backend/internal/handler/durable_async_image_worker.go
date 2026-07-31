@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -655,24 +654,9 @@ func (h *DurableAsyncImageHandler) buildAsyncImageUpstreamRequest(
 	if payload.Normalized == nil {
 		return nil, "", "", errors.New("normalized Gemini image request is missing")
 	}
-	hashes := make([]string, 0, payload.Normalized.ReferenceCount())
-	seenHashes := make(map[string]struct{}, payload.Normalized.ReferenceCount())
-	for _, part := range payload.Normalized.Parts {
-		if part.Type != "image_url" || strings.TrimSpace(part.URL) == "" {
-			continue
-		}
-		for _, hash := range service.AsyncImageInputURLHashes(part.URL) {
-			if _, exists := seenHashes[hash]; exists {
-				continue
-			}
-			seenHashes[hash] = struct{}{}
-			hashes = append(hashes, hash)
-		}
-	}
-	boundReferences, err := h.tasks.ResolveTaskInputReferences(ctx, task.TaskID, hashes)
-	if err != nil {
-		return nil, "", "", err
-	}
+	// Gemini HTTPS references are passed through as fileData.fileUri; upstream
+	// fetches them. Local storage is only needed for data-URI validation.
+	_ = storage
 	downloader := service.AsyncImageReferenceDownloader{
 		MaxBytes:     cfg.DownloadMaxBytes,
 		MaxPixels:    cfg.DownloadMaxPixels,
@@ -682,41 +666,6 @@ func (h *DurableAsyncImageHandler) buildAsyncImageUpstreamRequest(
 			MaxImages: cfg.MaxReferenceImages, MaxTotalBytes: cfg.MaxReferenceTotalBytes,
 			MaxTotalPixels: cfg.MaxReferenceTotalPixels,
 		},
-	}
-	downloader.BoundLoader = func(loadCtx context.Context, rawURL string) (*service.AsyncImageReference, bool, error) {
-		var ref service.ObjectRef
-		var ok bool
-		for _, hash := range service.AsyncImageInputURLHashes(rawURL) {
-			if ref, ok = boundReferences[hash]; ok {
-				break
-			}
-		}
-		if !ok {
-			return nil, false, nil
-		}
-		if storage == nil {
-			return nil, true, errors.New("bound image storage is unavailable")
-		}
-		reader, readErr := storage.Read(loadCtx, ref)
-		if readErr != nil {
-			return nil, true, readErr
-		}
-		defer func() { _ = reader.Close() }()
-		data, readErr := io.ReadAll(io.LimitReader(reader, cfg.DownloadMaxBytes+1))
-		if readErr != nil {
-			return nil, true, readErr
-		}
-		if int64(len(data)) > cfg.DownloadMaxBytes {
-			return nil, true, errors.New("bound reference image exceeds the configured size limit")
-		}
-		validated, validateErr := downloader.ValidateBytes(data, ref.ContentType)
-		if validateErr != nil {
-			return nil, true, validateErr
-		}
-		if ref.ChecksumSHA256 != "" && !strings.EqualFold(ref.ChecksumSHA256, validated.SHA256) {
-			return nil, true, errors.New("bound reference image checksum mismatch")
-		}
-		return validated, true, nil
 	}
 	body, err := service.BuildGeminiAsyncChatBody(ctx, payload.Normalized, downloader)
 	return body, EndpointChatCompletions, "application/json", err

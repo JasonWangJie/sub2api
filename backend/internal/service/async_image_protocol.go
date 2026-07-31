@@ -375,6 +375,20 @@ func (b *AsyncImageReferenceBudget) consume(reference *AsyncImageReference) erro
 	return nil
 }
 
+// consumeURL counts a remote reference that is passed through without local
+// download. Byte/pixel budgets are enforced by the upstream fetcher instead.
+func (b *AsyncImageReferenceBudget) consumeURL() error {
+	if b == nil {
+		return nil
+	}
+	nextImages := b.images + 1
+	if b.MaxImages > 0 && nextImages > b.MaxImages {
+		return errors.New("reference image count exceeds the configured limit")
+	}
+	b.images = nextImages
+	return nil
+}
+
 // ValidateBytes applies the same MIME, decoder, pixel, and byte limits used
 // for remote reference images to bytes received from multipart uploads.
 func (d AsyncImageReferenceDownloader) ValidateBytes(data []byte, declaredType string) (*AsyncImageReference, error) {
@@ -382,6 +396,18 @@ func (d AsyncImageReferenceDownloader) ValidateBytes(data []byte, declaredType s
 		return nil, errors.New("reference image exceeds the configured size limit")
 	}
 	return d.validateImage(data, declaredType)
+}
+
+// ValidateRemoteURL checks that a reference URL is absolute HTTPS and resolves
+// to a public host. It does not download or decode the image body; Gemini
+// fetches HTTPS references itself via fileData.fileUri.
+func (d AsyncImageReferenceDownloader) ValidateRemoteURL(ctx context.Context, rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Hostname() == "" {
+		return errors.New("reference image URL must be an absolute HTTPS URL or an image data URI")
+	}
+	return validateAsyncImagePublicHost(ctx, d.resolver(), parsed.Hostname())
 }
 
 func (d AsyncImageReferenceDownloader) Download(ctx context.Context, rawURL string) (*AsyncImageReference, error) {
@@ -402,12 +428,12 @@ func (d AsyncImageReferenceDownloader) Download(ctx context.Context, rawURL stri
 		}
 		return d.accept(reference)
 	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Hostname() == "" {
-		return nil, errors.New("reference image URL must be an absolute HTTPS URL or an image data URI")
-	}
-	if err := validateAsyncImagePublicHost(ctx, d.resolver(), parsed.Hostname()); err != nil {
+	if err := d.ValidateRemoteURL(ctx, rawURL); err != nil {
 		return nil, err
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, errors.New("reference image URL must be an absolute HTTPS URL or an image data URI")
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -632,9 +658,11 @@ func (d AsyncImageReferenceDownloader) maxRedirects() int {
 	return defaultAsyncImageReferenceMaxRedirects
 }
 
-// BuildGeminiAsyncChatBody downloads reference images and produces a normal
-// Chat Completions request. Existing compatibility code then converts the data
-// URI parts into Gemini inlineData while retaining the new image_config block.
+// BuildGeminiAsyncChatBody produces a Chat Completions request for Gemini async
+// image generation. HTTPS reference URLs are passed through for upstream
+// fileData.fileUri fetching; data URIs are validated locally and kept as
+// inline-compatible image_url values. Compatibility code maps HTTPS URLs to
+// Gemini fileData and data URIs to inlineData.
 func BuildGeminiAsyncChatBody(ctx context.Context, req *AsyncImageNormalizedRequest, downloader AsyncImageReferenceDownloader) ([]byte, error) {
 	if req == nil {
 		return nil, errors.New("normalized image request is required")
@@ -645,13 +673,27 @@ func BuildGeminiAsyncChatBody(ctx context.Context, req *AsyncImageNormalizedRequ
 		case "text":
 			content = append(content, map[string]any{"type": "text", "text": part.Text})
 		case "image_url":
-			imageRef, err := downloader.Download(ctx, part.URL)
-			if err != nil {
-				return nil, fmt.Errorf("invalid reference image: %w", err)
+			rawURL := strings.TrimSpace(part.URL)
+			if rawURL == "" {
+				return nil, errors.New("invalid reference image: empty url")
+			}
+			if strings.HasPrefix(strings.ToLower(rawURL), "data:") {
+				imageRef, err := downloader.Download(ctx, rawURL)
+				if err != nil {
+					return nil, fmt.Errorf("invalid reference image: %w", err)
+				}
+				rawURL = imageRef.DataURI()
+			} else {
+				if err := downloader.ValidateRemoteURL(ctx, rawURL); err != nil {
+					return nil, fmt.Errorf("invalid reference image: %w", err)
+				}
+				if err := downloader.Budget.consumeURL(); err != nil {
+					return nil, err
+				}
 			}
 			content = append(content, map[string]any{
 				"type":      "image_url",
-				"image_url": map[string]any{"url": imageRef.DataURI()},
+				"image_url": map[string]any{"url": rawURL},
 			})
 		default:
 			return nil, fmt.Errorf("unsupported normalized content part %q", part.Type)

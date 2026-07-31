@@ -105,9 +105,10 @@ func (b AnthropicContentBlock) MarshalJSON() ([]byte, error) {
 
 // AnthropicImageSource describes the source data for an image content block.
 type AnthropicImageSource struct {
-	Type      string `json:"type"` // "base64"
-	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
+	Type      string `json:"type"`                 // "base64" | "url"
+	MediaType string `json:"media_type,omitempty"` // required for base64
+	Data      string `json:"data,omitempty"`       // base64 payload
+	URL       string `json:"url,omitempty"`        // https URL when type=url
 }
 
 // AnthropicTool describes a tool available to the model.

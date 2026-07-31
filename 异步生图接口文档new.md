@@ -282,9 +282,9 @@ Idempotency-Key: sc-i2i-20260727-001
 
 参考图要求：
 
-- 仅允许 HTTPS 公网 URL。
+- 仅允许 HTTPS 公网 URL（上游 Gemini 按 URL 拉取，本机不下载转 base64）。
 - 禁止内网地址（防 SSRF）。
-- 单图默认上限约 32 MiB；可解码格式：JPEG / PNG / GIF / WebP。
+- 建议格式：JPEG / PNG / GIF / WebP；体积受上游拉取限制。
 
 ### 5.3 请求示例
 

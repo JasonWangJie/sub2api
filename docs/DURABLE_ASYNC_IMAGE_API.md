@@ -182,7 +182,7 @@ BB Gemini 参数约束：
 | `aspect_ratio` | 可省略，或为 `1:1`、`2:3`、`3:2`、`3:4`、`4:3`、`4:5`、`5:4`、`9:16`、`16:9`、`21:9`。 |
 | `auto` / `自动` | 只在至少有一张参考图时有效；系统通过省略上游比例让 Gemini 自动决定。文生图传该值返回 `400`。 |
 
-系统把 `image_size` / `aspect_ratio` 映射为 Gemini `generationConfig.imageConfig`，强制 `stream=false`，并要求上游返回 `TEXT` 与 `IMAGE`。参考图会安全下载并转换为 Gemini `inlineData`；返回中的所有 `inlineData` 图片都会进入同一任务结果。
+系统把 `image_size` / `aspect_ratio` 映射为 Gemini `generationConfig.imageConfig`，强制 `stream=false`，并要求上游返回 `TEXT` 与 `IMAGE`。HTTPS 参考图以 Gemini `fileData.fileUri` 透传（由上游拉取，本机不再下载转 base64）；`data:` URI 仍转换为 `inlineData`。返回中的所有 `inlineData` 图片都会进入同一任务结果。
 
 ### 4.3 提交响应
 
@@ -613,14 +613,14 @@ API Key 在调用上游前仍会执行活动状态、分组与额度复查。上
 
 ## 11. 参考图安全限制
 
-Gemini BB 的 `image_url` 和 SC 的 `image_urls` 会在 Worker 内安全下载：
+Gemini BB 的 `image_url` 和 SC 的 `image_urls`：
 
-- 仅允许绝对 HTTPS URL 或受限的 `data:image/...;base64,...`，不接受普通 HTTP。
-- DNS 解析、实际连接 IP 和每一次 HTTPS 重定向都会拒绝内网、回环、链路本地、多播、未指定及保留地址，防止 SSRF 和 DNS rebinding。
-- 限制单图字节数、总下载超时和重定向次数；默认分别为 32 MiB、30 秒和 3 次。
-- 固定像素上限为 8000 万像素，并校验图片能被实际解码。
-- 校验声明 MIME、探测 MIME 与图片内容一致；当前可解码格式为 JPEG、PNG、GIF 和 WebP。
-- SC multipart 上传使用同样的字节、像素、MIME 和解码校验，并在完整解码/OSS 前通过 PostgreSQL 两阶段 admission。
+- HTTPS 参考图在 Worker 内只做绝对 HTTPS + 公网主机校验后透传上游（`fileData.fileUri`），不再本机下载解码转 base64。
+- `data:image/...;base64,...` 仍在本机校验并转为 Gemini `inlineData`。
+- 仅允许绝对 HTTPS URL 或受限的 `data:` URI，不接受普通 HTTP。
+- DNS 解析会拒绝内网、回环、链路本地、多播、未指定及保留地址，防止 SSRF。
+- SC multipart 上传仍使用字节、像素、MIME 和解码校验，并在完整解码/OSS 前通过 PostgreSQL 两阶段 admission。
+- OpenAI `image_urls` / `images[].image_url` 本身即上游 URL 透传，网关不会本机转 base64。
 
 规范化请求体加密写入 PostgreSQL，任务终态会清除完整请求载荷，只保留请求哈希和截断后的提示摘要。提示摘要仍可能包含业务敏感文本，应按敏感数据保护任务库和管理员页面。数据库不保存原始 API Key，Worker 只按 API Key ID 重新加载上下文；对外错误会经过日志脱敏规则处理，不透出上游凭证或内部地址。
 
