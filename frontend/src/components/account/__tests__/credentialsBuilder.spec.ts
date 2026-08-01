@@ -241,14 +241,18 @@ describe('validateHeaderOverrideRows', () => {
     expect(validateHeaderOverrideRows([{ name: '名称', value: '' }])).toBe('invalidName')
   })
 
-  it('rejects blocked header names case-insensitively', () => {
-    expect(validateHeaderOverrideRows([{ name: 'Authorization', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'X-Api-Key', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'host', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'Content-Length', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'Content-Type', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'Cookie', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'x-goog-api-key', value: '' }])).toBe('blockedName')
+  it('accepts all valid header names', () => {
+    for (const name of [
+      'Authorization',
+      'X-Api-Key',
+      'host',
+      'Content-Length',
+      'Content-Type',
+      'Cookie',
+      'x-goog-api-key'
+    ]) {
+      expect(validateHeaderOverrideRows([{ name, value: 'configured' }])).toBeNull()
+    }
   })
 
   it('rejects duplicate names case-insensitively', () => {
@@ -331,10 +335,8 @@ describe('applyHeaderOverride', () => {
 })
 
 describe('validateHeaderOverrideRows value/entry limits', () => {
-  it('rejects websocket handshake headers', () => {
-    expect(validateHeaderOverrideRows([{ name: 'Sec-WebSocket-Key', value: '' }])).toBe(
-      'blockedName'
-    )
+  it('accepts websocket handshake headers', () => {
+    expect(validateHeaderOverrideRows([{ name: 'Sec-WebSocket-Key', value: 'configured' }])).toBeNull()
   })
 
   it('rejects control characters in values', () => {
@@ -361,19 +363,17 @@ describe('validateHeaderOverrideRows value/entry limits', () => {
   })
 })
 
-describe('validateHeaderOverrideRows session isolation headers', () => {
-  it('rejects per-request session headers', () => {
-    expect(validateHeaderOverrideRows([{ name: 'session_id', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'Conversation_ID', value: '' }])).toBe('blockedName')
-    expect(validateHeaderOverrideRows([{ name: 'x-codex-turn-state', value: '' }])).toBe(
-      'blockedName'
-    )
-    expect(validateHeaderOverrideRows([{ name: 'X-Claude-Code-Session-Id', value: '' }])).toBe(
-      'blockedName'
-    )
-    expect(validateHeaderOverrideRows([{ name: 'x-client-request-id', value: '' }])).toBe(
-      'blockedName'
-    )
+describe('validateHeaderOverrideRows unrestricted names', () => {
+  it('accepts per-request session headers', () => {
+    for (const name of [
+      'session_id',
+      'Conversation_ID',
+      'x-codex-turn-state',
+      'X-Claude-Code-Session-Id',
+      'x-client-request-id'
+    ]) {
+      expect(validateHeaderOverrideRows([{ name, value: 'configured' }])).toBeNull()
+    }
   })
 
   it('allows tab inside value', () => {
@@ -468,4 +468,3 @@ describe('plan_type helpers', () => {
     })
   })
 })
-

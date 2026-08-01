@@ -46,40 +46,6 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
   return false
 }
 
-/** 禁止覆写的请求头（与后端 headerOverrideBlockedNames 保持一致） */
-const HEADER_OVERRIDE_BLOCKED_NAMES = new Set([
-  'host',
-  'content-length',
-  'content-type',
-  'transfer-encoding',
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'proxy-connection',
-  'te',
-  'trailer',
-  'upgrade',
-  'authorization',
-  'x-api-key',
-  'x-goog-api-key',
-  'cookie',
-  'accept-encoding',
-  'sec-websocket-key',
-  'sec-websocket-version',
-  'sec-websocket-extensions',
-  'sec-websocket-protocol',
-  'sec-websocket-accept',
-  'session_id',
-  'conversation_id',
-  'x-codex-turn-state',
-  'x-codex-turn-metadata',
-  'chatgpt-account-id',
-  'x-claude-code-session-id',
-  'x-client-request-id',
-  'x-grok-conv-id'
-])
-
 /** RFC 7230 token：合法的 HTTP header 名称字符集 */
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 
@@ -105,12 +71,12 @@ function utf8ByteLength(value: string): number {
 /**
  * 校验请求头覆写行，返回首个错误的 i18n key（无错误返回 null）。
  * 名称为空但值非空 → invalidName；名称非法 → invalidName；
- * 禁止覆写 → blockedName；大小写不敏感重名 → duplicateName；
+ * 大小写不敏感重名 → duplicateName；
  * 值含控制字符或超长 → invalidValue；条目过多 → tooManyEntries。
  */
 export function validateHeaderOverrideRows(
   rows: HeaderOverrideRow[]
-): 'invalidName' | 'blockedName' | 'duplicateName' | 'invalidValue' | 'tooManyEntries' | null {
+): 'invalidName' | 'duplicateName' | 'invalidValue' | 'tooManyEntries' | null {
   const seen = new Set<string>()
   for (const row of rows) {
     const name = row.name.trim()
@@ -123,7 +89,6 @@ export function validateHeaderOverrideRows(
       return 'invalidName'
     }
     const lower = name.toLowerCase()
-    if (HEADER_OVERRIDE_BLOCKED_NAMES.has(lower)) return 'blockedName'
     if (seen.has(lower)) return 'duplicateName'
     if (
       HEADER_VALUE_INVALID_PATTERN.test(value) ||

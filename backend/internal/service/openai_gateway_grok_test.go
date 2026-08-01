@@ -687,12 +687,12 @@ func TestBuildGrokResponsesRequestAppliesHeaderOverridesLast(t *testing.T) {
 	require.Equal(t, []string{"9.9.9"}, req.Header["x-grok-client-version"])
 	require.Empty(t, req.Header.Get("X-Grok-Client-Version"))
 	require.Equal(t, []string{"relay-secret"}, req.Header["x-relay-token"])
-	// 会话路由头与认证头不受覆写影响。
+	// 没有配置同名覆写时，保留由系统生成的会话路由头与认证头。
 	require.Equal(t, "conv-1", req.Header.Get(grokConversationIDHeader))
 	require.Equal(t, "Bearer access-token", req.Header.Get("Authorization"))
 }
 
-func TestBuildGrokResponsesRequestIgnoresBlockedHeaderOverrides(t *testing.T) {
+func TestBuildGrokResponsesRequestAppliesAllValidHeaderOverrides(t *testing.T) {
 	t.Parallel()
 
 	account := &Account{
@@ -709,8 +709,8 @@ func TestBuildGrokResponsesRequestIgnoresBlockedHeaderOverrides(t *testing.T) {
 
 	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "api-key", "conv-2", nil)
 	require.NoError(t, err)
-	require.Equal(t, "Bearer api-key", req.Header.Get("Authorization"))
-	require.Equal(t, "conv-2", req.Header.Get(grokConversationIDHeader))
+	require.Equal(t, "Bearer stolen", getHeaderRaw(req.Header, "Authorization"))
+	require.Equal(t, []string{"pinned-conversation"}, req.Header["x-grok-conv-id"])
 }
 
 func TestGrokMediaGenerationGateCoversImagesAndVideo(t *testing.T) {

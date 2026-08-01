@@ -22,53 +22,6 @@ const (
 	maxHeaderOverrideValueLength = 8192
 )
 
-// headerOverrideBlockedNames 禁止覆写的请求头（小写）。
-//   - 连接控制/逐跳头：由 HTTP 栈管理，覆写会破坏请求传输；
-//   - host/content-length：由 Go 的 Request.Host / ContentLength 字段管理，header 覆写不生效或产生冲突；
-//   - content-type：承载报文框架信息（multipart boundary 为每请求随机值），静态覆写必然与 body 不匹配；
-//   - authorization/x-api-key/cookie 等：上游认证头由账号凭据统一注入，禁止通过覆写篡改或重新引入；
-//   - accept-encoding：强制压缩会破坏网关对上游流式响应（SSE/usage）的解析；
-//   - sec-websocket-*：WebSocket 握手头由拨号器管理（OpenAI WS 模式）；
-//   - session_id/x-claude-code-session-id/x-grok-conv-id 等：逐请求会话隔离头，
-//     固定值会造成会话串扰。
-var headerOverrideBlockedNames = map[string]struct{}{
-	"host":                     {},
-	"content-length":           {},
-	"content-type":             {},
-	"transfer-encoding":        {},
-	"connection":               {},
-	"keep-alive":               {},
-	"proxy-authenticate":       {},
-	"proxy-authorization":      {},
-	"proxy-connection":         {},
-	"te":                       {},
-	"trailer":                  {},
-	"upgrade":                  {},
-	"authorization":            {},
-	"x-api-key":                {},
-	"x-goog-api-key":           {},
-	"cookie":                   {},
-	"accept-encoding":          {},
-	"sec-websocket-key":        {},
-	"sec-websocket-version":    {},
-	"sec-websocket-extensions": {},
-	"sec-websocket-protocol":   {},
-	"sec-websocket-accept":     {},
-	"session_id":               {},
-	"conversation_id":          {},
-	"x-codex-turn-state":       {},
-	"x-codex-turn-metadata":    {},
-	"chatgpt-account-id":       {},
-	"x-claude-code-session-id": {},
-	"x-client-request-id":      {},
-	"x-grok-conv-id":           {},
-}
-
-func isHeaderOverrideBlockedName(lowerName string) bool {
-	_, blocked := headerOverrideBlockedNames[lowerName]
-	return blocked
-}
-
 // IsHeaderOverrideEligible 报告账号类型是否支持请求头覆写。
 // Anthropic / OpenAI 仅开放 api_key 账号；Grok 额外开放 oauth 账号——
 // 订阅流量改发自定义转发地址时，通常需要补充中间层要求的准入头。
@@ -97,7 +50,7 @@ func (a *Account) IsHeaderOverrideEnabled() bool {
 
 // GetHeaderOverrides 返回生效的请求头覆写表（key 统一小写）。
 // 未启用、不符合平台/类型条件或配置为空时返回 nil。
-// 空 value 的条目（模板占位）与非法/禁止的 header 名会被跳过。
+// 空 value 的条目（模板占位）与非法 header 名会被跳过。
 // 结果带热路径缓存（同 GetModelMapping 先例）：同一 credentials 映射在
 // 一次请求 / 一条 WS 会话内的多次调用只做一次解析与校验。
 func (a *Account) GetHeaderOverrides() map[string]string {
@@ -274,10 +227,6 @@ func normalizeHeaderOverrideEntry(name, value string) (string, string, error) {
 	if !httpguts.ValidHeaderFieldName(lowerName) {
 		return "", "", infraerrors.Newf(http.StatusBadRequest, "INVALID_HEADER_OVERRIDE",
 			"invalid header name %q", lowerName)
-	}
-	if isHeaderOverrideBlockedName(lowerName) {
-		return "", "", infraerrors.Newf(http.StatusBadRequest, "INVALID_HEADER_OVERRIDE",
-			"header %q is not allowed to be overridden", lowerName)
 	}
 	if len(value) > maxHeaderOverrideValueLength {
 		return "", "", infraerrors.Newf(http.StatusBadRequest, "INVALID_HEADER_OVERRIDE",

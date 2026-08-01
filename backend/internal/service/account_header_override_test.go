@@ -76,19 +76,20 @@ func TestGetHeaderOverrides(t *testing.T) {
 	acc := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,
 		credKeyHeaderOverrides: map[string]any{
-			"User-Agent":    "my-agent/1.0",  // 大写 key 归一化为小写
-			" X-App ":       "cli",           // 名称去空白
-			"x-empty":       "",              // 空 value（模板占位）跳过
-			"authorization": "Bearer leaked", // 禁止覆写的头跳过
-			"bad name":      "value",         // 非法 header 名跳过
-			"x-padded":      "  padded  ",    // value 去空白
+			"User-Agent":    "my-agent/1.0",      // 大写 key 归一化为小写
+			" X-App ":       "cli",               // 名称去空白
+			"x-empty":       "",                  // 空 value（模板占位）跳过
+			"authorization": "Bearer configured", // 认证头也可覆写
+			"bad name":      "value",             // 非法 header 名跳过
+			"x-padded":      "  padded  ",        // value 去空白
 		},
 	})
 	overrides := acc.GetHeaderOverrides()
 	require.Equal(t, map[string]string{
-		"user-agent": "my-agent/1.0",
-		"x-app":      "cli",
-		"x-padded":   "padded",
+		"user-agent":    "my-agent/1.0",
+		"x-app":         "cli",
+		"authorization": "Bearer configured",
+		"x-padded":      "padded",
 	}, overrides)
 
 	// 未启用时返回 nil
@@ -104,19 +105,24 @@ func TestGetHeaderOverrides(t *testing.T) {
 	})
 	require.Nil(t, empty.GetHeaderOverrides())
 
-	// 未经 Normalize 落库的超长数据 / WebSocket 握手头在应用时被防御性跳过
+	// 未经 Normalize 落库的超长数据仍会在应用时被防御性跳过；合法的系统管理头可覆写。
 	oversizedValue := strings.Repeat("a", maxHeaderOverrideValueLength+1)
 	defensive := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,
 		credKeyHeaderOverrides: map[string]any{
 			"x-big":                    oversizedValue,
 			"sec-websocket-key":        "forged",
-			"content-type":             "application/json", // 名单扩充前落库的数据也要被拦截
+			"content-type":             "application/json",
 			"x-claude-code-session-id": "pinned-session",
 			"x-ok":                     "ok",
 		},
 	})
-	require.Equal(t, map[string]string{"x-ok": "ok"}, defensive.GetHeaderOverrides())
+	require.Equal(t, map[string]string{
+		"sec-websocket-key":        "forged",
+		"content-type":             "application/json",
+		"x-claude-code-session-id": "pinned-session",
+		"x-ok":                     "ok",
+	}, defensive.GetHeaderOverrides())
 }
 
 func TestApplyHeaderOverrides(t *testing.T) {
@@ -182,8 +188,8 @@ func TestApplyHeaderOverridesNoOpPaths(t *testing.T) {
 	off.ApplyHeaderOverrides(h)
 	require.Equal(t, "orig", h.Get("User-Agent"))
 
-	// 禁止覆写的头（authorization / x-api-key / host 等）不会被应用
-	blocked := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
+	// 所有合法 header 名都可覆写，包括认证、连接和会话相关头。
+	unrestricted := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,
 		credKeyHeaderOverrides: map[string]any{
 			"Authorization":  "Bearer evil",
@@ -194,13 +200,14 @@ func TestApplyHeaderOverridesNoOpPaths(t *testing.T) {
 	})
 	h = http.Header{}
 	h.Set("Authorization", "Bearer real-key")
-	blocked.ApplyHeaderOverrides(h)
-	require.Equal(t, "Bearer real-key", h.Get("Authorization"))
-	require.Empty(t, h.Get("X-Api-Key"))
-	require.Empty(t, h.Get("Host"))
+	unrestricted.ApplyHeaderOverrides(h)
+	require.Equal(t, "Bearer evil", getHeaderRaw(h, "Authorization"))
+	require.Equal(t, []string{"evil"}, h["x-api-key"])
+	require.Equal(t, []string{"evil.example.com"}, h["host"])
+	require.Equal(t, "0", getHeaderRaw(h, "Content-Length"))
 
 	// nil header 不 panic
-	blocked.ApplyHeaderOverrides(nil)
+	unrestricted.ApplyHeaderOverrides(nil)
 }
 
 func TestNormalizeHeaderOverrideCredentials(t *testing.T) {
@@ -276,19 +283,33 @@ func TestNormalizeHeaderOverrideCredentials(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects blocked headers", func(t *testing.T) {
-		for _, name := range []string{
-			"Authorization", "x-api-key", "Host", "content-length", "Transfer-Encoding",
-			"connection", "accept-encoding", "Sec-WebSocket-Key", "session_id",
-			"conversation_id", "x-codex-turn-state", "chatgpt-account-id",
-			"Content-Type", "Cookie", "x-goog-api-key",
-			"X-Claude-Code-Session-Id", "x-client-request-id",
-		} {
-			err := NormalizeHeaderOverrideCredentials(map[string]any{
-				credKeyHeaderOverrides: map[string]any{name: "v"},
-			})
-			require.Error(t, err, "blocked header %q should be rejected", name)
+	t.Run("accepts all valid header names", func(t *testing.T) {
+		creds := map[string]any{
+			credKeyHeaderOverrides: map[string]any{
+				"Authorization":            "Bearer configured",
+				"x-api-key":                "configured-key",
+				"Host":                     "relay.example.com",
+				"Transfer-Encoding":        "chunked",
+				"connection":               "keep-alive",
+				"accept-encoding":          "gzip",
+				"Sec-WebSocket-Key":        "key",
+				"session_id":               "session",
+				"conversation_id":          "conversation",
+				"x-codex-turn-state":       "state",
+				"chatgpt-account-id":       "account",
+				"Content-Type":             "application/json",
+				"Cookie":                   "a=b",
+				"x-goog-api-key":           "google-key",
+				"X-Claude-Code-Session-Id": "claude-session",
+				"x-client-request-id":      "request",
+			},
 		}
+		require.NoError(t, NormalizeHeaderOverrideCredentials(creds))
+		normalized := creds[credKeyHeaderOverrides].(map[string]any)
+		require.Equal(t, "Bearer configured", normalized["authorization"])
+		require.Equal(t, "relay.example.com", normalized["host"])
+		require.Equal(t, "session", normalized["session_id"])
+		require.Equal(t, "claude-session", normalized["x-claude-code-session-id"])
 	})
 
 	t.Run("allows tab inside value", func(t *testing.T) {
