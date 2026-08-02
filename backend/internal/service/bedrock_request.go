@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -141,11 +142,22 @@ func normalizeBedrockModelID(modelID string) (normalized string, shouldAdjustReg
 // It applies account model_mapping first, then default Bedrock aliases, and finally
 // adjusts Anthropic cross-region prefixes to match the account region.
 func ResolveBedrockModelID(account *Account, requestedModel string) (string, bool) {
+	return resolveBedrockModelIDWithContext(context.Background(), account, requestedModel, false)
+}
+
+func ResolveBedrockModelIDForRequest(ctx context.Context, account *Account, requestedModel string) (string, bool) {
+	return resolveBedrockModelIDWithContext(ctx, account, requestedModel, true)
+}
+
+func resolveBedrockModelIDWithContext(ctx context.Context, account *Account, requestedModel string, requestAware bool) (string, bool) {
 	if account == nil {
 		return "", false
 	}
 
 	mappedModel := account.GetMappedModel(requestedModel)
+	if requestAware {
+		mappedModel = account.GetMappedModelForRequest(ctx, requestedModel)
+	}
 	modelID, shouldAdjustRegion, ok := normalizeBedrockModelID(mappedModel)
 	if !ok {
 		return "", false

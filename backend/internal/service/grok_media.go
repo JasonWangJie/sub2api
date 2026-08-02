@@ -355,7 +355,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	requestInfo := ParseGrokMediaRequest(contentType, body)
 	upstreamModel := requestInfo.Model
 	if endpoint.RequiresRequestBody() && gjson.ValidBytes(body) {
-		if mappedModel := strings.TrimSpace(account.GetMappedModel(requestInfo.Model)); mappedModel != "" {
+		if mappedModel := strings.TrimSpace(account.GetMappedModelForRequest(ctx, requestInfo.Model)); mappedModel != "" {
 			upstreamModel = mappedModel
 		}
 		if upstreamModel != requestInfo.Model {

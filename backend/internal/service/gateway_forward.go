@@ -102,7 +102,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		passthroughBody := parsed.Body.Bytes()
 		passthroughModel := parsed.Model
 		if passthroughModel != "" {
-			if mappedModel := account.GetMappedModel(passthroughModel); mappedModel != passthroughModel {
+			if mappedModel := account.GetMappedModelForRequest(ctx, passthroughModel); mappedModel != passthroughModel {
 				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
 				logger.LegacyPrintf("service.gateway", "Passthrough model mapping: %s -> %s (account: %s)", parsed.Model, mappedModel, account.Name)
 				passthroughModel = mappedModel
@@ -273,13 +273,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	mappedModel := reqModel
 	mappingSource := ""
 	if account.Type == AccountTypeAPIKey {
-		mappedModel = account.GetMappedModel(reqModel)
+		mappedModel = account.GetMappedModelForRequest(ctx, reqModel)
 		if mappedModel != reqModel {
 			mappingSource = "account"
 		}
 	}
 	if mappingSource == "" && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
-		if candidate, matched := account.ResolveMappedModel(reqModel); matched {
+		if candidate, matched := account.ResolveMappedModelForRequest(ctx, reqModel); matched {
 			mappedModel = candidate
 			mappingSource = "account"
 		} else {
@@ -947,7 +947,7 @@ func (s *GatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context,
 	if s.channelService == nil {
 		return false
 	}
-	upstreamModel := resolveAccountUpstreamModel(account, requestedModel)
+	upstreamModel := resolveAccountUpstreamModelForRequest(ctx, account, requestedModel)
 	if upstreamModel == "" {
 		return false
 	}
@@ -960,6 +960,16 @@ func resolveAccountUpstreamModel(account *Account, requestedModel string) string
 		return mapAntigravityModel(account, requestedModel)
 	}
 	return account.GetMappedModel(requestedModel)
+}
+
+func resolveAccountUpstreamModelForRequest(ctx context.Context, account *Account, requestedModel string) string {
+	if account == nil {
+		return ""
+	}
+	if account.Platform == PlatformAntigravity {
+		return mapAntigravityModelForRequest(ctx, account, requestedModel)
+	}
+	return account.GetMappedModelForRequest(ctx, requestedModel)
 }
 
 // needsUpstreamChannelRestrictionCheck 判断是否需要在调度循环中逐账号检查上游模型的渠道限制。

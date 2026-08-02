@@ -159,6 +159,10 @@
 
             <!-- Mapping Mode -->
             <div v-else>
+              <ModelMappingPercentField
+                v-model="modelMappingPercent"
+                input-id="edit-account-model-mapping-percent"
+              />
               <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
                 <p class="text-xs text-purple-700 dark:text-purple-400">
                   <svg
@@ -588,6 +592,10 @@
 
           <!-- Mapping Mode -->
           <div v-else>
+            <ModelMappingPercentField
+              v-model="modelMappingPercent"
+              input-id="edit-oauth-model-mapping-percent"
+            />
             <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
               <p class="text-xs text-purple-700 dark:text-purple-400">
                 {{ t('admin.accounts.mapRequestModels') }}
@@ -800,6 +808,10 @@
 
           <!-- Mapping Mode -->
           <div v-else>
+            <ModelMappingPercentField
+              v-model="modelMappingPercent"
+              input-id="edit-service-account-model-mapping-percent"
+            />
             <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
               <p class="text-xs text-purple-700 dark:text-purple-400">
                 <svg
@@ -1020,6 +1032,10 @@
 
           <!-- Mapping Mode -->
           <div v-else class="space-y-3">
+            <ModelMappingPercentField
+              v-model="modelMappingPercent"
+              input-id="edit-bedrock-model-mapping-percent"
+            />
             <div v-for="(mapping, index) in modelMappings" :key="getModelMappingKey(mapping)" class="flex items-center gap-2">
               <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
@@ -1136,6 +1152,11 @@
           <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
             <p class="text-xs text-purple-700 dark:text-purple-400">{{ t('admin.accounts.mapRequestModels') }}</p>
           </div>
+
+          <ModelMappingPercentField
+            v-model="modelMappingPercent"
+            input-id="edit-antigravity-model-mapping-percent"
+          />
 
           <div class="mb-3 flex flex-wrap gap-2">
             <button
@@ -2694,6 +2715,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelMappingPercentField from '@/components/account/ModelMappingPercentField.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -2702,11 +2724,14 @@ import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
+  applyModelMappingPercent,
   applyPlanType,
   buildPlanTypeOptions,
   readPlanType,
   isCustomGrokBaseUrl,
   isHeaderOverrideCapable,
+  isValidModelMappingPercent,
+  loadModelMappingPercent,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
@@ -2805,6 +2830,7 @@ const isBedrockAPIKeyMode = computed(() =>
 const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const modelMappingPercent = ref<number | null>(100)
 const allowedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
@@ -3352,6 +3378,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  modelMappingPercent.value = loadModelMappingPercent(credentials)
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -4137,6 +4164,13 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   if (!props.account) return
+  if (
+    (modelRestrictionMode.value === 'mapping' || props.account.platform === 'antigravity') &&
+    !isValidModelMappingPercent(modelMappingPercent.value)
+  ) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   const accountID = props.account.id
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
@@ -4786,6 +4820,14 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
+    }
+
+    if (updatePayload.credentials) {
+      const credentials = updatePayload.credentials as Record<string, unknown>
+      if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'replace')) {
+        appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+        return
+      }
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

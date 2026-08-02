@@ -157,9 +157,59 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       credentials: {
-        model_mapping: {}
+        model_mapping: {},
+        model_mapping_percent: 100
       }
     })
+  })
+
+  it('批量映射提交映射流量占比并支持 0%', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    const mappingTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.modelMapping')
+    )
+    await mappingTab!.trigger('click')
+    const addMapping = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.addMapping')
+    )
+    await addMapping!.trigger('click')
+
+    await wrapper.get('input[placeholder="admin.accounts.requestModel"]').setValue('model-a')
+    await wrapper.get('input[placeholder="admin.accounts.actualModel"]').setValue('model-b')
+    await wrapper.get('#bulk-edit-model-mapping-percent').setValue('0')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        model_mapping: { 'model-a': 'model-b' },
+        model_mapping_percent: 0
+      }
+    })
+  })
+
+  it('批量映射占比不是整数时阻止提交', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    const mappingTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.modelMapping')
+    )
+    await mappingTab!.trigger('click')
+    await wrapper.get('#bulk-edit-model-mapping-percent').setValue('10.5')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('admin.accounts.modelMappingPercentInvalid')
   })
 
   it('全部目标为 Grok OAuth 时，官方主机 base_url 作为手动端点切换正常提交', async () => {

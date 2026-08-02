@@ -441,7 +441,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		// Account mappings are resolved only after scheduling. Re-run the image
 		// gate with the exact upstream model before acquiring tokens or sending
 		// bytes upstream; aliases must have the same controls as direct models.
-		upstreamModel := service.ResolveGeminiForwardModel(account, modelName)
+		upstreamModel := service.ResolveGeminiForwardModelForRequest(c.Request.Context(), account, modelName)
 		if !ensureImageGenerationGate(upstreamModel) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()

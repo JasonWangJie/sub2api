@@ -1007,6 +1007,11 @@
             </p>
           </div>
 
+          <ModelMappingPercentField
+            v-model="modelMappingPercent"
+            input-id="create-antigravity-model-mapping-percent"
+          />
+
           <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
             <div
               v-for="(mapping, index) in antigravityModelMappings"
@@ -1265,6 +1270,10 @@
 
             <!-- Mapping Mode -->
             <div v-else>
+              <ModelMappingPercentField
+                v-model="modelMappingPercent"
+                input-id="create-account-model-mapping-percent"
+              />
               <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
                 <p class="text-xs text-purple-700 dark:text-purple-400">
                   <svg
@@ -1745,6 +1754,10 @@
 
           <!-- Mapping Mode -->
           <div v-else class="space-y-3">
+            <ModelMappingPercentField
+              v-model="modelMappingPercent"
+              input-id="create-bedrock-model-mapping-percent"
+            />
             <div v-for="(mapping, index) in modelMappings" :key="index" class="flex items-center gap-2">
               <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
@@ -2083,6 +2096,10 @@
 
           <!-- Mapping Mode -->
           <div v-else>
+            <ModelMappingPercentField
+              v-model="modelMappingPercent"
+              input-id="create-oauth-model-mapping-percent"
+            />
             <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
               <p class="text-xs text-purple-700 dark:text-purple-400">
                 {{ t('admin.accounts.mapRequestModels') }}
@@ -3597,6 +3614,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelMappingPercentField from '@/components/account/ModelMappingPercentField.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
@@ -3605,7 +3623,9 @@ import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
+  applyModelMappingPercent,
   isHeaderOverrideCapable,
+  isValidModelMappingPercent,
   validateHeaderOverrideRows,
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
@@ -3766,6 +3786,7 @@ const editResetTimezone = ref<string | null>(null)
 const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const modelMappingPercent = ref<number | null>(100)
 const allowedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
@@ -4637,10 +4658,18 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 }
 
+const createAccountWithMappingPercent = (payload: CreateAccountRequest) => {
+  const credentials = { ...((payload.credentials as Record<string, unknown> | undefined) || {}) }
+  if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'replace')) {
+    throw new Error(t('admin.accounts.modelMappingPercentInvalid'))
+  }
+  return adminAPI.accounts.create({ ...payload, credentials })
+}
+
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    const account = await createAccountWithMappingPercent(withAntigravityConfirmFlag(payload))
     if (
       payload.type === 'apikey' &&
       payload.upstream_billing_probe_enabled === true
@@ -4665,7 +4694,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       })
       return
     }
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || error.message || t('admin.accounts.failedToCreate'))
   } finally {
     submitting.value = false
   }
@@ -4703,6 +4732,7 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
+  modelMappingPercent.value = 100
   allowedModels.value = [...claudeModels] // Default fill related models
 
   antigravityModelRestrictionMode.value = 'mapping'
@@ -4984,6 +5014,13 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (
+    (modelRestrictionMode.value === 'mapping' || form.platform === 'antigravity') &&
+    !isValidModelMappingPercent(modelMappingPercent.value)
+  ) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -5385,7 +5422,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           return
         }
 
-        await adminAPI.accounts.create({
+        await createAccountWithMappingPercent({
           name: accountName,
           notes: form.notes,
           platform: 'grok',
@@ -5551,7 +5588,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await createAccountWithMappingPercent({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -5599,6 +5636,10 @@ const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | nul
   }
 
   if (!applyTempUnschedConfig(credentials)) {
+    return null
+  }
+  if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'replace')) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
     return null
   }
   return credentials
@@ -5832,7 +5873,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await createAccountWithMappingPercent({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -5947,7 +5988,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
-        await adminAPI.accounts.create(createPayload)
+        await createAccountWithMappingPercent(createPayload)
         successCount++
       } catch (error: any) {
         failedCount++
@@ -6312,7 +6353,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await createAccountWithMappingPercent({
           name: accountName,
           notes: form.notes,
           platform: form.platform,

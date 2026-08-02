@@ -65,7 +65,7 @@ func (s *GatewayService) forwardBedrock(
 	body := parsed.Body.Bytes()
 
 	region := bedrockRuntimeRegion(account)
-	mappedModel, ok := ResolveBedrockModelID(account, reqModel)
+	mappedModel, ok := ResolveBedrockModelIDForRequest(ctx, account, reqModel)
 	if !ok {
 		return nil, fmt.Errorf("unsupported bedrock model: %s", reqModel)
 	}

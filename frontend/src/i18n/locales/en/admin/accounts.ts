@@ -621,6 +621,9 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      modelMappingPercent: 'Mapped traffic share',
+      modelMappingPercentHint: 'After a rule matches, this share of requests uses the target model; the rest uses the original model. This is not a billing discount.',
+      modelMappingPercentInvalid: 'Enter a whole number from 0 to 100',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the request-side model and right is the actual model sent to the API. When the model changes, billing prefers the request-side model price and falls back to the actual model price if unavailable.',

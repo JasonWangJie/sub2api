@@ -45,7 +45,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		return nil, fmt.Errorf("grok account type %s is not supported by Responses forwarding", account.Type)
 	}
 
-	upstreamModel := account.GetMappedModel(originalModel)
+	upstreamModel := account.GetMappedModelForRequest(ctx, originalModel)
 	if strings.TrimSpace(upstreamModel) == "" {
 		upstreamModel = grokDefaultResponsesModel
 	}

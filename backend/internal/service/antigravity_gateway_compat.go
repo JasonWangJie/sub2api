@@ -209,7 +209,7 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body")
 	}
 
-	mappedModel := s.getMappedModel(account, request.originalModel)
+	mappedModel := s.getMappedModelForRequest(ctx, account, request.originalModel)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		message := fmt.Sprintf("model %s not in whitelist", request.originalModel)

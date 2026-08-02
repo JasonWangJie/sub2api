@@ -580,7 +580,7 @@ func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Co
 	if s.channelService == nil {
 		return false
 	}
-	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(ctx, account, requestedModel, requireCompact)
 	if upstreamModel == "" {
 		return false
 	}

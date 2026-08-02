@@ -27,7 +27,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body.Bytes()
 		if reqModel := parsed.Model; reqModel != "" {
-			if mappedModel := account.GetMappedModel(reqModel); mappedModel != reqModel {
+			if mappedModel := account.GetMappedModelForRequest(ctx, reqModel); mappedModel != reqModel {
 				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
 				logger.LegacyPrintf("service.gateway", "CountTokens passthrough model mapping: %s -> %s (account: %s)", reqModel, mappedModel, account.Name)
 			}
@@ -100,7 +100,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		mappedModel := reqModel
 		mappingSource := ""
 		if account.Type == AccountTypeAPIKey {
-			mappedModel = account.GetMappedModel(reqModel)
+			mappedModel = account.GetMappedModelForRequest(ctx, reqModel)
 			if mappedModel != reqModel {
 				mappingSource = "account"
 			}

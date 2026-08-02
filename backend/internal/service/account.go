@@ -4,7 +4,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"hash/fnv"
 	"log/slog"
 	"reflect"
 	"sort"
@@ -648,24 +647,30 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	if len(rawMapping) == 0 {
 		return 0
 	}
-	keys := make([]string, 0, len(rawMapping))
-	for k := range rawMapping {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	h := fnv.New64a()
-	for _, k := range keys {
-		_, _ = h.Write([]byte(k))
-		_, _ = h.Write([]byte{0})
-		if v, ok := rawMapping[k].(string); ok {
-			_, _ = h.Write([]byte(v))
-		} else {
-			_, _ = h.Write([]byte{1})
+	const (
+		fnvOffset = uint64(14695981039346656037)
+		fnvPrime  = uint64(1099511628211)
+	)
+	signature := uint64(0)
+	for key, rawValue := range rawMapping {
+		entryHash := fnvOffset
+		for index := 0; index < len(key); index++ {
+			entryHash = (entryHash ^ uint64(key[index])) * fnvPrime
 		}
-		_, _ = h.Write([]byte{0xff})
+		entryHash = (entryHash ^ 0) * fnvPrime
+		if value, ok := rawValue.(string); ok {
+			for index := 0; index < len(value); index++ {
+				entryHash = (entryHash ^ uint64(value[index])) * fnvPrime
+			}
+		} else {
+			entryHash = (entryHash ^ 1) * fnvPrime
+		}
+		entryHash = (entryHash ^ 0xff) * fnvPrime
+		// Addition makes the aggregate independent of Go's randomized map
+		// iteration order while retaining in-place mutation detection.
+		signature += entryHash*entryHash + entryHash*0x9e3779b97f4a7c15
 	}
-	return h.Sum64()
+	return signature
 }
 
 func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
@@ -872,11 +877,12 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 // defaults and protocol-specific normalization remain part of Model, but do not
 // set ExplicitChanged.
 type AccountModelMappingResolution struct {
-	Model           string
-	InputModel      string
-	ExplicitTarget  string
-	ExplicitMatched bool
-	ExplicitChanged bool
+	Model            string
+	InputModel       string
+	ExplicitTarget   string
+	EffectiveMatched bool
+	ExplicitMatched  bool
+	ExplicitChanged  bool
 }
 
 // ResolveMappedModelDetailed resolves the effective model while retaining the
@@ -892,18 +898,13 @@ func (a *Account) ResolveMappedModelDetailed(requestedModel string) AccountModel
 		return resolution
 	}
 
-	resolution.Model, _ = a.ResolveMappedModel(requestedModel)
-	explicitMapping := stringMappingFromRaw(a.Credentials["model_mapping"])
-	if len(explicitMapping) == 0 {
-		return resolution
-	}
-
+	resolution.Model, resolution.EffectiveMatched = a.ResolveMappedModel(requestedModel)
 	matchedInputModel := requestedModel
-	explicitTarget, matched := resolveRequestedModelInMapping(explicitMapping, requestedModel)
+	explicitTarget, matched := resolveRequestedModelInRawMapping(a.Credentials["model_mapping"], requestedModel)
 	if !matched {
 		normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 		if normalized != requestedModel {
-			explicitTarget, matched = resolveRequestedModelInMapping(explicitMapping, normalized)
+			explicitTarget, matched = resolveRequestedModelInRawMapping(a.Credentials["model_mapping"], normalized)
 			if matched {
 				matchedInputModel = normalized
 			}
@@ -1082,32 +1083,64 @@ func matchWildcard(pattern, str string) bool {
 }
 
 func matchWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
-	// 收集所有匹配的 pattern，按长度降序排序（最长优先）
-	type patternMatch struct {
-		pattern string
-		target  string
-	}
-	var matches []patternMatch
-
+	bestPattern := ""
+	bestTarget := ""
+	matched := false
 	for pattern, target := range mapping {
-		if matchWildcard(pattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern, target})
+		if matchWildcard(pattern, requestedModel) && (!matched || len(pattern) > len(bestPattern) || (len(pattern) == len(bestPattern) && pattern < bestPattern)) {
+			bestPattern = pattern
+			bestTarget = target
+			matched = true
 		}
 	}
-
-	if len(matches) == 0 {
+	if !matched {
 		return requestedModel, false // 无匹配，返回原始模型名
 	}
+	return bestTarget, true
+}
 
-	// 按 pattern 长度降序排序
-	sort.Slice(matches, func(i, j int) bool {
-		if len(matches[i].pattern) != len(matches[j].pattern) {
-			return len(matches[i].pattern) > len(matches[j].pattern)
+func resolveRequestedModelInRawMapping(raw any, requestedModel string) (string, bool) {
+	if requestedModel == "" {
+		return "", false
+	}
+	bestPattern := ""
+	bestTarget := ""
+	matched := false
+	consider := func(pattern, target string) {
+		if pattern == requestedModel {
+			bestPattern, bestTarget, matched = pattern, target, true
+			return
 		}
-		return matches[i].pattern < matches[j].pattern
-	})
-
-	return matches[0].target, true
+		if matched && bestPattern == requestedModel {
+			return
+		}
+		if matchWildcard(pattern, requestedModel) && (!matched || len(pattern) > len(bestPattern) || (len(pattern) == len(bestPattern) && pattern < bestPattern)) {
+			bestPattern, bestTarget, matched = pattern, target, true
+		}
+	}
+	switch mapping := raw.(type) {
+	case map[string]any:
+		if target, ok := mapping[requestedModel].(string); ok {
+			return target, true
+		}
+		for pattern, rawTarget := range mapping {
+			target, ok := rawTarget.(string)
+			if ok {
+				consider(pattern, target)
+			}
+		}
+	case map[string]string:
+		if target, ok := mapping[requestedModel]; ok {
+			return target, true
+		}
+		for pattern, target := range mapping {
+			consider(pattern, target)
+		}
+	}
+	if !matched {
+		return requestedModel, false
+	}
+	return bestTarget, true
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {

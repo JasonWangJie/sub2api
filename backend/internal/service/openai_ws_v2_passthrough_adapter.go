@@ -91,6 +91,10 @@ func (c *openAIWSPolicyEnforcingFrameConn) Close() error {
 // (account.GetMappedModel + normalizeOpenAIModelForUpstream) so the WS path
 // matches model whitelists identically.
 func openAIWSPassthroughPolicyModelForFrame(account *Account, payload []byte) string {
+	return openAIWSPassthroughPolicyModelForFrameForRequest(context.Background(), account, payload)
+}
+
+func openAIWSPassthroughPolicyModelForFrameForRequest(ctx context.Context, account *Account, payload []byte) string {
 	if account == nil || len(payload) == 0 {
 		return ""
 	}
@@ -98,7 +102,7 @@ func openAIWSPassthroughPolicyModelForFrame(account *Account, payload []byte) st
 	if original == "" {
 		return ""
 	}
-	return normalizeOpenAIModelForUpstream(account, account.GetMappedModel(original))
+	return normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, original))
 }
 
 // openAIWSPassthroughPolicyModelFromSessionFrame returns the upstream model
@@ -119,6 +123,10 @@ func openAIWSPassthroughPolicyModelForFrame(account *Account, payload []byte) st
 // the per-frame resolver returns "" and the stale capturedSessionModel falls
 // back to gpt-4o — defeating the gpt-5.5 fast-policy filter.
 func openAIWSPassthroughPolicyModelFromSessionFrame(account *Account, payload []byte) string {
+	return openAIWSPassthroughPolicyModelFromSessionFrameForRequest(context.Background(), account, payload)
+}
+
+func openAIWSPassthroughPolicyModelFromSessionFrameForRequest(ctx context.Context, account *Account, payload []byte) string {
 	if account == nil || len(payload) == 0 {
 		return ""
 	}
@@ -130,7 +138,7 @@ func openAIWSPassthroughPolicyModelFromSessionFrame(account *Account, payload []
 	if original == "" {
 		return ""
 	}
-	return normalizeOpenAIModelForUpstream(account, account.GetMappedModel(original))
+	return normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, original))
 }
 
 type openAIWSPassthroughUsageMeta struct {
@@ -725,7 +733,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			firstClientMessage = s.ReplaceModelInBody(firstClientMessage, mappedModel)
 		}
 	}
-	capturedSessionModel := openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
+	capturedSessionModel := openAIWSPassthroughPolicyModelForFrameForRequest(ctx, account, firstClientMessage)
 	if capturedSessionModel != "" && capturedSessionModel != strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()) {
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
@@ -987,7 +995,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			// → 不带 model 的 response.create fallback 到 gpt-4o" 的
 			// 绕过路径。这里只看 session.update 事件中的 session.model
 			// 字段，response.create 自己的 model 仍然由其本帧字段决定。
-			if updated := openAIWSPassthroughPolicyModelFromSessionFrame(account, payload); updated != "" {
+			if updated := openAIWSPassthroughPolicyModelFromSessionFrameForRequest(ctx, account, payload); updated != "" {
 				capturedSessionModel = updated
 			}
 			usageMeta.updateSessionRequestModel(payload)
@@ -999,7 +1007,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			// session-level model captured from the first frame so the
 			// model whitelist still resolves. An empty model would miss
 			// any whitelist and silently fall back to pass.
-			model := openAIWSPassthroughPolicyModelForFrame(account, payload)
+			model := openAIWSPassthroughPolicyModelForFrameForRequest(ctx, account, payload)
 			if model == "" {
 				model = capturedSessionModel
 			}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -139,13 +140,27 @@ func applyGeminiImageOutputAccounting(result *ForwardResult, counter *geminiImag
 // place on the Gemini upstream request. Keep permission checks and forwarding
 // on the same resolver so account-level aliases cannot bypass image controls.
 func ResolveGeminiForwardModel(account *Account, requestedModel string) string {
+	return resolveGeminiForwardModelWithContext(context.Background(), account, requestedModel, false)
+}
+
+func ResolveGeminiForwardModelForRequest(ctx context.Context, account *Account, requestedModel string) string {
+	return resolveGeminiForwardModelWithContext(ctx, account, requestedModel, true)
+}
+
+func resolveGeminiForwardModelWithContext(ctx context.Context, account *Account, requestedModel string, requestAware bool) string {
 	if account == nil {
 		return requestedModel
 	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
+		if requestAware {
+			return mapAntigravityModelForRequest(ctx, account, requestedModel)
+		}
 		return mapAntigravityModel(account, requestedModel)
 	}
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		if requestAware {
+			return account.GetMappedModelForRequest(ctx, requestedModel)
+		}
 		return account.GetMappedModel(requestedModel)
 	}
 	return requestedModel

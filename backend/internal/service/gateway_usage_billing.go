@@ -669,7 +669,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if strings.TrimSpace(accountMappingInputModel) == "" {
 		accountMappingInputModel = result.Model
 	}
-	applyForwardResultAccountMapping(result, account, accountMappingInputModel)
+	applyForwardResultAccountMapping(ctx, result, account, accountMappingInputModel)
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
 	// 用于粘性会话切换时的特殊计费处理

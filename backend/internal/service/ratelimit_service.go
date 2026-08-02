@@ -2164,7 +2164,7 @@ func modelRateLimitKeyForUpstreamModelNotFound(ctx context.Context, account *Acc
 		}
 		return modelKey
 	}
-	if mapped := strings.TrimSpace(account.GetMappedModel(modelKey)); mapped != "" {
+	if mapped := strings.TrimSpace(account.GetMappedModelForRequest(ctx, modelKey)); mapped != "" {
 		return mapped
 	}
 	return modelKey

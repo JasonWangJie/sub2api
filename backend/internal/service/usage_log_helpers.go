@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -81,18 +82,18 @@ func selectUsageBillingModel(
 	return selection
 }
 
-func accountMappingResolutionForUsage(account *Account, sourceModel string) AccountModelMappingResolution {
+func accountMappingResolutionForUsage(ctx context.Context, account *Account, sourceModel string) AccountModelMappingResolution {
 	if account == nil {
 		return AccountModelMappingResolution{Model: sourceModel, InputModel: strings.TrimSpace(sourceModel)}
 	}
-	return account.ResolveMappedModelDetailed(sourceModel)
+	return account.ResolveMappedModelDetailedForRequest(ctx, sourceModel)
 }
 
-func applyForwardResultAccountMapping(result *ForwardResult, account *Account, sourceModel string) {
+func applyForwardResultAccountMapping(ctx context.Context, result *ForwardResult, account *Account, sourceModel string) {
 	if result == nil || result.AccountMappingApplied {
 		return
 	}
-	resolution := accountMappingResolutionForUsage(account, sourceModel)
+	resolution := accountMappingResolutionForUsage(ctx, account, sourceModel)
 	if !resolution.ExplicitChanged {
 		return
 	}
@@ -101,11 +102,11 @@ func applyForwardResultAccountMapping(result *ForwardResult, account *Account, s
 	result.AccountMappingTargetModel = resolution.ExplicitTarget
 }
 
-func applyOpenAIForwardResultAccountMapping(result *OpenAIForwardResult, account *Account, sourceModel string) {
+func applyOpenAIForwardResultAccountMapping(ctx context.Context, result *OpenAIForwardResult, account *Account, sourceModel string) {
 	if result == nil || result.AccountMappingApplied {
 		return
 	}
-	resolution := accountMappingResolutionForUsage(account, sourceModel)
+	resolution := accountMappingResolutionForUsage(ctx, account, sourceModel)
 	if !resolution.ExplicitChanged {
 		return
 	}

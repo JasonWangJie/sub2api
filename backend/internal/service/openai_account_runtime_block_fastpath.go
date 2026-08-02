@@ -270,6 +270,17 @@ func canonicalOpenAIAccountSchedulingModel(account *Account, requestedModel stri
 	return model
 }
 
+func canonicalOpenAIAccountSchedulingModelForRequest(ctx context.Context, account *Account, requestedModel string) string {
+	model := strings.TrimSpace(requestedModel)
+	if account == nil || model == "" {
+		return model
+	}
+	if mapped := strings.TrimSpace(account.GetMappedModelForRequest(ctx, model)); mapped != "" {
+		return mapped
+	}
+	return model
+}
+
 func openAIAccountModelTransientModel(canonicalModel string) string {
 	return normalizeOpenAIAccountModelTransientModel(canonicalModel)
 }
@@ -305,8 +316,24 @@ func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Accou
 	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
 }
 
+func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlockedForRequest(ctx context.Context, account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return false
+	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, requestedModel)
+	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+}
+
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
 	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) || s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel))
+}
+
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlockedForRequest(ctx context.Context, account *Account, requestedModel string) bool {
+	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) || s.isOpenAIAccountModelRuntimeBlockedForRequest(ctx, account, requestedModel))
 }
 
 func (s *OpenAIGatewayService) recordOpenAIOAuth429() {

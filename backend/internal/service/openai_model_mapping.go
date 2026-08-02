@@ -1,11 +1,22 @@
 package service
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 // resolveOpenAIForwardModel 解析 OpenAI 兼容转发使用的模型。
 // messagesDispatchMappedModel 是调用方已为 /v1/messages 解析的显式调度结果；
 // 普通 OpenAI 请求必须传空，避免将分组配置作为通用模型兜底。
 func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatchMappedModel string) string {
+	return resolveOpenAIForwardModelWithResolver(account, requestedModel, messagesDispatchMappedModel, nil)
+}
+
+func resolveOpenAIForwardModelForRequest(ctx context.Context, account *Account, requestedModel, messagesDispatchMappedModel string) string {
+	return resolveOpenAIForwardModelWithResolver(account, requestedModel, messagesDispatchMappedModel, ctx)
+}
+
+func resolveOpenAIForwardModelWithResolver(account *Account, requestedModel, messagesDispatchMappedModel string, ctx context.Context) string {
 	messagesDispatchMappedModel = strings.TrimSpace(messagesDispatchMappedModel)
 	if account == nil {
 		if messagesDispatchMappedModel != "" {
@@ -14,7 +25,13 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatc
 		return requestedModel
 	}
 
-	mappedModel, matched := account.ResolveMappedModel(requestedModel)
+	var mappedModel string
+	var matched bool
+	if ctx == nil {
+		mappedModel, matched = account.ResolveMappedModel(requestedModel)
+	} else {
+		mappedModel, matched = account.ResolveMappedModelForRequest(ctx, requestedModel)
+	}
 	if !matched && messagesDispatchMappedModel != "" {
 		return messagesDispatchMappedModel
 	}

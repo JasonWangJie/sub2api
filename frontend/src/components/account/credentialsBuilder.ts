@@ -10,6 +10,54 @@ export function applyInterceptWarmup(
   }
 }
 
+export const MODEL_MAPPING_PERCENT_CREDENTIAL_KEY = 'model_mapping_percent'
+export const DEFAULT_MODEL_MAPPING_PERCENT = 100
+
+export function isValidModelMappingPercent(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= DEFAULT_MODEL_MAPPING_PERCENT
+  )
+}
+
+export function loadModelMappingPercent(credentials: Record<string, unknown> | null | undefined): number {
+  const value = credentials?.[MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]
+  return isValidModelMappingPercent(value) ? value : DEFAULT_MODEL_MAPPING_PERCENT
+}
+
+function hasEffectiveModelMapping(rawMapping: unknown): boolean {
+  if (!rawMapping || typeof rawMapping !== 'object' || Array.isArray(rawMapping)) return false
+  return Object.entries(rawMapping as Record<string, unknown>).some(
+    ([source, target]) => typeof target === 'string' && source.trim() !== target.trim()
+  )
+}
+
+/**
+ * Persists rollout only for mappings that can change a model. Bulk updates use
+ * merge semantics, so an identity/empty mapping explicitly resets old rollout
+ * configuration to 100 instead of attempting to delete a JSONB key.
+ */
+export function applyModelMappingPercent(
+  credentials: Record<string, unknown>,
+  percent: unknown,
+  mode: 'replace' | 'bulk-merge'
+): boolean {
+  if (hasEffectiveModelMapping(credentials.model_mapping)) {
+    if (!isValidModelMappingPercent(percent)) return false
+    credentials[MODEL_MAPPING_PERCENT_CREDENTIAL_KEY] = percent
+    return true
+  }
+  if (mode === 'bulk-merge' && Object.prototype.hasOwnProperty.call(credentials, 'model_mapping')) {
+    credentials[MODEL_MAPPING_PERCENT_CREDENTIAL_KEY] = DEFAULT_MODEL_MAPPING_PERCENT
+  } else {
+    delete credentials[MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]
+  }
+  return true
+}
+
 export const ANTIGRAVITY_PROJECT_ID_CREDENTIAL_KEY = 'antigravity_project_id'
 
 export function applyAntigravityProjectID(

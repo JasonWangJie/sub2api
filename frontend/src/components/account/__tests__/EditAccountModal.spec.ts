@@ -382,6 +382,45 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('loads and submits an existing model mapping traffic share', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping = { 'gpt-latest': 'gpt-5.2' }
+    account.credentials.model_mapping_percent = 25
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect((wrapper.get('#edit-account-model-mapping-percent').element as HTMLInputElement).value).toBe('25')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      model_mapping: { 'gpt-latest': 'gpt-5.2' },
+      model_mapping_percent: 25
+    })
+  })
+
+  it('removes model mapping traffic share when all mappings are deleted', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping = { 'gpt-latest': 'gpt-5.2' }
+    account.credentials.model_mapping_percent = 25
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    const mappingInputs = wrapper.findAll('input').filter((input) =>
+      ['gpt-latest', 'gpt-5.2'].includes((input.element as HTMLInputElement).value)
+    )
+    expect(mappingInputs).toHaveLength(2)
+    await mappingInputs[0].setValue('')
+    await mappingInputs[1].setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).not.toHaveProperty('model_mapping')
+    expect(credentials).not.toHaveProperty('model_mapping_percent')
+  })
+
   it('submits OpenAI compact mode and compact-only model mapping', async () => {
     const account = buildAccount()
     account.extra = {

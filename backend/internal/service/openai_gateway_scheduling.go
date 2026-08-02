@@ -624,8 +624,8 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 // resolveOpenAIAccountUpstreamModelForRequest resolves the upstream model that
 // would be sent for a given request, honouring compact-only mappings when the
 // caller is on the /responses/compact path.
-func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
-	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+func resolveOpenAIAccountUpstreamModelForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool) string {
+	upstreamModel := resolveOpenAIForwardModelForRequest(ctx, account, requestedModel, "")
 	if upstreamModel == "" {
 		return ""
 	}
@@ -725,7 +725,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedForRequest(ctx, account, requestedModel) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -933,7 +933,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+					} else if s.isOpenAIAccountRequestRuntimeBlockedForRequest(ctx, account, requestedModel) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -996,7 +996,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if !parentHealthyForShadow(acc, parentLookupL2) {
 			continue
 		}
-		if s.isOpenAIAccountRequestRuntimeBlocked(acc, requestedModel) {
+		if s.isOpenAIAccountRequestRuntimeBlockedForRequest(ctx, acc, requestedModel) {
 			continue
 		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
@@ -1250,7 +1250,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 	if !parentHealthyForShadow(fresh, s.parentAccountLookup(ctx)) {
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(fresh, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedForRequest(ctx, fresh, requestedModel) {
 		return nil
 	}
 	if s.isOpenAIProxyStreamQuarantined(ctx, fresh) {
@@ -1304,7 +1304,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if !parentHealthyForShadow(latest, s.parentAccountLookup(ctx)) {
 		return nil
 	}
-	if s.isOpenAIAccountRequestRuntimeBlocked(latest, requestedModel) {
+	if s.isOpenAIAccountRequestRuntimeBlockedForRequest(ctx, latest, requestedModel) {
 		return nil
 	}
 	if s.isOpenAIProxyStreamQuarantined(ctx, latest) {

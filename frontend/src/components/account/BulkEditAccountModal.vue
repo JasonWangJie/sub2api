@@ -296,6 +296,10 @@
 
             <!-- Mapping Mode -->
             <div v-else>
+              <ModelMappingPercentField
+                v-model="modelMappingPercent"
+                input-id="bulk-edit-model-mapping-percent"
+              />
               <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
                 <p class="text-xs text-purple-700 dark:text-purple-400">
                   <svg
@@ -1310,6 +1314,7 @@ import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelMappingPercentField from '@/components/account/ModelMappingPercentField.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
@@ -1318,7 +1323,9 @@ import {
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
   buildHeaderOverridesObject,
+  applyModelMappingPercent,
   isHeaderOverrideCapable,
+  isValidModelMappingPercent,
   validateHeaderOverrideRows,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
@@ -1493,6 +1500,7 @@ const mixedChannelWarningMessage = ref('')
 const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const modelMappingPercent = ref<number | null>(100)
 const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
 const selectedErrorCodes = ref<number[]>([])
@@ -1742,6 +1750,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
       credentials.model_mapping = modelMapping ?? {}
       credentialsChanged = true
     }
+    if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'bulk-merge')) {
+      return null
+    }
   }
 
   if (enableCustomErrorCodes.value) {
@@ -1885,6 +1896,14 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
 }
 
 const handleSubmit = async () => {
+  if (
+    enableModelRestriction.value &&
+    modelRestrictionMode.value === 'mapping' &&
+    !isValidModelMappingPercent(modelMappingPercent.value)
+  ) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   if (targetMode.value === 'selected' && props.accountIds.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
     return
@@ -2053,6 +2072,7 @@ watch(
       openaiPassthroughEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false
       modelRestrictionMode.value = 'whitelist'
+      modelMappingPercent.value = 100
       allowedModels.value = []
       modelMappings.value = []
       selectedErrorCodes.value = []

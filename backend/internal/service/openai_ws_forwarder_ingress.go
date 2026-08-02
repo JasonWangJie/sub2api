@@ -49,6 +49,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	ctx = withModelMappingRolloutPin(ctx)
 
 	// 预取一次 OpenAI Fast Policy settings，绑定到 ctx，让该 WS session
 	// 内所有帧的 evaluateOpenAIFastPolicy 调用复用同一份快照，避免每帧
@@ -303,7 +304,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				requestModel = mappedModel
 			}
 		}
-		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(requestModel))
+		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, requestModel))
 		if modelMissing || upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
@@ -528,7 +529,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			grokCacheIdentity := ""
 			if account.Platform == PlatformGrok {
-				grokCacheIdentity, err = resolveGrokWSCacheIdentity(
+				grokCacheIdentity, err = resolveGrokWSCacheIdentityForRequest(
+					ctx,
 					c,
 					account,
 					grokCacheSeedPayload,
@@ -696,7 +698,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return acquireTurnLease(turn, preferred, forcePreferredConn)
 		}
 		if acquireErr != nil {
-			canonicalModel := canonicalOpenAIAccountSchedulingModel(account, ingressSessionOriginalModel)
+			canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, ingressSessionOriginalModel)
 			s.handleOpenAIWSDialTransientFailure(ctx, account, canonicalModel, acquireErr)
 			dialStatus, dialClass, dialCloseStatus, dialCloseReason, dialRespServer, dialRespVia, dialRespCFRay, dialRespReqID := summarizeOpenAIWSDialError(acquireErr)
 			logOpenAIWSModeInfo(
@@ -815,7 +817,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if originalModel != "" {
 			mappedModel = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 			if mappedModel == "" {
-				mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+				mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, originalModel))
 			}
 			needModelReplace = mappedModel != "" && mappedModel != originalModel
 			if needModelReplace {
@@ -848,7 +850,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				lastEventType = eventType
 			}
 			if eventType == "error" {
-				canonicalModel := canonicalOpenAIAccountSchedulingModel(account, originalModel)
+				canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, originalModel)
 				s.handleOpenAIWSErrorEventTransientFailure(ctx, account, canonicalModel, lease.HandshakeHeaders(), upstreamMessage)
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(upstreamMessage)
 				s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), upstreamMessage, errCodeRaw, errTypeRaw, errMsgRaw)
@@ -982,7 +984,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 			}
 			if isTerminalEvent {
-				canonicalModel := canonicalOpenAIAccountSchedulingModel(account, originalModel)
+				canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, originalModel)
 				terminalEvent := s.handleOpenAIWSTerminalTransientFailure(ctx, account, canonicalModel, lease.HandshakeHeaders(), upstreamMessage)
 				// 客户端已断连时，上游连接的 session 状态不可信，标记 broken 避免回池复用。
 				if clientDisconnected {

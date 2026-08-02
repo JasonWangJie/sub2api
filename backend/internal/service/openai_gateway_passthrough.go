@@ -586,7 +586,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
 	reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
+	canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, reqModel)
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
@@ -649,7 +649,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	// 刚被限流的账号。cyber 例外：不冷却账号。
 	if !cyberHit {
 		reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
-		canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
+		canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, reqModel)
 		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

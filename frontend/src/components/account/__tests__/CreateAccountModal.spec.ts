@@ -167,6 +167,44 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
+  it('creates an account mapping with a default 100% traffic share', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('mapped account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await selectButtonByText(wrapper, 'admin.accounts.modelMapping')
+    await selectButtonByText(wrapper, 'admin.accounts.addMapping')
+    await wrapper.get('input[placeholder="admin.accounts.requestModel"]').setValue('model-a')
+    await wrapper.get('input[placeholder="admin.accounts.actualModel"]').setValue('model-b')
+
+    expect((wrapper.get('#create-account-model-mapping-percent').element as HTMLInputElement).value).toBe('100')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      model_mapping: { 'model-a': 'model-b' },
+      model_mapping_percent: 100
+    })
+  })
+
+  it('creates an account mapping with a custom traffic share', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('partial mapping')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await selectButtonByText(wrapper, 'admin.accounts.modelMapping')
+    await selectButtonByText(wrapper, 'admin.accounts.addMapping')
+    await wrapper.get('input[placeholder="admin.accounts.requestModel"]').setValue('model-a')
+    await wrapper.get('input[placeholder="admin.accounts.actualModel"]').setValue('model-b')
+    await wrapper.get('#create-account-model-mapping-percent').setValue('35')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping_percent).toBe(35)
+  })
+
   // namespace 摊平是仅 OAuth 的兼容开关：API Key 走 chat completions 回退桥时由桥自行摊平
   it('shows the Codex namespace flatten toggle only for OpenAI OAuth accounts', async () => {
     const wrapper = mountModal()

@@ -259,6 +259,14 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 // 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
 // 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号
 func mapAntigravityModel(account *Account, requestedModel string) string {
+	return mapAntigravityModelWithContext(context.Background(), account, requestedModel, false)
+}
+
+func mapAntigravityModelForRequest(ctx context.Context, account *Account, requestedModel string) string {
+	return mapAntigravityModelWithContext(ctx, account, requestedModel, true)
+}
+
+func mapAntigravityModelWithContext(ctx context.Context, account *Account, requestedModel string, requestAware bool) string {
 	if account == nil {
 		return ""
 	}
@@ -271,7 +279,16 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 	}
 
 	// 通过映射表查询（支持精确匹配 + 通配符）
-	mapped := account.GetMappedModel(requestedModel)
+	var mapped string
+	var matched bool
+	if requestAware {
+		mapped, matched = account.ResolveMappedModelForRequest(ctx, requestedModel)
+	} else {
+		mapped, matched = account.ResolveMappedModel(requestedModel)
+	}
+	if matched {
+		return mapped
+	}
 
 	// 判断是否映射成功（mapped != requestedModel 说明找到了映射规则）
 	if mapped != requestedModel {
@@ -295,6 +312,10 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 // 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
 	return mapAntigravityModel(account, requestedModel)
+}
+
+func (s *AntigravityGatewayService) getMappedModelForRequest(ctx context.Context, account *Account, requestedModel string) string {
+	return mapAntigravityModelForRequest(ctx, account, requestedModel)
 }
 
 func resolveAntigravityProjectID(account *Account) (string, error) {

@@ -66,7 +66,7 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 		return nil
 	}
 
-	modelKey := a.GetMappedModel(requestedModel)
+	modelKey := a.GetMappedModelForRequest(ctx, requestedModel)
 	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
 	}
@@ -121,7 +121,7 @@ func OpenAIImageGenerationIntentFromContext(ctx context.Context) bool {
 }
 
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {
-	modelKey := mapAntigravityModel(account, requestedModel)
+	modelKey := mapAntigravityModelForRequest(ctx, account, requestedModel)
 	if modelKey == "" {
 		return ""
 	}

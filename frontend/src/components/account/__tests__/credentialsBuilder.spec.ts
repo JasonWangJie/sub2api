@@ -6,11 +6,15 @@ import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
+  applyModelMappingPercent,
   applyPlanType,
   buildHeaderOverridesObject,
   buildPlanTypeOptions,
   isCustomGrokBaseUrl,
   isHeaderOverrideCapable,
+  isValidModelMappingPercent,
+  loadModelMappingPercent,
+  MODEL_MAPPING_PERCENT_CREDENTIAL_KEY,
   GROK_BASE_URL_PRESETS,
   parseHeaderOverridesJson,
   planTypeDisplayLabel,
@@ -19,6 +23,49 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('model mapping percent credentials', () => {
+  it('loads missing and malformed historical values as 100', () => {
+    expect(loadModelMappingPercent(undefined)).toBe(100)
+    expect(loadModelMappingPercent({ [MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]: '30' })).toBe(100)
+    expect(loadModelMappingPercent({ [MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]: 101 })).toBe(100)
+    expect(loadModelMappingPercent({ [MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]: 0 })).toBe(0)
+  })
+
+  it('accepts only integer percentages from 0 through 100', () => {
+    expect(isValidModelMappingPercent(0)).toBe(true)
+    expect(isValidModelMappingPercent(100)).toBe(true)
+    expect(isValidModelMappingPercent(45)).toBe(true)
+    expect(isValidModelMappingPercent(1.5)).toBe(false)
+    expect(isValidModelMappingPercent(-1)).toBe(false)
+    expect(isValidModelMappingPercent(101)).toBe(false)
+    expect(isValidModelMappingPercent('50')).toBe(false)
+    expect(isValidModelMappingPercent(null)).toBe(false)
+  })
+
+  it('stores the share only for an effective mapping and removes it with the mapping', () => {
+    const credentials: Record<string, unknown> = {
+      model_mapping: { source: 'target' },
+      model_mapping_percent: 100
+    }
+    expect(applyModelMappingPercent(credentials, 25, 'replace')).toBe(true)
+    expect(credentials.model_mapping_percent).toBe(25)
+
+    credentials.model_mapping = { source: 'source' }
+    expect(applyModelMappingPercent(credentials, 25, 'replace')).toBe(true)
+    expect('model_mapping_percent' in credentials).toBe(false)
+  })
+
+  it('rejects invalid values without overwriting and resets bulk whitelist merges to 100', () => {
+    const mapped: Record<string, unknown> = { model_mapping: { source: 'target' } }
+    expect(applyModelMappingPercent(mapped, 10.5, 'replace')).toBe(false)
+    expect('model_mapping_percent' in mapped).toBe(false)
+
+    const whitelist: Record<string, unknown> = { model_mapping: { source: 'source' } }
+    expect(applyModelMappingPercent(whitelist, 25, 'bulk-merge')).toBe(true)
+    expect(whitelist.model_mapping_percent).toBe(100)
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {
