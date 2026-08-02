@@ -133,7 +133,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// Parrot 的 build_upstream_headers 只发 9 个精确 header，不透传任何客户端 header。
 	// 透传客户端 header 会引入不一致的 x-stainless-* / anthropic-beta / user-agent /
 	// x-claude-code-session-id 等值，和我们注入的伪装 header 冲突，被 Anthropic 判 third-party。
-	if tokenType != "oauth" || !mimicClaudeCode {
+	if !mimicClaudeCode {
 		for key, values := range clientHeaders {
 			lowerKey := strings.ToLower(key)
 			if allowedHeaders[lowerKey] {
@@ -161,9 +161,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
-	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header
+	// Mimic Claude Code：强制注入 CLI 指纹相关 header
 	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
-	if tokenType == "oauth" && mimicClaudeCode {
+	if mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, reqStream)
 	}
 
@@ -189,10 +189,15 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	account.ApplyHeaderOverrides(req.Header)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
+	mimicReason := ""
+	if account.IsAnthropicClaudeCodeMimicEnabled() && mimicClaudeCode {
+		mimicReason = "account_upstream_claude_code_compat"
+	}
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
 		"url":                 req.URL.String(),
 		"token_type":          tokenType,
 		"mimic_claude_code":   strconv.FormatBool(mimicClaudeCode),
+		"mimic_reason":        mimicReason,
 		"fingerprint_applied": strconv.FormatBool(fingerprint != nil),
 		"enable_fp":           strconv.FormatBool(enableFP),
 		"enable_mpt":          strconv.FormatBool(enableMPT),
@@ -200,7 +205,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// Always capture a compact fingerprint line for later error diagnostics.
 	// We only print it when needed (or when the explicit debug flag is enabled).
-	if c != nil && tokenType == "oauth" {
+	if c != nil && (tokenType == "oauth" || account.IsAnthropicClaudeCodeMimicEnabled()) {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
 	}
 	if s.debugClaudeMimicEnabled() {
@@ -505,6 +510,10 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 	}
 
 	// API-key accounts
+	if mimicClaudeCode {
+		requiredBetas := strings.Split(claude.APIKeyBetaHeader, ",")
+		return mergeAnthropicBetaDropping(requiredBetas, clientBeta, mergeDropSets(effectiveDropSet, claude.BetaOAuth)), true
+	}
 	if clientBeta != "" {
 		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
 	}
@@ -561,6 +570,10 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 	}
 
 	// API-key accounts
+	if mimicClaudeCode {
+		requiredBetas := append(strings.Split(claude.APIKeyBetaHeader, ","), claude.BetaTokenCounting)
+		return mergeAnthropicBetaDropping(requiredBetas, clientBeta, mergeDropSets(effectiveDropSet, claude.BetaOAuth)), true
+	}
 	if clientBeta != "" {
 		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
 	}

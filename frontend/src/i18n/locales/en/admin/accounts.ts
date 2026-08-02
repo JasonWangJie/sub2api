@@ -586,6 +586,9 @@ export default {
         apiKeyHint: 'Grok subscription support uses OAuth refresh tokens; API keys are out of scope for this account type.'
       },
       anthropic: {
+        claudeCodeMimic: 'Upstream Claude Code restriction compatibility',
+        claudeCodeMimicDesc:
+          'For upstream groups restricted to Claude Code, fills in CLI headers, system attribution, and metadata for ordinary clients such as new-api. Real Claude Code requests are not rewritten. Enabling this disables automatic passthrough.',
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
           'Only applies to Anthropic API Key accounts. When enabled, messages/count_tokens are forwarded in passthrough mode with auth replacement only, while billing/concurrency/audit and safety filtering are preserved. Disable to roll back immediately.',

@@ -169,7 +169,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if c != nil {
 		clientUserAgent = c.GetHeader("User-Agent")
 	}
-	isClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(clientUserAgent, parsed.MetadataUserID)
+	isStrictClaudeCode := IsClaudeCodeClient(ctx) || isClaudeCodeClient(clientUserAgent, parsed.MetadataUserID)
+	isClaudeCode := isStrictClaudeCode
 
 	// 补充判定：上游 API 网关（如 new-api）转发真实 Claude Code 流量时，
 	// UA 会变成 Go-http-client 但 body 保留了完整的 Claude Code 特征
@@ -177,13 +178,16 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 重写 system prompt，会破坏 Anthropic prompt cache 的前缀匹配——
 	// 导致 messages 级缓存永远 miss、cache_creation 每轮全量重写。
 	// 通过检查 body 中的 billing attribution block 来识别被代理的真实 CC 流量。
-	if !isClaudeCode && parsed.MetadataUserID != "" {
+	if !isClaudeCode && ParseMetadataUserID(parsed.MetadataUserID) != nil {
 		isClaudeCode = systemHasBillingAttributionBlock(body)
 	}
 
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	accountClaudeCodeCompat := account.IsAnthropicClaudeCodeMimicEnabled()
+	// Proxied Claude Code traffic keeps its body intact, but still needs its lost
+	// CLI headers repaired before it reaches a claude_code_only upstream group.
+	shouldMimicClaudeCode := (account.IsOAuth() && !isClaudeCode) || (accountClaudeCodeCompat && !isStrictClaudeCode)
 
-	if shouldMimicClaudeCode {
+	if account.IsOAuth() && !isClaudeCode {
 		// 与 Parrot 对齐：OAuth 账号无条件重写 system（即使客户端已发了 Claude Code
 		// 风格的 system prompt）。原因：第三方工具（opencode 等）会发 "You are Claude
 		// Code..." system prompt 但缺少 billing attribution block，导致 Anthropic
@@ -240,6 +244,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if err := replaceBody(applyToolsLastCacheBreakpoint(body)); err != nil {
 				return nil, err
 			}
+		}
+	} else if accountClaudeCodeCompat && !isClaudeCode {
+		systemRaw, _ := parsed.SystemValue()
+		if err := replaceBody(s.applyAnthropicAPIKeyClaudeCodeMimicryToBody(ctx, c, account, body, systemRaw)); err != nil {
+			return nil, err
 		}
 	}
 

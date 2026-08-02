@@ -309,6 +309,10 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("normalize duplicate account extra: %w", err)
 	}
+	accountExtra, err = normalizeAnthropicClaudeCodeMimicExtra(input.Platform, input.Type, accountExtra)
+	if err != nil {
+		return nil, fmt.Errorf("normalize duplicate account extra: %w", err)
+	}
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
@@ -452,6 +456,31 @@ func normalizeGrokMediaEligibilityUpdateExtra(account *Account, input *UpdateAcc
 	return normalized, nil
 }
 
+func normalizeAnthropicClaudeCodeMimicExtra(platform, accountType string, extra map[string]any) (map[string]any, error) {
+	raw, exists := extra[AnthropicClaudeCodeMimicExtraKey]
+	if !exists {
+		return extra, nil
+	}
+	enabled, ok := raw.(bool)
+	if !ok {
+		return nil, infraerrors.BadRequest(
+			"ANTHROPIC_CLAUDE_CODE_MIMIC_INVALID",
+			"anthropic_claude_code_mimic must be a boolean",
+		)
+	}
+
+	normalized := maps.Clone(extra)
+	if platform != PlatformAnthropic || accountType != AccountTypeAPIKey || !enabled {
+		delete(normalized, AnthropicClaudeCodeMimicExtraKey)
+		return normalized, nil
+	}
+
+	// Compatibility mode transforms the request body, so auth-only passthrough
+	// cannot be active at the same time.
+	delete(normalized, anthropicPassthroughExtraKey)
+	return normalized, nil
+}
+
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
@@ -519,6 +548,10 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		return nil, err
 	}
 	accountExtra, err = normalizeGrokMediaEligibilityExtra(input.Platform, accountExtra)
+	if err != nil {
+		return nil, err
+	}
+	accountExtra, err = normalizeAnthropicClaudeCodeMimicExtra(input.Platform, input.Type, accountExtra)
 	if err != nil {
 		return nil, err
 	}
@@ -610,6 +643,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, err
 		}
 		normalizedExtra, err = normalizeGrokMediaEligibilityUpdateExtra(account, input, normalizedExtra)
+		if err != nil {
+			return nil, err
+		}
+		effectiveType := account.Type
+		if input.Type != "" {
+			effectiveType = input.Type
+		}
+		normalizedExtra, err = normalizeAnthropicClaudeCodeMimicExtra(account.Platform, effectiveType, normalizedExtra)
 		if err != nil {
 			return nil, err
 		}

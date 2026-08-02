@@ -646,6 +646,9 @@ export default {
         apiKeyHint: 'Grok 订阅支持使用 OAuth refresh token；API Key 账号不在本次范围内。'
       },
       anthropic: {
+        claudeCodeMimic: '上游 Claude Code 限制兼容',
+        claudeCodeMimicDesc:
+          '上游分组开启“仅 Claude Code 客户端”时，为 new-api 等普通客户端补齐请求头、system 归因和 metadata；真实 Claude Code 请求不改写。开启后自动关闭并禁用自动透传。',
         apiKeyPassthrough: '自动透传（仅替换认证）',
         apiKeyPassthroughDesc:
           '仅对 Anthropic API Key 生效。开启后，messages/count_tokens 请求将透传上游并仅替换认证，保留计费/并发/审计及必要安全过滤；关闭即可回滚到现有兼容链路。',

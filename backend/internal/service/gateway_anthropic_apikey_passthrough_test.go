@@ -990,6 +990,180 @@ func TestGatewayService_AnthropicOAuthRealClaudeCodeHaiku_PreservesClientHeaders
 	require.NotContains(t, string(upstream.lastBody), "x-anthropic-billing-header:")
 }
 
+func requireClaudeCodeValidatedWireRequest(t *testing.T, req *http.Request, body []byte) map[string]any {
+	t.Helper()
+	require.NotNil(t, req)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	// buildUpstreamRequest preserves exact HTTP/2 wire casing in the map. A Go
+	// server canonicalizes those keys when parsing the wire request, so mirror
+	// that boundary before invoking the ingress validator directly.
+	validatedReq := req.Clone(req.Context())
+	validatedReq.Header = make(http.Header, len(req.Header))
+	for key, values := range req.Header {
+		canonicalKey := http.CanonicalHeaderKey(key)
+		for _, value := range values {
+			validatedReq.Header.Add(canonicalKey, value)
+		}
+	}
+	require.True(t, NewClaudeCodeValidator().Validate(validatedReq, decoded),
+		"final upstream request must pass claude_code_only validation; headers=%v body=%s", validatedReq.Header, body)
+	return decoded
+}
+
+func newAnthropicClaudeCodeMimicAccountForTest() *Account {
+	return &Account{
+		ID: 401, Name: "anthropic-apikey-claude-code-compat", Platform: PlatformAnthropic,
+		Type: AccountTypeAPIKey, Concurrency: 1, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":  "upstream-anthropic-key",
+			"base_url": "https://api.anthropic.com",
+			"model_mapping": map[string]any{
+				"client-model": "upstream-model",
+			},
+		},
+		Extra: map[string]any{
+			AnthropicClaudeCodeMimicExtraKey: true,
+			anthropicPassthroughExtraKey:     true,
+		},
+	}
+}
+
+func TestGatewayService_AnthropicAPIKeyClaudeCodeMimic_OrdinaryMessagesPassesValidator(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("User-Agent", "Go-http-client/1.1")
+	c.Request.Header.Set("Anthropic-Beta", claude.BetaOAuth+",client-allowed-beta")
+
+	body := []byte(`{"model":"client-model","max_tokens":64,"system":"Keep this operator instruction.","metadata":{"user_id":"invalid-new-api-value"},"messages":[{"role":"user","content":"hello from new-api"}]}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"msg_mimic","type":"message","role":"assistant","model":"upstream-model","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":12,"output_tokens":7}}`)),
+	}}
+	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
+	svc := &GatewayService{
+		cfg: cfg, responseHeaderFilter: compileResponseHeaderFilter(cfg), httpUpstream: upstream,
+		rateLimitService: &RateLimitService{}, deferredService: &DeferredService{},
+	}
+	account := newAnthropicClaudeCodeMimicAccountForTest()
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	decoded := requireClaudeCodeValidatedWireRequest(t, upstream.lastReq, upstream.lastBody)
+
+	require.Equal(t, "upstream-model", decoded["model"], "API key account model mapping must remain active")
+	require.Equal(t, "upstream-anthropic-key", getHeaderRaw(upstream.lastReq.Header, "x-api-key"))
+	require.Empty(t, getHeaderRaw(upstream.lastReq.Header, "authorization"))
+	beta := getHeaderRaw(upstream.lastReq.Header, "anthropic-beta")
+	require.True(t, anthropicBetaTokensContains(beta, claude.BetaClaudeCode))
+	require.True(t, anthropicBetaTokensContains(beta, "client-allowed-beta"))
+	require.False(t, anthropicBetaTokensContains(beta, claude.BetaOAuth), "API key mimic must not inject or preserve OAuth auth semantics")
+	require.NotNil(t, ParseMetadataUserID(gjson.GetBytes(upstream.lastBody, "metadata.user_id").String()))
+	require.Contains(t, gjson.GetBytes(upstream.lastBody, "messages.0.content.0.text").String(), "Keep this operator instruction.")
+	require.False(t, account.IsAnthropicAPIKeyPassthroughEnabled(), "mimic must win over conflicting legacy passthrough data")
+}
+
+func TestGatewayService_AnthropicAPIKeyClaudeCodeMimic_ProxiedClaudeCodePreservesBodyAndRepairsHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	metadataUserID := FormatMetadataUserID(
+		"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+		"", "123e4567-e89b-42d3-a456-426614174000", claude.CLICurrentVersion,
+	)
+	body := []byte(`{"model":"client-model","max_tokens":64,"metadata":{"user_id":` + strconvQuote(metadataUserID) + `},"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.220.test; cc_entrypoint=cli;"},{"type":"text","text":"Client-owned system block"}],"messages":[{"role":"user","content":"hello"}]}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("User-Agent", "Go-http-client/1.1")
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"id":"msg_proxy","type":"message","role":"assistant","model":"upstream-model","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)),
+	}}
+	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
+	svc := &GatewayService{cfg: cfg, responseHeaderFilter: compileResponseHeaderFilter(cfg), httpUpstream: upstream, rateLimitService: &RateLimitService{}, deferredService: &DeferredService{}}
+
+	_, err = svc.Forward(context.Background(), c, newAnthropicClaudeCodeMimicAccountForTest(), parsed)
+	require.NoError(t, err)
+	requireClaudeCodeValidatedWireRequest(t, upstream.lastReq, upstream.lastBody)
+	require.Equal(t, gjson.GetBytes(body, "system").Raw, gjson.GetBytes(upstream.lastBody, "system").Raw)
+	require.Equal(t, metadataUserID, gjson.GetBytes(upstream.lastBody, "metadata.user_id").String())
+	require.Equal(t, claude.DefaultHeaders["User-Agent"], getHeaderRaw(upstream.lastReq.Header, "User-Agent"))
+}
+
+func TestGatewayService_AnthropicAPIKeyClaudeCodeMimic_CountTokensPassesValidator(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+	c.Request.Header.Set("User-Agent", "Go-http-client/1.1")
+	body := []byte(`{"model":"client-model","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`)
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "client-model"}
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"input_tokens":42}`)),
+	}}
+	svc := &GatewayService{cfg: &config.Config{}, httpUpstream: upstream, rateLimitService: &RateLimitService{}}
+
+	require.NoError(t, svc.ForwardCountTokens(context.Background(), c, newAnthropicClaudeCodeMimicAccountForTest(), parsed))
+	requireClaudeCodeValidatedWireRequest(t, upstream.lastReq, upstream.lastBody)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists())
+	require.True(t, anthropicBetaTokensContains(getHeaderRaw(upstream.lastReq.Header, "anthropic-beta"), claude.BetaTokenCounting))
+}
+
+func TestGatewayService_AnthropicAPIKeyClaudeCodeMimic_OpenAICompatibilityPathsPassValidator(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name string
+		body []byte
+		call func(*GatewayService, *gin.Context, *Account, []byte) (*ForwardResult, error)
+	}{
+		{
+			name: "chat completions",
+			body: []byte(`{"model":"client-model","stream":false,"messages":[{"role":"system","content":"Keep chat system"},{"role":"user","content":"hello"}]}`),
+			call: func(s *GatewayService, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+				return s.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+			},
+		},
+		{
+			name: "responses",
+			body: []byte(`{"model":"client-model","stream":false,"instructions":"Keep responses system","input":"hello"}`),
+			call: func(s *GatewayService, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+				return s.ForwardAsResponses(context.Background(), c, account, body, nil)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/compat", nil)
+			c.Request.Header.Set("User-Agent", "Go-http-client/1.1")
+			upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"rate_limit_error","message":"test stop after request capture"}}`)),
+			}}
+			svc := &GatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+			_, err := tt.call(svc, c, newAnthropicClaudeCodeMimicAccountForTest(), tt.body)
+			require.Error(t, err, "the synthetic 429 response should stop after request capture")
+			decoded := requireClaudeCodeValidatedWireRequest(t, upstream.lastReq, upstream.lastBody)
+			require.Equal(t, "upstream-model", decoded["model"])
+			require.NotNil(t, ParseMetadataUserID(gjson.GetBytes(upstream.lastBody, "metadata.user_id").String()))
+		})
+	}
+}
+
 func TestGatewayService_AnthropicOAuth_SystemPromptInjectionCanBeDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	resetGatewayForwardingSettingsCacheForTest(t)

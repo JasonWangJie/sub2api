@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -55,10 +56,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return err
 	}
 
-	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCodeCT
+	isStrictClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
+	isClaudeCodeCT := isStrictClaudeCodeCT
+	if !isClaudeCodeCT && ParseMetadataUserID(parsed.MetadataUserID) != nil {
+		isClaudeCodeCT = systemHasBillingAttributionBlock(body)
+	}
+	accountClaudeCodeCompat := account.IsAnthropicClaudeCodeMimicEnabled()
+	shouldMimicClaudeCode := (account.IsOAuth() && !isClaudeCodeCT) || (accountClaudeCodeCompat && !isStrictClaudeCodeCT)
 
-	if shouldMimicClaudeCode {
+	if account.IsOAuth() && !isClaudeCodeCT {
 		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: true}
 		var normalizedBody []byte
 		normalizedBody, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
@@ -515,13 +521,15 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
 	}
 
-	// 白名单透传 headers（恢复真实 wire casing）
-	for key, values := range clientHeaders {
-		lowerKey := strings.ToLower(key)
-		if allowedHeaders[lowerKey] {
-			wireKey := resolveWireCasing(key)
-			for _, v := range values {
-				addHeaderRaw(req.Header, wireKey, v)
+	// 账号级兼容模式忽略下游指纹头；OAuth 路径保持既有 count_tokens 行为。
+	if !(account.IsAnthropicClaudeCodeMimicEnabled() && mimicClaudeCode) {
+		for key, values := range clientHeaders {
+			lowerKey := strings.ToLower(key)
+			if allowedHeaders[lowerKey] {
+				wireKey := resolveWireCasing(key)
+				for _, v := range values {
+					addHeaderRaw(req.Header, wireKey, v)
+				}
 			}
 		}
 	}
@@ -542,8 +550,8 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
-	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header
-	if tokenType == "oauth" && mimicClaudeCode {
+	// Mimic Claude Code：强制注入 CLI 指纹 header。
+	if mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, false)
 	}
 
@@ -565,7 +573,18 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 账号级请求头覆写（仅 anthropic/openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 
-	if c != nil && tokenType == "oauth" {
+	mimicReason := ""
+	if account.IsAnthropicClaudeCodeMimicEnabled() && mimicClaudeCode {
+		mimicReason = "account_upstream_claude_code_compat"
+	}
+	s.debugLogGatewaySnapshot("UPSTREAM_COUNT_TOKENS", req.Header, body, map[string]string{
+		"url":               req.URL.String(),
+		"token_type":        tokenType,
+		"mimic_claude_code": strconv.FormatBool(mimicClaudeCode),
+		"mimic_reason":      mimicReason,
+	})
+
+	if c != nil && (tokenType == "oauth" || account.IsAnthropicClaudeCodeMimicEnabled()) {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
 	}
 	if s.debugClaudeMimicEnabled() {

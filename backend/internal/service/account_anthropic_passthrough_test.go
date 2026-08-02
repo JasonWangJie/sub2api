@@ -1,12 +1,84 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
+func TestAccount_IsAnthropicClaudeCodeMimicEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{name: "missing defaults disabled", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}},
+		{name: "false is disabled", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Extra: map[string]any{AnthropicClaudeCodeMimicExtraKey: false}}},
+		{name: "true enables Anthropic API key", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Extra: map[string]any{AnthropicClaudeCodeMimicExtraKey: true}}, want: true},
+		{name: "OAuth ignores flag", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, Extra: map[string]any{AnthropicClaudeCodeMimicExtraKey: true}}},
+		{name: "other platform ignores flag", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{AnthropicClaudeCodeMimicExtraKey: true}}},
+		{name: "malformed runtime value is disabled", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Extra: map[string]any{AnthropicClaudeCodeMimicExtraKey: "true"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.account.IsAnthropicClaudeCodeMimicEnabled())
+		})
+	}
+}
+
+func TestNormalizeAnthropicClaudeCodeMimicExtra(t *testing.T) {
+	t.Run("enabled removes passthrough", func(t *testing.T) {
+		extra, err := normalizeAnthropicClaudeCodeMimicExtra(PlatformAnthropic, AccountTypeAPIKey, map[string]any{
+			AnthropicClaudeCodeMimicExtraKey: true,
+			anthropicPassthroughExtraKey:     true,
+		})
+		require.NoError(t, err)
+		require.Equal(t, true, extra[AnthropicClaudeCodeMimicExtraKey])
+		require.NotContains(t, extra, anthropicPassthroughExtraKey)
+	})
+
+	t.Run("false is removed", func(t *testing.T) {
+		extra, err := normalizeAnthropicClaudeCodeMimicExtra(PlatformAnthropic, AccountTypeAPIKey, map[string]any{
+			AnthropicClaudeCodeMimicExtraKey: false,
+		})
+		require.NoError(t, err)
+		require.NotContains(t, extra, AnthropicClaudeCodeMimicExtraKey)
+	})
+
+	t.Run("unsupported account type is removed", func(t *testing.T) {
+		extra, err := normalizeAnthropicClaudeCodeMimicExtra(PlatformAnthropic, AccountTypeOAuth, map[string]any{
+			AnthropicClaudeCodeMimicExtraKey: true,
+		})
+		require.NoError(t, err)
+		require.NotContains(t, extra, AnthropicClaudeCodeMimicExtraKey)
+	})
+
+	t.Run("non boolean is a typed bad request", func(t *testing.T) {
+		_, err := normalizeAnthropicClaudeCodeMimicExtra(PlatformAnthropic, AccountTypeAPIKey, map[string]any{
+			AnthropicClaudeCodeMimicExtraKey: "true",
+		})
+		require.Error(t, err)
+		require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+		require.Equal(t, "ANTHROPIC_CLAUDE_CODE_MIMIC_INVALID", infraerrors.Reason(err))
+	})
+}
+
 func TestAccount_IsAnthropicAPIKeyPassthroughEnabled(t *testing.T) {
+	t.Run("兼容模式优先于自动透传", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeAPIKey,
+			Extra: map[string]any{
+				AnthropicClaudeCodeMimicExtraKey: true,
+				anthropicPassthroughExtraKey:     true,
+			},
+		}
+		require.False(t, account.IsAnthropicAPIKeyPassthroughEnabled())
+	})
+
 	t.Run("Anthropic API Key 开启", func(t *testing.T) {
 		account := &Account{
 			Platform: PlatformAnthropic,

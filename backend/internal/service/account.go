@@ -1960,14 +1960,30 @@ func (a *Account) IsOpenAIOAuthPassthroughEnabled() bool {
 	return a != nil && a.IsOpenAIOAuth() && a.IsOpenAIPassthroughEnabled()
 }
 
+const (
+	AnthropicClaudeCodeMimicExtraKey = "anthropic_claude_code_mimic"
+	anthropicPassthroughExtraKey     = "anthropic_passthrough"
+)
+
+// IsAnthropicClaudeCodeMimicEnabled 返回 Anthropic API Key 账号是否启用上游 Claude Code 限制兼容。
+// 字段：accounts.extra.anthropic_claude_code_mimic。
+// 字段缺失或类型不正确时，按 false（关闭）处理。
+func (a *Account) IsAnthropicClaudeCodeMimicEnabled() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra[AnthropicClaudeCodeMimicExtraKey].(bool)
+	return ok && enabled
+}
+
 // IsAnthropicAPIKeyPassthroughEnabled 返回 Anthropic API Key 账号是否启用"自动透传（仅替换认证）"。
 // 字段：accounts.extra.anthropic_passthrough。
 // 字段缺失或类型不正确时，按 false（关闭）处理。
 func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
-	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
+	if a == nil || a.IsAnthropicClaudeCodeMimicEnabled() || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey || a.Extra == nil {
 		return false
 	}
-	enabled, ok := a.Extra["anthropic_passthrough"].(bool)
+	enabled, ok := a.Extra[anthropicPassthroughExtraKey].(bool)
 	return ok && enabled
 }
 

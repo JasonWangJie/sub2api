@@ -1641,6 +1641,26 @@
         @updated="handleOllamaCloudUsageUpdated"
       />
 
+      <!-- Anthropic API Key 上游 Claude Code 限制兼容 -->
+      <div
+        v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.claudeCodeMimic') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.claudeCodeMimicDesc') }}
+            </p>
+          </div>
+          <Toggle
+            v-model="anthropicClaudeCodeMimicEnabled"
+            data-testid="anthropic-claude-code-mimic-toggle"
+            :aria-label="t('admin.accounts.anthropic.claudeCodeMimic')"
+          />
+        </div>
+      </div>
+
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
@@ -1653,21 +1673,12 @@
               {{ t('admin.accounts.anthropic.apiKeyPassthroughDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="anthropicPassthroughEnabled = !anthropicPassthroughEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                anthropicPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="anthropicPassthroughEnabled"
+            :disabled="anthropicClaudeCodeMimicEnabled"
+            data-testid="anthropic-passthrough-toggle"
+            :aria-label="t('admin.accounts.anthropic.apiKeyPassthrough')"
+          />
         </div>
       </div>
 
@@ -2855,9 +2866,16 @@ type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
+const anthropicClaudeCodeMimicEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
+
+watch(anthropicClaudeCodeMimicEnabled, enabled => {
+  if (enabled) {
+    anthropicPassthroughEnabled.value = false
+  }
+})
 const {
   globalEnabled: quotaNotifyGlobalEnabled,
   state: quotaNotifyState,
@@ -3288,6 +3306,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexCLIOnlyAppServerEnabled.value = false
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
+  anthropicClaudeCodeMimicEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
@@ -3342,7 +3361,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
   }
   if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
-    anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
+    anthropicClaudeCodeMimicEnabled.value = extra?.anthropic_claude_code_mimic === true
+    anthropicPassthroughEnabled.value = !anthropicClaudeCodeMimicEnabled.value && extra?.anthropic_passthrough === true
     anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
       ? 'authorization_bearer'
       : 'x_api_key'
@@ -4488,9 +4508,14 @@ const handleSubmit = async () => {
     if (props.account.platform === 'anthropic' && props.account.type === 'apikey') {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
-      if (anthropicPassthroughEnabled.value) {
+      if (anthropicClaudeCodeMimicEnabled.value) {
+        newExtra.anthropic_claude_code_mimic = true
+        delete newExtra.anthropic_passthrough
+      } else if (anthropicPassthroughEnabled.value) {
+        delete newExtra.anthropic_claude_code_mimic
         newExtra.anthropic_passthrough = true
       } else {
+        delete newExtra.anthropic_claude_code_mimic
         delete newExtra.anthropic_passthrough
       }
       if (anthropicAPIKeyAuthScheme.value === 'authorization_bearer') {

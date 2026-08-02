@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -187,6 +187,20 @@ function buildOpenAISparkShadowAccount() {
       }
     },
     group_ids: []
+  } as any
+}
+
+function buildAnthropicAccount(extra: Record<string, unknown> = {}) {
+  return {
+    ...buildAccount(),
+    id: 7,
+    name: 'Anthropic Key',
+    platform: 'anthropic',
+    credentials: {
+      api_key: 'sk-ant-test',
+      base_url: 'https://api.anthropic.com'
+    },
+    extra
   } as any
 }
 
@@ -881,6 +895,31 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     // 用户未输入新 key 时，payload 不应带 api_key，由后端合并保留旧值
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('api_key')
+  })
+
+  it('hydrates Anthropic compatibility and cleans conflicting passthrough on save', async () => {
+    const account = buildAnthropicAccount({
+      anthropic_claude_code_mimic: true,
+      anthropic_passthrough: true
+    })
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const mimicToggle = wrapper.get('[data-testid="anthropic-claude-code-mimic-toggle"]')
+    const passthroughToggle = wrapper.get('[data-testid="anthropic-passthrough-toggle"]')
+
+    expect(mimicToggle.attributes('aria-checked')).toBe('true')
+    expect(passthroughToggle.attributes('aria-checked')).toBe('false')
+    expect(passthroughToggle.attributes('disabled')).toBeDefined()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.anthropic_claude_code_mimic).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('anthropic_passthrough')
   })
 
   it('allows saving apikey account against legacy backend without credentials_status', async () => {

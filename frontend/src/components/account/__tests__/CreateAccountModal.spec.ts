@@ -1,4 +1,4 @@
-import { defineComponent } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -240,6 +240,39 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBeUndefined()
+  })
+
+  it('submits Anthropic upstream Claude Code compatibility only when enabled', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Anthropic compat')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+
+    const mimicToggle = wrapper.get('[data-testid="anthropic-claude-code-mimic-toggle"]')
+    expect(mimicToggle.attributes('role')).toBe('switch')
+    expect(mimicToggle.attributes('aria-checked')).toBe('false')
+    await mimicToggle.trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.anthropic_claude_code_mimic).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('anthropic_passthrough')
+  })
+
+  it('turns off and disables Anthropic passthrough when compatibility is enabled', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    const passthroughToggle = wrapper.get('[data-testid="anthropic-passthrough-toggle"]')
+    const mimicToggle = wrapper.get('[data-testid="anthropic-claude-code-mimic-toggle"]')
+
+    await passthroughToggle.trigger('click')
+    expect(passthroughToggle.attributes('aria-checked')).toBe('true')
+    await mimicToggle.trigger('click')
+    await nextTick()
+
+    expect(passthroughToggle.attributes('aria-checked')).toBe('false')
+    expect(passthroughToggle.attributes('disabled')).toBeDefined()
   })
 
   it('leaves Codex session import billing ownership to the backend', async () => {

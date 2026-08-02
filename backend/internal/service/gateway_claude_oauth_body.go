@@ -433,6 +433,75 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	return body
 }
 
+// applyAnthropicAPIKeyClaudeCodeMimicryToBody adds the body-level identity
+// required by an upstream sub2api group with claude_code_only enabled. Unlike
+// OAuth normalization, it deliberately leaves model and generation fields alone.
+func (s *GatewayService) applyAnthropicAPIKeyClaudeCodeMimicryToBody(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	systemRaw any,
+) []byte {
+	if account == nil || !account.IsAnthropicClaudeCodeMimicEnabled() || len(body) == 0 {
+		return body
+	}
+
+	// Capture the user's first message before the original system instruction is
+	// moved into the synthetic leading user/assistant pair.
+	firstUserText := extractFirstUserText(body)
+
+	// This account-level compatibility feature must not depend on the global
+	// Claude OAuth system-injection switch. The built-in blocks are mandatory.
+	body = rewriteSystemForNonClaudeCodeWithPromptBlocks(body, normalizeSystemParam(systemRaw), "", "")
+
+	var fingerprint *Fingerprint
+	clientDiscriminator := ""
+	if c != nil && c.Request != nil {
+		clientDiscriminator = c.ClientIP() + ":" + NormalizeSessionUserAgent(c.GetHeader("User-Agent"))
+		if s.identityService != nil {
+			if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header); err == nil {
+				fingerprint = fp
+			}
+		}
+	}
+
+	deviceID := strings.TrimSpace(account.GetClaudeUserID())
+	if deviceID == "" && fingerprint != nil {
+		deviceID = fingerprint.ClientID
+	}
+	if deviceID == "" {
+		deviceID = generateClientID()
+	}
+	sessionID := generateSessionUUID(buildStableSessionSeed(account.ID, clientDiscriminator, firstUserText))
+	metadataUserID := FormatMetadataUserID(
+		deviceID,
+		strings.TrimSpace(account.GetExtraString("account_uuid")),
+		sessionID,
+		claude.CLICurrentVersion,
+	)
+	if next, changed := ensureValidClaudeCodeMetadataUserID(body, metadataUserID); changed {
+		body = next
+	}
+	return body
+}
+
+func ensureValidClaudeCodeMetadataUserID(body []byte, fallbackUserID string) ([]byte, bool) {
+	existing := gjson.GetBytes(body, "metadata.user_id")
+	if existing.Exists() && existing.Type == gjson.String && ParseMetadataUserID(existing.String()) != nil {
+		return body, false
+	}
+	metadata := gjson.GetBytes(body, "metadata")
+	if metadata.Exists() && strings.HasPrefix(strings.TrimSpace(metadata.Raw), "{") {
+		return setJSONValueBytes(body, "metadata.user_id", fallbackUserID)
+	}
+	raw, err := marshalAnthropicMetadata(fallbackUserID)
+	if err != nil {
+		return body, false
+	}
+	return setJSONRawBytes(body, "metadata", raw)
+}
+
 // buildOAuthMetadataUserIDFromBody 是 buildOAuthMetadataUserID 的变体，
 // 适用于调用方手上没有 ParsedRequest 的场景（如 OpenAI 协议兼容层）。
 //
