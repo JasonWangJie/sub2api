@@ -359,6 +359,7 @@ export const useAppStore = defineStore('app', () => {
         doc_url: docUrl.value,
         infinite_canvas_url: infiniteCanvasUrl.value,
         home_content: '',
+        compact_home_enabled: false,
         hide_ccs_import_button: false,
         payment_enabled: false,
         table_default_page_size: 20,

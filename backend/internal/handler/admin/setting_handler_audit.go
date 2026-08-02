@@ -321,6 +321,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.SEOVerificationTags != after.SEOVerificationTags {
 		changed = append(changed, "seo_verification_tags")
 	}
+	if before.CompactHomeEnabled != after.CompactHomeEnabled {
+		changed = append(changed, "compact_home_enabled")
+	}
 	if before.HideCcsImportButton != after.HideCcsImportButton {
 		changed = append(changed, "hide_ccs_import_button")
 	}
