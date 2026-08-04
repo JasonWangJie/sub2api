@@ -1267,6 +1267,11 @@ export default {
         title: 'Usage Records',
         description: 'Settings for usage and failed-request records visible to end users.',
       },
+      user_usage_latency_divisor: {
+        label: 'User usage latency divisor',
+        description: 'Only adjusts first-token and total latency in the /usage table and user CSV. It does not affect /admin/usage, stored records, statistics, or real API response time.',
+        rangeError: 'The user usage latency divisor must be a valid number between {min} and {max}.',
+      },
       user_error_view: {
         label: 'Allow users to view their own error requests',
         description: 'When enabled, users can see a redacted view of their failed requests on the usage page (no internal/upstream details). Requires ops monitoring enabled to have data.',

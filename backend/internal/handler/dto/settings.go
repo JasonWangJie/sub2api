@@ -148,6 +148,7 @@ type SystemSettings struct {
 	PurchaseSubscriptionURL     string           `json:"purchase_subscription_url"`
 	TableDefaultPageSize        int              `json:"table_default_page_size"`
 	TablePageSizeOptions        []int            `json:"table_page_size_options"`
+	UserUsageLatencyDivisor     float64          `json:"user_usage_latency_divisor"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
 	SEOIndexingEnabled          bool             `json:"seo_indexing_enabled"`
@@ -362,6 +363,7 @@ type PublicSettings struct {
 	PurchaseSubscriptionURL          string                   `json:"purchase_subscription_url"`
 	TableDefaultPageSize             int                      `json:"table_default_page_size"`
 	TablePageSizeOptions             []int                    `json:"table_page_size_options"`
+	UserUsageLatencyDivisor          float64                  `json:"user_usage_latency_divisor"`
 	CustomMenuItems                  []CustomMenuItem         `json:"custom_menu_items"`
 	CustomEndpoints                  []CustomEndpoint         `json:"custom_endpoints"`
 	SEOIndexingEnabled               bool                     `json:"seo_indexing_enabled"`

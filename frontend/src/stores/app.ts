@@ -364,6 +364,7 @@ export const useAppStore = defineStore('app', () => {
         payment_enabled: false,
         table_default_page_size: 20,
         table_page_size_options: [10, 20, 50, 100],
+        user_usage_latency_divisor: 1,
         custom_menu_items: [],
         custom_endpoints: [],
         seo_indexing_enabled: true,

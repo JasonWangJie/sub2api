@@ -1261,6 +1261,11 @@ export default {
         title: '使用记录',
         description: '与终端用户可见的用量及失败请求记录相关的设置。',
       },
+      user_usage_latency_divisor: {
+        label: '用户用量页延迟除数',
+        description: '仅调整 /usage 延迟列及用户 CSV 中的首字和总耗时；不影响 /admin/usage、原始记录、统计计算或真实 API 响应耗时。',
+        rangeError: '用户用量页延迟除数必须是 {min}-{max} 之间的有效数字。',
+      },
       user_error_view: {
         label: '允许用户查看自己的错误请求',
         description: '开启后，用户可在用量页查看自己失败请求的精简信息（不含内部/上游错误细节）。需运维监控开启才有数据。',

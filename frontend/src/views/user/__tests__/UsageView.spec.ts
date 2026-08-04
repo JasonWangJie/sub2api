@@ -14,6 +14,8 @@ const {
   showWarning,
   showSuccess,
   showInfo,
+  fetchPublicSettings,
+  appStoreState,
 } = vi.hoisted(() => ({
   query: vi.fn(),
   getStats: vi.fn(),
@@ -25,6 +27,13 @@ const {
   showWarning: vi.fn(),
   showSuccess: vi.fn(),
   showInfo: vi.fn(),
+  fetchPublicSettings: vi.fn(),
+  appStoreState: {
+    cachedPublicSettings: {
+      allow_user_view_error_requests: false,
+      user_usage_latency_divisor: 2,
+    },
+  },
 }))
 
 const messages: Record<string, string> = {
@@ -80,7 +89,14 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo }),
+  useAppStore: () => ({
+    ...appStoreState,
+    showError,
+    showWarning,
+    showSuccess,
+    showInfo,
+    fetchPublicSettings,
+  }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -95,6 +111,10 @@ vi.mock('vue-i18n', async () => {
 
 const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
+const usageTableStub = {
+  props: ['latencyDivisor'],
+  template: '<div data-testid="usage-table-divisor">{{ latencyDivisor }}</div>',
+}
 
 const usageLog = {
   id: 1,
@@ -137,7 +157,7 @@ function mountUsageView() {
         DateRangePicker: true,
         Icon: true,
         UsageStatsCards: chartStub,
-        UsageTable: chartStub,
+        UsageTable: usageTableStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
         EndpointDistributionChart: chartStub,
@@ -159,6 +179,8 @@ describe('user UsageView', () => {
     showWarning.mockReset()
     showSuccess.mockReset()
     showInfo.mockReset()
+    fetchPublicSettings.mockReset()
+    fetchPublicSettings.mockResolvedValue(appStoreState.cachedPublicSettings)
 
     query.mockResolvedValue({ items: [usageLog], total: 1, pages: 1 })
     getStats.mockResolvedValue({
@@ -192,7 +214,7 @@ describe('user UsageView', () => {
   })
 
   it('loads logs, stats, model stats, and snapshot on first render', async () => {
-    mountUsageView()
+    const wrapper = mountUsageView()
     await flushPromises()
 
     expect(query).toHaveBeenCalled()
@@ -205,11 +227,26 @@ describe('user UsageView', () => {
     }))
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+    expect(fetchPublicSettings).toHaveBeenCalledWith(true)
+    expect(wrapper.get('[data-testid="usage-table-divisor"]').text()).toBe('2')
   })
 
   it('exports csv with current filters and without admin-only fields', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
+
+    query.mockResolvedValue({
+      items: [
+        usageLog,
+        {
+          ...usageLog,
+          request_id: 'req-user-sync-without-first-token',
+          first_token_ms: null,
+        },
+      ],
+      total: 2,
+      pages: 1,
+    })
 
     let exportedBlob: Blob | null = null
     let csvContent = ''
@@ -240,7 +277,8 @@ describe('user UsageView', () => {
     expect(csvContent.startsWith('\uFEFF')).toBe(true)
     expect(csvContent.slice(1)).toBe([
       'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost,Original Cost,First Token (ms),Duration (ms)',
-      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345',
+      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,6,172.5',
+      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,,172.5',
     ].join('\n'))
     expect(csvContent).toContain('IP Address')
     expect(csvContent).toContain('203.0.113.10')

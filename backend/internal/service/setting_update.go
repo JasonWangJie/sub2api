@@ -346,6 +346,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal table page size options: %w", err)
 	}
 	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
+	userUsageLatencyDivisor := settings.UserUsageLatencyDivisor
+	if userUsageLatencyDivisor == 0 {
+		userUsageLatencyDivisor = UserUsageLatencyDivisorDefault
+	}
+	if err := ValidateUserUsageLatencyDivisor(userUsageLatencyDivisor); err != nil {
+		return nil, err
+	}
+	updates[SettingKeyUserUsageLatencyDivisor] = strconv.FormatFloat(userUsageLatencyDivisor, 'f', -1, 64)
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 	seoKeywordsJSON, err := json.Marshal(settings.SEOKeywords)

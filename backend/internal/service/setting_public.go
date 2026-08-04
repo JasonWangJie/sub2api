@@ -193,6 +193,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyPurchaseSubscriptionURL,
 		SettingKeyTableDefaultPageSize,
 		SettingKeyTablePageSizeOptions,
+		SettingKeyUserUsageLatencyDivisor,
 		SettingKeyCustomMenuItems,
 		SettingKeyCustomEndpoints,
 		SettingKeySEOIndexingEnabled,
@@ -330,6 +331,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		TableDefaultPageSize:             tableDefaultPageSize,
 		TablePageSizeOptions:             tablePageSizeOptions,
+		UserUsageLatencyDivisor:          parseUserUsageLatencyDivisor(settings[SettingKeyUserUsageLatencyDivisor]),
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		SEOIndexingEnabled:               settings[SettingKeySEOIndexingEnabled] != "false",
@@ -527,6 +529,7 @@ type PublicSettingsInjectionPayload struct {
 	PurchaseSubscriptionURL          string                   `json:"purchase_subscription_url"`
 	TableDefaultPageSize             int                      `json:"table_default_page_size"`
 	TablePageSizeOptions             []int                    `json:"table_page_size_options"`
+	UserUsageLatencyDivisor          float64                  `json:"user_usage_latency_divisor"`
 	CustomMenuItems                  json.RawMessage          `json:"custom_menu_items"`
 	CustomEndpoints                  json.RawMessage          `json:"custom_endpoints"`
 	SEOIndexingEnabled               bool                     `json:"seo_indexing_enabled"`
@@ -608,6 +611,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		PurchaseSubscriptionURL:          settings.PurchaseSubscriptionURL,
 		TableDefaultPageSize:             settings.TableDefaultPageSize,
 		TablePageSizeOptions:             settings.TablePageSizeOptions,
+		UserUsageLatencyDivisor:          settings.UserUsageLatencyDivisor,
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		SEOIndexingEnabled:               settings.SEOIndexingEnabled,

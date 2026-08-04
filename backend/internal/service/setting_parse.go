@@ -71,6 +71,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPurchaseSubscriptionURL:                   "",
 		SettingKeyTableDefaultPageSize:                      "20",
 		SettingKeyTablePageSizeOptions:                      "[10,20,50,100]",
+		SettingKeyUserUsageLatencyDivisor:                   "1",
 		SettingKeyCustomMenuItems:                           "[]",
 		SettingKeyCustomEndpoints:                           "[]",
 		SettingKeySEOIndexingEnabled:                        "true",
@@ -359,6 +360,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		settings[SettingKeyTableDefaultPageSize],
 		settings[SettingKeyTablePageSizeOptions],
 	)
+	result.UserUsageLatencyDivisor = parseUserUsageLatencyDivisor(settings[SettingKeyUserUsageLatencyDivisor])
 
 	// 解析整数类型
 	if port, err := strconv.Atoi(settings[SettingKeySMTPPort]); err == nil {
@@ -931,6 +933,26 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 
 	return result
+}
+
+func parseUserUsageLatencyDivisor(raw string) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) ||
+		value < UserUsageLatencyDivisorMin || value > UserUsageLatencyDivisorMax {
+		return UserUsageLatencyDivisorDefault
+	}
+	return value
+}
+
+func ValidateUserUsageLatencyDivisor(value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) ||
+		value < UserUsageLatencyDivisorMin || value > UserUsageLatencyDivisorMax {
+		return infraerrors.BadRequest(
+			"INVALID_USER_USAGE_LATENCY_DIVISOR",
+			fmt.Sprintf("user usage latency divisor must be between %g and %g", UserUsageLatencyDivisorMin, UserUsageLatencyDivisorMax),
+		)
+	}
+	return nil
 }
 
 func clampAffiliateRebateRate(value float64) float64 {

@@ -392,6 +392,7 @@ const baseSettingsResponse = {
   hide_ccs_import_button: false,
   table_default_page_size: 20,
   table_page_size_options: [10, 20, 50, 100],
+  user_usage_latency_divisor: 1,
   backend_mode_enabled: false,
   custom_menu_items: [],
   custom_endpoints: [],
@@ -803,6 +804,36 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
+    );
+  });
+
+  it("loads and submits the user usage latency divisor", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const input = wrapper.get("#user-usage-latency-divisor");
+    expect((input.element as HTMLInputElement).value).toBe("1");
+
+    await input.setValue("2.5");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ user_usage_latency_divisor: 2.5 }),
+    );
+  });
+
+  it("rejects an invalid user usage latency divisor before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.get("#user-usage-latency-divisor").setValue("0.5");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      expect.stringContaining("admin.settings.user_usage_latency_divisor.rangeError"),
     );
   });
 

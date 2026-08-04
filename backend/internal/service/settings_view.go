@@ -145,6 +145,7 @@ type SystemSettings struct {
 	PurchaseSubscriptionURL     string
 	TableDefaultPageSize        int
 	TablePageSizeOptions        []int
+	UserUsageLatencyDivisor     float64
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 	SEOIndexingEnabled          bool
@@ -331,6 +332,7 @@ type PublicSettings struct {
 	PurchaseSubscriptionURL     string
 	TableDefaultPageSize        int
 	TablePageSizeOptions        []int
+	UserUsageLatencyDivisor     float64
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 

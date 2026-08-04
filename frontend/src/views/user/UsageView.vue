@@ -198,6 +198,7 @@
               :server-side-sort="true"
               :show-account-billing="false"
               :show-upstream-endpoint="false"
+              :latency-divisor="userUsageLatencyDivisor"
               default-sort-key="created_at"
               default-sort-order="desc"
               @sort="handleSort"
@@ -268,6 +269,10 @@ import type {
 } from '@/types'
 import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
+import {
+  normalizeUserUsageLatencyDivisor,
+  scaleUsageLatency,
+} from '@/utils/usageLatency'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -344,6 +349,7 @@ let abortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
+let usageViewActive = false
 
 const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -371,6 +377,9 @@ const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
 const activeTab = ref<'usage' | 'errors'>('usage')
 const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
+const userUsageLatencyDivisor = computed(() =>
+  normalizeUserUsageLatencyDivisor(appStore.cachedPublicSettings?.user_usage_latency_divisor)
+)
 
 const filters = ref<UsageQueryParams>({
   start_date: startDate.value,
@@ -694,8 +703,8 @@ const exportToCSV = async () => {
       log.rate_multiplier,
       log.actual_cost.toFixed(8),
       log.total_cost.toFixed(8),
-      log.first_token_ms ?? '',
-      log.duration_ms ?? '',
+      scaleUsageLatency(log.first_token_ms, userUsageLatencyDivisor.value) ?? '',
+      scaleUsageLatency(log.duration_ms, userUsageLatencyDivisor.value) ?? '',
     ].map(escapeCSVValue))
     const csvContent = [
       headers.map(escapeCSVValue).join(','),
@@ -894,15 +903,25 @@ const switchToErrors = () => {
   if (errorRows.value.length === 0) void loadErrors()
 }
 
+const loadLatestSettingsAndUsage = async () => {
+  try {
+    await appStore.fetchPublicSettings(true)
+  } finally {
+    if (usageViewActive) refreshData()
+  }
+}
+
 onMounted(() => {
+  usageViewActive = true
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
   void loadFilterOptions()
-  refreshData()
+  void loadLatestSettingsAndUsage()
 })
 
 onUnmounted(() => {
+  usageViewActive = false
   abortController?.abort()
   document.removeEventListener('click', handleColumnClickOutside)
 })

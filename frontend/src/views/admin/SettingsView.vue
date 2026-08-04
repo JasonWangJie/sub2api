@@ -5672,8 +5672,29 @@
             </p>
           </div>
           <div class="space-y-4 p-6">
+            <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div class="min-w-0">
+                <label for="user-usage-latency-divisor" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.user_usage_latency_divisor.label') }}
+                </label>
+                <p id="user-usage-latency-divisor-description" class="mt-1 max-w-3xl text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.user_usage_latency_divisor.description') }}
+                </p>
+              </div>
+              <input
+                id="user-usage-latency-divisor"
+                v-model.number="form.user_usage_latency_divisor"
+                type="number"
+                inputmode="decimal"
+                min="1"
+                max="1000"
+                step="0.1"
+                class="input w-full shrink-0 text-right tabular-nums sm:w-32"
+                aria-describedby="user-usage-latency-divisor-description"
+              />
+            </div>
             <!-- User error requests visibility -->
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
               <div>
                 <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.user_error_view.label') }}
@@ -8802,6 +8823,8 @@ const openaiFastPolicyLoaded = ref(false);
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
 const tablePageSizeDefault = 20;
+const userUsageLatencyDivisorMin = 1;
+const userUsageLatencyDivisorMax = 1000;
 
 function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
   return [
@@ -9348,6 +9371,7 @@ const form = reactive<SettingsForm>({
   payment_alipay_mobile_precreate_deep_link: false,
   table_default_page_size: tablePageSizeDefault,
   table_page_size_options: [10, 20, 50, 100],
+  user_usage_latency_divisor: 1,
   custom_menu_items: [] as Array<{
     id: string;
     label: string;
@@ -10816,6 +10840,24 @@ async function saveSettings() {
     form.table_default_page_size = normalizedTableDefaultPageSize;
     form.table_page_size_options = normalizedTablePageSizeOptions;
 
+    const normalizedUserUsageLatencyDivisor = Number(
+      form.user_usage_latency_divisor,
+    );
+    if (
+      !Number.isFinite(normalizedUserUsageLatencyDivisor) ||
+      normalizedUserUsageLatencyDivisor < userUsageLatencyDivisorMin ||
+      normalizedUserUsageLatencyDivisor > userUsageLatencyDivisorMax
+    ) {
+      appStore.showError(
+        t("admin.settings.user_usage_latency_divisor.rangeError", {
+          min: userUsageLatencyDivisorMin,
+          max: userUsageLatencyDivisorMax,
+        }),
+      );
+      return;
+    }
+    form.user_usage_latency_divisor = normalizedUserUsageLatencyDivisor;
+
     const normalizedLoginAgreementDocuments =
       normalizeLoginAgreementDocumentsForSave();
     if (form.login_agreement_enabled && normalizedLoginAgreementDocuments.length === 0) {
@@ -10989,6 +11031,7 @@ async function saveSettings() {
       hide_ccs_import_button: form.hide_ccs_import_button,
       table_default_page_size: form.table_default_page_size,
       table_page_size_options: form.table_page_size_options,
+      user_usage_latency_divisor: form.user_usage_latency_divisor,
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,

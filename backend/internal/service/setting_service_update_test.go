@@ -57,6 +57,25 @@ type settingGetAllRepoStub struct {
 	values map[string]string
 }
 
+func TestSettingService_UpdateSettingsPersistsUserUsageLatencyDivisor(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{UserUsageLatencyDivisor: 2.5})
+
+	require.NoError(t, err)
+	require.Equal(t, "2.5", repo.updates[SettingKeyUserUsageLatencyDivisor])
+}
+
+func TestValidateUserUsageLatencyDivisor(t *testing.T) {
+	for _, value := range []float64{UserUsageLatencyDivisorMin, 2.5, UserUsageLatencyDivisorMax} {
+		require.NoError(t, ValidateUserUsageLatencyDivisor(value))
+	}
+	for _, value := range []float64{0, 0.5, 1000.1, math.NaN(), math.Inf(1)} {
+		require.Error(t, ValidateUserUsageLatencyDivisor(value))
+	}
+}
+
 func (s *settingGetAllRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
 	panic("unexpected Get call")
 }

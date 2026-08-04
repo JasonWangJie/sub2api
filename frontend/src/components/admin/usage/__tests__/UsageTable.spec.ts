@@ -77,6 +77,17 @@ const DataTableStub = {
   `,
 }
 
+const LatencyDataTableStub = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id">
+        <slot name="cell-latency" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
 const baseImageRow = {
   request_id: 'req-admin-image',
   model: 'gpt-image-2',
@@ -360,6 +371,57 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('Per-image price')
     expect(text).toContain('not recorded')
     expect(text).not.toContain('(2K)')
+  })
+})
+
+describe('admin UsageTable latency display', () => {
+  const latencyRow = {
+    request_id: 'req-latency',
+    first_token_ms: 12_000,
+    duration_ms: 100_000,
+  }
+
+  const mountLatencyTable = (latencyDivisor?: number, firstTokenMs: number | null = latencyRow.first_token_ms) =>
+    mount(UsageTable, {
+      props: {
+        data: [{ ...latencyRow, first_token_ms: firstTokenMs }] as any,
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+        ...(latencyDivisor === undefined ? {} : { latencyDivisor }),
+      },
+      global: {
+        stubs: {
+          DataTable: LatencyDataTableStub,
+          EmptyState: true,
+          Icon: true,
+          IpGeoCell: true,
+        },
+      },
+    })
+
+  it('keeps raw latency by default for admin callers', () => {
+    const wrapper = mountLatencyTable()
+
+    expect(wrapper.text()).toContain('12.00s')
+    expect(wrapper.text()).toContain('1m 40s')
+    expect(wrapper.html()).toContain('text-amber-600')
+  })
+
+  it('scales latency text and health colors when a divisor is supplied', () => {
+    const wrapper = mountLatencyTable(2)
+
+    expect(wrapper.text()).toContain('6.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.html()).toContain('text-emerald-600')
+    expect(wrapper.html()).not.toContain('text-amber-600')
+  })
+
+  it('keeps missing first-token latency as a dash', () => {
+    const wrapper = mountLatencyTable(2, null)
+
+    expect(wrapper.text()).toMatch(/usage\.latencyFirstToken\s*-/)
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.text()).not.toContain('NaN')
   })
 })
 

@@ -217,6 +217,7 @@ export interface PublicSettings {
   risk_control_enabled: boolean
   table_default_page_size: number
   table_page_size_options: number[]
+  user_usage_latency_divisor?: number
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   seo_indexing_enabled: boolean

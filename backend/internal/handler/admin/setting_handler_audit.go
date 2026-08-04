@@ -435,6 +435,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalIntSlice(before.TablePageSizeOptions, after.TablePageSizeOptions) {
 		changed = append(changed, "table_page_size_options")
 	}
+	if before.UserUsageLatencyDivisor != after.UserUsageLatencyDivisor {
+		changed = append(changed, service.SettingKeyUserUsageLatencyDivisor)
+	}
 	if before.CustomMenuItems != after.CustomMenuItems {
 		changed = append(changed, "custom_menu_items")
 	}

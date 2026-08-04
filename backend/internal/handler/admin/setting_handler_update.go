@@ -148,6 +148,7 @@ type UpdateSettingsRequest struct {
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
 	TableDefaultPageSize        int                   `json:"table_default_page_size"`
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
+	UserUsageLatencyDivisor     *float64              `json:"user_usage_latency_divisor"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 	SEOIndexingEnabled          bool                  `json:"seo_indexing_enabled"`
@@ -567,6 +568,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.TablePageSizeOptions == nil {
 		req.TablePageSizeOptions = previousSettings.TablePageSizeOptions
+	}
+	userUsageLatencyDivisor := previousSettings.UserUsageLatencyDivisor
+	if req.UserUsageLatencyDivisor != nil {
+		if err := service.ValidateUserUsageLatencyDivisor(*req.UserUsageLatencyDivisor); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		userUsageLatencyDivisor = *req.UserUsageLatencyDivisor
 	}
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
@@ -1494,6 +1503,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:         req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:  req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:           req.BackendModeEnabled,
+		UserUsageLatencyDivisor:      userUsageLatencyDivisor,
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -2025,6 +2035,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PurchaseSubscriptionURL:                                updatedSettings.PurchaseSubscriptionURL,
 		TableDefaultPageSize:                                   updatedSettings.TableDefaultPageSize,
 		TablePageSizeOptions:                                   updatedSettings.TablePageSizeOptions,
+		UserUsageLatencyDivisor:                                updatedSettings.UserUsageLatencyDivisor,
 		CustomMenuItems:                                        dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		SEOIndexingEnabled:                                     updatedSettings.SEOIndexingEnabled,

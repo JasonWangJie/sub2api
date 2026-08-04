@@ -78,6 +78,32 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
 }
 
+func TestSettingService_GetPublicSettings_ExposesUserUsageLatencyDivisor(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want float64
+	}{
+		{name: "configured decimal", raw: "2.5", want: 2.5},
+		{name: "missing", raw: "", want: UserUsageLatencyDivisorDefault},
+		{name: "below minimum", raw: "0.5", want: UserUsageLatencyDivisorDefault},
+		{name: "above maximum", raw: "1000.1", want: UserUsageLatencyDivisorDefault},
+		{name: "not a number", raw: "NaN", want: UserUsageLatencyDivisorDefault},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &settingPublicRepoStub{values: map[string]string{}}
+			if tt.raw != "" {
+				repo.values[SettingKeyUserUsageLatencyDivisor] = tt.raw
+			}
+			settings, err := NewSettingService(repo, &config.Config{}).GetPublicSettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tt.want, settings.UserUsageLatencyDivisor)
+		})
+	}
+}
+
 func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{
