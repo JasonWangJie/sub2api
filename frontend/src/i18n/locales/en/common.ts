@@ -187,6 +187,7 @@ export default {
     github: 'GitHub',
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
+    rechargeCenter: 'Recharge Center',
     docs: 'Docs',
     installAndGuides: 'Install & Guides',
     guideCcSwitch: 'CC-Switch Setup',

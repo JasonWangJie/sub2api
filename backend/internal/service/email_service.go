@@ -176,11 +176,29 @@ func (s *EmailService) GetSMTPConfig(ctx context.Context) (*SMTPConfig, error) {
 
 // SendEmail 发送邮件（使用数据库中保存的配置）
 func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) error {
+	filtered, err := s.IsEmailFiltered(ctx, to)
+	if err != nil {
+		return err
+	}
+	if filtered {
+		slog.Info("email suppressed by global recipient filter", "recipient_hash", notificationEmailHash(to))
+		return nil
+	}
+
 	config, err := s.GetSMTPConfig(ctx)
 	if err != nil {
 		return err
 	}
 	return s.SendEmailWithConfig(config, to, subject, body)
+}
+
+// IsEmailFiltered reports whether a recipient is blocked by the global exact-match filter.
+func (s *EmailService) IsEmailFiltered(ctx context.Context, recipient string) (bool, error) {
+	settings, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyEmailFilter})
+	if err != nil {
+		return false, fmt.Errorf("get email filter setting: %w", err)
+	}
+	return emailFilterContains(settings[SettingKeyEmailFilter], recipient), nil
 }
 
 const smtpDialTimeout = 10 * time.Second

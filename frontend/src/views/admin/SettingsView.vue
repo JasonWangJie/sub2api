@@ -8058,6 +8058,42 @@
             </div>
           </div>
 
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.emailFilter.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.emailFilter.description") }}
+              </p>
+            </div>
+            <div class="p-6">
+              <label
+                for="email-filter"
+                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {{ t("admin.settings.emailFilter.label") }}
+              </label>
+              <textarea
+                id="email-filter"
+                v-model="form.email_filter"
+                rows="3"
+                class="input min-h-24 resize-y font-mono text-sm"
+                :placeholder="t('admin.settings.emailFilter.placeholder')"
+                aria-describedby="email-filter-hint"
+                spellcheck="false"
+              ></textarea>
+              <p
+                id="email-filter-hint"
+                class="mt-2 text-xs text-gray-500 dark:text-gray-400"
+              >
+                {{ t("admin.settings.emailFilter.hint") }}
+              </p>
+            </div>
+          </div>
+
           <!-- SMTP Settings - Only show when email verification is enabled -->
           <div v-if="form.email_verify_enabled" class="card">
             <div
@@ -8242,6 +8278,7 @@
                     {{ t("admin.settings.testEmail.recipientEmail") }}
                   </label>
                   <input
+                    id="test-email-recipient"
                     v-model="testEmailAddress"
                     type="email"
                     class="input"
@@ -8257,6 +8294,7 @@
                     sendingTestEmail || !testEmailAddress || loadFailed
                   "
                   class="btn btn-secondary"
+                  data-testid="send-test-email"
                 >
                   <svg
                     v-if="sendingTestEmail"
@@ -9394,6 +9432,7 @@ const form = reactive<SettingsForm>({
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  email_filter: "",
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: "",
@@ -11042,6 +11081,7 @@ async function saveSettings() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
+      email_filter: form.email_filter,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -11457,8 +11497,11 @@ async function sendTestEmail() {
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
     });
-    // API returns { message: "..." } on success, errors are thrown as exceptions
-    appStore.showSuccess(result.message || t("admin.settings.testEmailSent"));
+    if (result.filtered) {
+      appStore.showWarning(t("admin.settings.testEmail.filtered"));
+    } else {
+      appStore.showSuccess(result.message || t("admin.settings.testEmailSent"));
+    }
   } catch (error: unknown) {
     appStore.showError(
       extractApiErrorMessage(error, t("admin.settings.failedToSendTestEmail")),

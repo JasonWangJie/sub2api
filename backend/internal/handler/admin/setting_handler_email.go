@@ -97,6 +97,19 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 		return
 	}
 
+	filtered, err := h.emailService.IsEmailFiltered(c.Request.Context(), req.Email)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if filtered {
+		response.Success(c, gin.H{
+			"message":  "Recipient matched email filter; test email was not sent",
+			"filtered": true,
+		})
+		return
+	}
+
 	req.SMTPHost = strings.TrimSpace(req.SMTPHost)
 	req.SMTPUsername = strings.TrimSpace(req.SMTPUsername)
 	req.SMTPFrom = strings.TrimSpace(req.SMTPFrom)
@@ -184,7 +197,10 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"message": "Test email sent successfully"})
+	response.Success(c, gin.H{
+		"message":  "Test email sent successfully",
+		"filtered": false,
+	})
 }
 
 // ListEmailTemplates returns all editable notification email templates.

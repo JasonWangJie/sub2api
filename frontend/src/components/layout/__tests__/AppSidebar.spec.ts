@@ -53,3 +53,10 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar recharge center emphasis', () => {
+  it('uses the dedicated label and bold red text in both personal menu renderers', () => {
+    expect(componentSource).toContain("label: t('nav.rechargeCenter')")
+    expect(componentSource.match(/'font-bold text-red-600 dark:text-red-400': item\.path === '\/purchase'/g)).toHaveLength(2)
+  })
+})

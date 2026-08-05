@@ -466,6 +466,7 @@ export interface SystemSettings {
   smtp_from_email: string;
   smtp_from_name: string;
   smtp_use_tls: boolean;
+  email_filter: string;
   // Cloudflare Turnstile settings
   turnstile_enabled: boolean;
   turnstile_site_key: string;
@@ -789,6 +790,7 @@ export interface UpdateSettingsRequest {
   smtp_from_email?: string;
   smtp_from_name?: string;
   smtp_use_tls?: boolean;
+  email_filter?: string;
   turnstile_enabled?: boolean;
   turnstile_site_key?: string;
   turnstile_secret_key?: string;
@@ -1044,8 +1046,11 @@ export interface SendTestEmailRequest {
  */
 export async function sendTestEmail(
   request: SendTestEmailRequest,
-): Promise<{ message: string }> {
-  const { data } = await apiClient.post<{ message: string }>(
+): Promise<{ message: string; filtered: boolean }> {
+  const { data } = await apiClient.post<{
+    message: string;
+    filtered: boolean;
+  }>(
     "/admin/settings/send-test-email",
     request,
   );

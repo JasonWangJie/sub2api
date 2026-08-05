@@ -848,6 +848,13 @@ export default {
         enabled: 'Enable Subscription Expiry Reminder',
         enabledHint: 'When enabled, the system sends reminders 7, 3, and 1 day before expiry.'
       },
+      emailFilter: {
+        title: 'Email Filter',
+        description: 'Prevent site emails from being sent to specific recipients.',
+        label: 'Suppressed recipient emails',
+        placeholder: "a{'@'}example.com;b{'@'}example.com",
+        hint: 'Separate complete email addresses with semicolons (;). Matching is case-insensitive; domains and wildcards are not supported.'
+      },
       smtp: {
         title: 'SMTP Settings',
         description: 'Configure email sending for verification codes',
@@ -878,7 +885,8 @@ export default {
         recipientEmailPlaceholder: "test{'@'}example.com",
         sendTestEmail: 'Send Test Email',
         sending: 'Sending...',
-        enterRecipientHint: 'Please enter a recipient email address'
+        enterRecipientHint: 'Please enter a recipient email address',
+        filtered: 'This recipient is filtered, so the test email was not sent'
       },
       emailTemplates: {
         title: 'Email Templates',

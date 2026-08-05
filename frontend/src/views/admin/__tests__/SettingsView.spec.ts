@@ -10,6 +10,7 @@ const {
   getWebSearchEmulationConfig,
   updateWebSearchEmulationConfig,
   getAdminApiKey,
+  sendTestEmail,
   getOverloadCooldownSettings,
   getRateLimit429CooldownSettings,
   updateRateLimit429CooldownSettings,
@@ -32,12 +33,14 @@ const {
   adminSettingsFetch,
   showError,
   showSuccess,
+  showWarning,
 } = vi.hoisted(() => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
   getWebSearchEmulationConfig: vi.fn(),
   updateWebSearchEmulationConfig: vi.fn(),
   getAdminApiKey: vi.fn(),
+  sendTestEmail: vi.fn(),
   getOverloadCooldownSettings: vi.fn(),
   getRateLimit429CooldownSettings: vi.fn(),
   updateRateLimit429CooldownSettings: vi.fn(),
@@ -73,6 +76,7 @@ const {
   adminSettingsFetch: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  showWarning: vi.fn(),
 }));
 
 const localeRef = vi.hoisted(() => ({ value: "zh-CN" }));
@@ -85,6 +89,7 @@ vi.mock("@/api", () => ({
       getWebSearchEmulationConfig,
       updateWebSearchEmulationConfig,
       getAdminApiKey,
+      sendTestEmail,
       getOverloadCooldownSettings,
       getRateLimit429CooldownSettings,
       updateRateLimit429CooldownSettings,
@@ -119,7 +124,7 @@ vi.mock("@/stores", () => ({
   useAppStore: () => ({
     showError,
     showSuccess,
-    showWarning: vi.fn(),
+    showWarning,
     showInfo: vi.fn(),
     fetchPublicSettings,
   }),
@@ -404,6 +409,7 @@ const baseSettingsResponse = {
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  email_filter: "",
   turnstile_enabled: false,
   turnstile_site_key: "",
   turnstile_secret_key_configured: false,
@@ -608,6 +614,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openEmailTab(wrapper: ReturnType<typeof mountView>) {
+  const emailTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.email"));
+
+  expect(emailTabButton).toBeDefined();
+  await emailTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
@@ -615,6 +631,7 @@ describe("admin SettingsView payment visible method controls", () => {
     getWebSearchEmulationConfig.mockReset();
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
+    sendTestEmail.mockReset();
     getOverloadCooldownSettings.mockReset();
     getRateLimit429CooldownSettings.mockReset();
     updateRateLimit429CooldownSettings.mockReset();
@@ -635,6 +652,7 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockReset();
     showError.mockReset();
     showSuccess.mockReset();
+    showWarning.mockReset();
     localeRef.value = "zh-CN";
 
     getSettings.mockResolvedValue({ ...baseSettingsResponse });
@@ -653,6 +671,10 @@ describe("admin SettingsView payment visible method controls", () => {
     getAdminApiKey.mockResolvedValue({
       exists: false,
       masked_key: "",
+    });
+    sendTestEmail.mockResolvedValue({
+      message: "Test email sent successfully",
+      filtered: false,
     });
     getOverloadCooldownSettings.mockResolvedValue({
       enabled: true,
@@ -804,6 +826,56 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
+    );
+  });
+
+  it("loads and submits the global email filter while email verification is disabled", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      email_verify_enabled: false,
+      email_filter: "blocked@example.com",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openEmailTab(wrapper);
+
+    const input = wrapper.get("#email-filter");
+    expect((input.element as HTMLTextAreaElement).value).toBe("blocked@example.com");
+    await input.setValue("blocked@example.com;other@example.org");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email_filter: "blocked@example.com;other@example.org",
+      }),
+    );
+  });
+
+  it("shows a warning when a test email is filtered", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      email_verify_enabled: true,
+      email_filter: "blocked@example.com",
+    });
+    sendTestEmail.mockResolvedValue({
+      message: "Recipient matched email filter; test email was not sent",
+      filtered: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openEmailTab(wrapper);
+
+    await wrapper.get("#test-email-recipient").setValue("blocked@example.com");
+    await wrapper.get('[data-testid="send-test-email"]').trigger("click");
+    await flushPromises();
+
+    expect(sendTestEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "blocked@example.com" }),
+    );
+    expect(showWarning).toHaveBeenCalledWith("admin.settings.testEmail.filtered");
+    expect(showSuccess).not.toHaveBeenCalledWith(
+      "Recipient matched email filter; test email was not sent",
     );
   });
 

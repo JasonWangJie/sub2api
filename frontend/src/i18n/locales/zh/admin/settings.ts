@@ -843,6 +843,13 @@ export default {
         enabled: '启用订阅到期提醒',
         enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
       },
+      emailFilter: {
+        title: '邮箱过滤',
+        description: '阻止站内邮件发送到指定的收件邮箱。',
+        label: '不发送邮件的邮箱',
+        placeholder: "a{'@'}example.com;b{'@'}example.com",
+        hint: '多个完整邮箱地址请使用英文分号（;）分隔。匹配时不区分大小写，不支持域名或通配符。'
+      },
       smtp: {
         title: 'SMTP 设置',
         description: '配置用于发送验证码的邮件服务',
@@ -873,7 +880,8 @@ export default {
         recipientEmailPlaceholder: "test{'@'}example.com",
         sendTestEmail: '发送测试邮件',
         sending: '发送中...',
-        enterRecipientHint: '请输入收件人邮箱地址'
+        enterRecipientHint: '请输入收件人邮箱地址',
+        filtered: '该邮箱已被过滤，测试邮件未发送'
       },
       emailTemplates: {
         title: '邮件模板',
