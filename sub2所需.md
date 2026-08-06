@@ -2,7 +2,11 @@
 ---传文件
 rsync -avzP /www/backup/database/sub2api_2026-07-21_23-31-37_pgsql_data.sql.gz root@170.178.174.119:/www/backup/database/
 
-rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-07-25_00-38-16_pgsql_data.sql.gz root@170.178.174.119:/www/backup/database/
+rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-08-06_11-13-50_pgsql_data.sql.gz root@64.32.27.60:/www/backup/database/
+
+
+sub2监控数据迁移：
+rsync -avzP /www/sub2-api-monitoring/cursor版/data root@64.32.27.60:/www/sub2-api-monitoring/cursor版/
 
 
 curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
