@@ -2,7 +2,7 @@
 # 传文件方法
 rsync -avzP /www/backup/database/sub2api_2026-07-21_23-31-37_pgsql_data.sql.gz root@170.178.174.119:/www/backup/database/
 # 迁移数据库文件
-rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-08-06_11-13-50_pgsql_data.sql.gz root@64.32.27.60:/www/backup/database/
+rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-08-07_16-07-54_pgsql_data.sql.gz root@64.32.27.60:/www/backup/database/
 
 # 还需要把config.yaml 迁移
 
