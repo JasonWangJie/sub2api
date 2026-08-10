@@ -28,7 +28,7 @@
           </div>
 
           <!-- Body -->
-          <div class="modal-body">
+          <div ref="modalBodyRef" class="modal-body">
             <slot></slot>
           </div>
 
@@ -56,6 +56,7 @@ const { t } = useI18n()
 
 // 焦点管理
 const dialogRef = ref<HTMLElement | null>(null)
+const modalBodyRef = ref<HTMLElement | null>(null)
 let previousActiveElement: HTMLElement | null = null
 let bodyLockHeld = false
 
@@ -178,6 +179,9 @@ watch(
 
       // 等待DOM更新后设置焦点到对话框
       await nextTick()
+      if (modalBodyRef.value) {
+        modalBodyRef.value.scrollTop = 0
+      }
       if (dialogRef.value) {
         const firstFocusable = focusableElements()[0]
         ;(firstFocusable || dialogRef.value).focus()
