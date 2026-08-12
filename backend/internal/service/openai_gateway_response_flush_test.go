@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -30,6 +31,29 @@ type openAIResponseFlushRecorder struct {
 	flushBlocked    chan struct{}
 	releaseFlush    <-chan struct{}
 }
+
+type openAIResponseBenchmarkWriter struct {
+	header     http.Header
+	status     int
+	flushCount int
+}
+
+func (w *openAIResponseBenchmarkWriter) Header() http.Header { return w.header }
+
+func (w *openAIResponseBenchmarkWriter) WriteHeader(statusCode int) {
+	if w.status == 0 {
+		w.status = statusCode
+	}
+}
+
+func (w *openAIResponseBenchmarkWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return len(data), nil
+}
+
+func (w *openAIResponseBenchmarkWriter) Flush() { w.flushCount++ }
 
 func newOpenAIResponseFlushRecorder() *openAIResponseFlushRecorder {
 	return &openAIResponseFlushRecorder{
@@ -288,6 +312,331 @@ func TestOpenAIResponseFlush_PreambleWithoutTerminalRemainsBufferedForFailover(t
 	require.Empty(t, flushes)
 }
 
+func TestOpenAIResponseFlush_EarlyCreatedFlushesBeforeSemanticOutputInOrder(t *testing.T) {
+	created := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_early"}}` + "\n\n"
+	inProgress := "event: response.in_progress\n" +
+		`data: {"type":"response.in_progress","response":{"id":"resp_early"}}` + "\n\n"
+	semantic := "event: response.output_text.delta\n" +
+		`data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
+	terminal := "event: response.completed\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_early","usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ready"}]}]}}` + "\n\n"
+	allowCreatedBoundary := make(chan struct{})
+	allowRest := make(chan struct{})
+	createdBoundaryWaiting := make(chan struct{})
+	restWaiting := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments: [][]byte{
+			[]byte(strings.TrimSuffix(created, "\n")),
+			[]byte("\n"),
+			[]byte(inProgress + semantic + terminal),
+		},
+		gates:   []<-chan struct{}{nil, allowCreatedBoundary, allowRest},
+		waiting: []chan struct{}{nil, createdBoundaryWaiting, restWaiting},
+	}
+	recorder := newOpenAIResponseFlushRecorder()
+	resultCh, errCh := runOpenAIResponseFlushTestAsync(recorder, reader, config.GatewayConfig{
+		OpenAIEarlyFlushCreated:         true,
+		OpenAIFirstOutputTimeoutSeconds: 30,
+	})
+
+	waitOpenAIResponseFlushSignal(t, createdBoundaryWaiting)
+	select {
+	case count := <-recorder.flushEvents:
+		t.Fatalf("response.created flushed before its blank boundary: flush %d", count)
+	default:
+	}
+	gotBody, flushes := recorder.snapshot()
+	require.Empty(t, gotBody)
+	require.Empty(t, flushes)
+
+	close(allowCreatedBoundary)
+	waitOpenAIResponseFlushCount(t, recorder, 1)
+	gotBody, flushes = recorder.snapshot()
+	require.Equal(t, created, gotBody)
+	require.Equal(t, []string{created}, flushes)
+
+	waitOpenAIResponseFlushSignal(t, restWaiting)
+	close(allowRest)
+	require.NoError(t, <-errCh)
+	result := <-resultCh
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	gotBody, flushes = recorder.snapshot()
+	require.Equal(t, created+inProgress+semantic+terminal, gotBody)
+	require.GreaterOrEqual(t, len(flushes), 2)
+	for _, snapshot := range flushes {
+		require.True(t, strings.HasSuffix(snapshot, "\n\n"), "flush must preserve a complete SSE event boundary")
+	}
+}
+
+func TestOpenAIResponseFlush_EarlyCreatedDoesNotSetFirstToken(t *testing.T) {
+	created := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_created_only"}}` + "\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(created)),
+		config.GatewayConfig{OpenAIEarlyFlushCreated: true},
+	)
+
+	require.ErrorContains(t, err, "missing terminal event")
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.NotNil(t, result)
+	require.Nil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.Equal(t, created, gotBody)
+	require.Equal(t, []string{created}, flushes)
+}
+
+func TestOpenAIResponseFlush_EarlyCreatedWithoutBoundaryStaysPrivate(t *testing.T) {
+	incompleteCreated := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_incomplete_created"}}`
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(incompleteCreated)),
+		config.GatewayConfig{
+			OpenAIEarlyFlushCreated:         true,
+			OpenAIFirstOutputTimeoutSeconds: 30,
+		},
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.NotNil(t, result)
+	require.Nil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.Empty(t, gotBody)
+	require.Empty(t, flushes)
+}
+
+func TestOpenAIResponseFlush_FailedAfterEarlyCreatedDoesNotFailOver(t *testing.T) {
+	created := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_early_failed"}}` + "\n\n"
+	failed := "event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"id":"resp_early_failed","status":"failed","error":{"code":"server_error","message":"upstream failed"}}}` + "\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(created+failed)),
+		config.GatewayConfig{
+			OpenAIEarlyFlushCreated:         true,
+			OpenAIFirstOutputTimeoutSeconds: 30,
+		},
+	)
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.NotNil(t, result)
+	gotBody, flushes := recorder.snapshot()
+	require.Equal(t, created+failed, gotBody)
+	require.Equal(t, []string{created, created + failed}, flushes)
+}
+
+func TestOpenAIResponseFlush_GroupScopedFirstVisibleTextFlush(t *testing.T) {
+	groupID := int64(19)
+	created := `data: {"type":"response.created","response":{"id":"resp_visible"}}` + "\n\n"
+	outputItem := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
+	blankText := `data: {"type":"response.output_text.delta","delta":"   "}` + "\n\n"
+	firstText := `data: {"type":"response.output_text.delta","delta":"first"}` + "\n\n"
+	secondText := `data: {"type":"response.output_text.delta","delta":"second"}` + "\n\n"
+	terminal := "data: [DONE]\n\n"
+	allowBurst := make(chan struct{})
+	eofReached := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments:   [][]byte{[]byte(created), []byte(outputItem + blankText + firstText + secondText + terminal)},
+		gates:      []<-chan struct{}{nil, allowBurst},
+		eofReached: eofReached,
+	}
+	releaseCreatedFlush := make(chan struct{})
+	recorder := newOpenAIResponseFlushRecorder()
+	recorder.blockFlush = 1
+	recorder.flushBlocked = make(chan struct{})
+	recorder.releaseFlush = releaseCreatedFlush
+	cfg := config.GatewayConfig{
+		OpenAIEarlyFlushCreatedGroupIDs: []int64{groupID},
+		StreamDataIntervalTimeout:       30,
+	}
+	resultCh, errCh := runOpenAIResponseFlushTestForGroupAsync(recorder, reader, cfg, &groupID)
+
+	waitOpenAIResponseFlushSignal(t, recorder.flushBlocked)
+	close(allowBurst)
+	waitOpenAIResponseFlushSignal(t, eofReached)
+	close(releaseCreatedFlush)
+
+	require.NoError(t, <-errCh)
+	result := <-resultCh
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.Equal(t, created+outputItem+blankText+firstText+secondText+terminal, gotBody)
+	require.Equal(t, []string{
+		created,
+		created + outputItem,
+		created + outputItem + blankText + firstText,
+		created + outputItem + blankText + firstText + secondText + terminal,
+	}, flushes)
+	for _, snapshot := range flushes {
+		require.True(t, strings.HasSuffix(snapshot, "\n\n"), "flush must occur at a complete SSE event boundary")
+	}
+}
+
+func TestOpenAIResponseFlush_UnmatchedGroupKeepsVisibleTextBatched(t *testing.T) {
+	enabledGroupID := int64(19)
+	requestGroupID := int64(20)
+	first := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
+	firstText := `data: {"type":"response.output_text.delta","delta":"first"}` + "\n\n"
+	secondText := `data: {"type":"response.output_text.delta","delta":"second"}` + "\n\n"
+	terminal := "data: [DONE]\n\n"
+	allowBurst := make(chan struct{})
+	eofReached := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments:   [][]byte{[]byte(first), []byte(firstText + secondText + terminal)},
+		gates:      []<-chan struct{}{nil, allowBurst},
+		eofReached: eofReached,
+	}
+	releaseFirstFlush := make(chan struct{})
+	recorder := newOpenAIResponseFlushRecorder()
+	recorder.blockFlush = 1
+	recorder.flushBlocked = make(chan struct{})
+	recorder.releaseFlush = releaseFirstFlush
+	cfg := config.GatewayConfig{
+		OpenAIEarlyFlushCreatedGroupIDs: []int64{enabledGroupID},
+		StreamDataIntervalTimeout:       30,
+	}
+	resultCh, errCh := runOpenAIResponseFlushTestForGroupAsync(recorder, reader, cfg, &requestGroupID)
+
+	waitOpenAIResponseFlushSignal(t, recorder.flushBlocked)
+	close(allowBurst)
+	waitOpenAIResponseFlushSignal(t, eofReached)
+	close(releaseFirstFlush)
+
+	require.NoError(t, <-errCh)
+	require.NotNil(t, <-resultCh)
+	gotBody, flushes := recorder.snapshot()
+	require.Equal(t, first+firstText+secondText+terminal, gotBody)
+	require.Equal(t, []string{first, first + firstText + secondText + terminal}, flushes)
+}
+
+func TestOpenAIResponseFlush_FirstVisibleTextWaitsForBlankBoundary(t *testing.T) {
+	first := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
+	visible := `data: {"type":"response.refusal.delta","delta":"visible"}` + "\n\n"
+	terminal := "data: [DONE]\n\n"
+	allowVisible := make(chan struct{})
+	allowBoundary := make(chan struct{})
+	allowTerminal := make(chan struct{})
+	boundaryWaiting := make(chan struct{})
+	terminalWaiting := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments: [][]byte{
+			[]byte(first),
+			[]byte(strings.TrimSuffix(visible, "\n")),
+			[]byte("\n"),
+			[]byte(terminal),
+		},
+		gates:   []<-chan struct{}{nil, allowVisible, allowBoundary, allowTerminal},
+		waiting: []chan struct{}{nil, nil, boundaryWaiting, terminalWaiting},
+	}
+	recorder := newOpenAIResponseFlushRecorder()
+	resultCh, errCh := runOpenAIResponseFlushTestAsync(recorder, reader, config.GatewayConfig{
+		OpenAIEarlyFlushCreated:   true,
+		StreamDataIntervalTimeout: 30,
+	})
+
+	waitOpenAIResponseFlushCount(t, recorder, 1)
+	close(allowVisible)
+	waitOpenAIResponseFlushSignal(t, boundaryWaiting)
+	_, flushes := recorder.snapshot()
+	require.Equal(t, []string{first}, flushes, "visible text must not flush before its terminating blank line")
+
+	close(allowBoundary)
+	waitOpenAIResponseFlushSignal(t, terminalWaiting)
+	waitOpenAIResponseFlushCount(t, recorder, 2)
+	_, flushes = recorder.snapshot()
+	require.Equal(t, first+visible, flushes[1])
+
+	close(allowTerminal)
+	require.NoError(t, <-errCh)
+	require.NotNil(t, <-resultCh)
+}
+
+func TestOpenAIResponseFlush_NewAPIFirstDataHTTPSmoke(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(41)
+	created := `data: {"type":"response.created","response":{"id":"resp_newapi_smoke"}}` + "\n\n"
+	semantic := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
+	textDelta := `data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
+	terminal := "data: [DONE]\n\n"
+	upstreamReader, upstreamWriter := io.Pipe()
+	releaseSemantic := make(chan struct{})
+	upstreamDone := make(chan error, 1)
+	go func() {
+		if _, err := io.WriteString(upstreamWriter, created); err != nil {
+			upstreamDone <- err
+			return
+		}
+		<-releaseSemantic
+		_, err := io.WriteString(upstreamWriter, semantic+textDelta+terminal)
+		if closeErr := upstreamWriter.Close(); err == nil {
+			err = closeErr
+		}
+		upstreamDone <- err
+	}()
+
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIEarlyFlushCreatedGroupIDs: []int64{groupID},
+		}},
+		toolCorrector: NewCodexToolCorrector(),
+	}
+	router := gin.New()
+	router.POST("/v1/responses", func(c *gin.Context) {
+		c.Set("api_key", &APIKey{GroupID: &groupID})
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       upstreamReader,
+		}
+		_, _ = svc.handleStreamingResponse(
+			c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI},
+			time.Now(), "gpt-5", "gpt-5",
+		)
+	})
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/responses", strings.NewReader(`{"stream":true}`))
+	require.NoError(t, err)
+	response, err := server.Client().Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, "text/event-stream", response.Header.Get("Content-Type"))
+	require.Equal(t, "no-cache, no-transform", response.Header.Get("Cache-Control"))
+
+	// newapi records FRT at the first non-empty data line. Semantic output is
+	// still gated here, so the first observable data must be genuine created.
+	scanner := bufio.NewScanner(response.Body)
+	require.True(t, scanner.Scan())
+	firstData := scanner.Text()
+	require.Equal(t, strings.TrimSuffix(created, "\n\n"), firstData)
+	close(releaseSemantic)
+
+	var remainingLines []string
+	for scanner.Scan() {
+		remainingLines = append(remainingLines, scanner.Text())
+	}
+	require.NoError(t, scanner.Err())
+	require.NoError(t, <-upstreamDone)
+	fullStream := firstData + "\n" + strings.Join(remainingLines, "\n")
+	require.Equal(t, strings.TrimSuffix(created+semantic+textDelta+terminal, "\n"), fullStream)
+}
+
 func TestOpenAIResponseFlush_CanceledAfterOutputFlushesResidualWithoutErrorEvent(t *testing.T) {
 	body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n"
 	recorder := newOpenAIResponseFlushRecorder()
@@ -471,9 +820,16 @@ func TestOpenAIResponseFlush_ClientDisconnectStillDrainsUsage(t *testing.T) {
 }
 
 func runOpenAIResponseFlushTest(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig) (*openaiStreamingResult, error) {
+	return runOpenAIResponseFlushTestForGroup(recorder, body, gatewayCfg, nil)
+}
+
+func runOpenAIResponseFlushTestForGroup(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig, groupID *int64) (*openaiStreamingResult, error) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	if groupID != nil {
+		c.Set("api_key", &APIKey{GroupID: groupID})
+	}
 	svc := &OpenAIGatewayService{
 		cfg:           &config.Config{Gateway: gatewayCfg},
 		toolCorrector: NewCodexToolCorrector(),
@@ -487,14 +843,63 @@ func runOpenAIResponseFlushTest(recorder *openAIResponseFlushRecorder, body io.R
 }
 
 func runOpenAIResponseFlushTestAsync(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig) (<-chan *openaiStreamingResult, <-chan error) {
+	return runOpenAIResponseFlushTestForGroupAsync(recorder, body, gatewayCfg, nil)
+}
+
+func runOpenAIResponseFlushTestForGroupAsync(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig, groupID *int64) (<-chan *openaiStreamingResult, <-chan error) {
 	resultCh := make(chan *openaiStreamingResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := runOpenAIResponseFlushTest(recorder, body, gatewayCfg)
+		result, err := runOpenAIResponseFlushTestForGroup(recorder, body, gatewayCfg, groupID)
 		resultCh <- result
 		errCh <- err
 	}()
 	return resultCh, errCh
+}
+
+func BenchmarkOpenAIResponseStreaming(b *testing.B) {
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_bench"}}`,
+		`data: {"type":"response.in_progress","response":{"id":"resp_bench"}}`,
+		`data: {"type":"response.output_item.added","item":{"type":"message"}}`,
+		`data: {"type":"response.output_text.delta","delta":"benchmark text"}`,
+		`data: {"type":"response.output_text.delta","delta":" continued"}`,
+		`data: [DONE]`,
+	}, "\n\n") + "\n\n"
+
+	for _, tt := range []struct {
+		name string
+		cfg  config.GatewayConfig
+	}{
+		{name: "default"},
+		{name: "early_created_and_first_text", cfg: config.GatewayConfig{OpenAIEarlyFlushCreated: true}},
+	} {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				writer := &openAIResponseBenchmarkWriter{header: make(http.Header)}
+				gin.SetMode(gin.TestMode)
+				c, _ := gin.CreateTestContext(writer)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				svc := &OpenAIGatewayService{
+					cfg:           &config.Config{Gateway: tt.cfg},
+					toolCorrector: NewCodexToolCorrector(),
+				}
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}
+				result, err := svc.handleStreamingResponse(
+					context.Background(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI},
+					time.Now(), "gpt-5", "gpt-5",
+				)
+				if err != nil || result == nil {
+					b.Fatalf("stream failed: result=%v err=%v", result, err)
+				}
+			}
+		})
+	}
 }
 
 func waitOpenAIResponseFlushCount(t *testing.T, recorder *openAIResponseFlushRecorder, want int) {

@@ -411,6 +411,41 @@ func TestLoadOpenAIFirstOutputTimeoutsFromEnv(t *testing.T) {
 	require.Equal(t, 240, cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds)
 }
 
+func TestLoadDefaultOpenAIEarlyFlushCreatedDisabled(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Gateway.OpenAIEarlyFlushCreated)
+	require.Empty(t, cfg.Gateway.OpenAIEarlyFlushCreatedGroupIDs)
+}
+
+func TestLoadOpenAIEarlyFlushCreatedFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_OPENAI_EARLY_FLUSH_CREATED", "true")
+	t.Setenv("GATEWAY_OPENAI_EARLY_FLUSH_CREATED_GROUP_IDS", "7,9")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.OpenAIEarlyFlushCreated)
+	require.Equal(t, []int64{7, 9}, cfg.Gateway.OpenAIEarlyFlushCreatedGroupIDs)
+}
+
+func TestLoadOpenAIEarlyFlushCreatedFromYAML(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	configDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`gateway:
+  openai_early_flush_created: false
+  openai_early_flush_created_group_ids: [7, 9]
+`), 0o600))
+	t.Setenv("DATA_DIR", configDir)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Gateway.OpenAIEarlyFlushCreated)
+	require.Equal(t, []int64{7, 9}, cfg.Gateway.OpenAIEarlyFlushCreatedGroupIDs)
+}
+
 func TestValidateOpenAIFirstOutputTimeoutMinimum(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

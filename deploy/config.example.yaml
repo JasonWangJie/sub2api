@@ -218,6 +218,81 @@ gateway:
   openai_first_output_timeout_seconds: 0
   # Optional high/xhigh/max override (seconds, 0=use the standard timeout)
   openai_high_effort_first_output_timeout_seconds: 0
+  # OpenAI HTTP Responses SSE early flush (default: false).
+  # Applies to streaming /v1/responses over HTTP. It does not change WebSocket
+  # streaming, reasoning_effort, upstream generation speed, usage collection,
+  # keepalive behavior, or the meaning of this service's first_token_ms metric.
+  #
+  # When enabled for a request, this option performs both optimizations below:
+  # 1. After receiving a complete, genuine upstream response.created SSE event
+  #    (event/data lines plus the terminating blank line), forward its original
+  #    bytes immediately and Flush. Partial SSE/JSON is never exposed.
+  # 2. Prioritize one boundary Flush for the first non-whitespace
+  #    response.output_text.delta or response.refusal.delta. Blank deltas do not
+  #    consume this opportunity; later text deltas retain normal batching. The
+  #    passthrough path already flushes every complete event, so it does not add
+  #    another visible-text Flush there.
+  #
+  # Downstream proxies such as newapi commonly record FirstResponseTime when
+  # they scan the first non-empty data: line. Therefore response.created can
+  # make that recorded first-event time earlier. This does NOT mean the model
+  # generated its first visible text earlier. This service still records
+  # first_token_ms only at the original semantic-output event, not at created.
+  #
+  # IMPORTANT FAILOVER TRADE-OFF: once the complete response.created event is
+  # flushed, the downstream HTTP response has started. That request can no
+  # longer transparently switch to another upstream/account or append another
+  # upstream's response.created. This trade-off affects only requests selected
+  # by the global/group settings below. An incomplete created event that has no
+  # terminating blank line remains private and does not give up failover.
+  #
+  # OpenAI HTTP Responses SSE 提前 Flush（默认 false）。仅影响 HTTP 流式
+  # /v1/responses；不改变 WebSocket、reasoning_effort、上游生成速度、usage
+  # 收集、keepalive，也不改变本服务 first_token_ms 的统计口径。
+  #
+  # 对命中的请求，本选项同时执行两个优化：
+  # 1. 收到完整、真实的上游 response.created SSE 事件后立即原样下发并
+  #    Flush。必须已收到 event/data 行及结尾空行；不完整 SSE/JSON 不会下发。
+  # 2. 首个非空白 response.output_text.delta 或 response.refusal.delta 在完整
+  #    事件边界优先 Flush 一次。空白 delta 不消耗机会，后续文字仍按原策略
+  #    合并；passthrough 原本就逐个完整事件 Flush，不会再额外增加一次。
+  #
+  # newapi 等下游通常在扫描到第一条非空 data: 时记录 FirstResponseTime，
+  # 因而 created 提前下发可改善其记录的首事件时间，但不代表模型更早生成
+  # 首段可见文字。本服务 first_token_ms 仍只由原有语义输出事件触发。
+  #
+  # 重要 failover 取舍：完整 created 一旦 Flush，下游 HTTP 响应即已开始，
+  # 该请求之后不能再透明切换上游/账号，也不能拼接另一个上游的 created。
+  # 风险只影响下面全局/分组配置命中的请求；缺少结尾空行的不完整 created
+  # 不会提前提交，仍保留原有 pre-output failover 能力。
+  #
+  # Selection rules / 生效规则：
+  # - true: enable for every API key group. The group ID list is NOT an exclude
+  #   list or limiter; setting true with [7] still enables every group.
+  # - false + []: disable for every group (default and safest behavior).
+  # - false + [7, 9]: enable only for API key groups 7 and 9.
+  # - true：对所有 API Key 分组生效；分组列表不是排除/限制列表，即使列表
+  #   只写 [7]，也仍然是所有分组生效。
+  # - false 且列表为空：全部关闭（默认、最稳妥，完整保留原 failover）。
+  # - false 且列表为 [7, 9]：仅 API Key 分组 7、9 生效，适合灰度。
+  openai_early_flush_created: false
+  # API key group IDs used only while the global switch above is false.
+  # Use sub2api API Key group IDs from group management. Do NOT put user IDs,
+  # API key IDs, upstream OpenAI account IDs, or newapi channel/group IDs here.
+  # YAML examples (keep only one active value):
+  #   openai_early_flush_created_group_ids: []       # no group / 全部关闭
+  #   openai_early_flush_created_group_ids: [7]      # one group / 单分组灰度
+  #   openai_early_flush_created_group_ids: [7, 9]   # multiple groups / 多分组
+  # 仅在上面的全局开关为 false 时使用。这里必须填写 sub2api 后台分组管理中
+  # 的 API Key 分组 ID；不要填写用户 ID、API Key ID、OpenAI 上游账号 ID，
+  # 也不要填写 newapi 的渠道 ID 或分组 ID。
+  # Environment equivalents / 环境变量等价写法：
+  #   GATEWAY_OPENAI_EARLY_FLUSH_CREATED=false
+  #   GATEWAY_OPENAI_EARLY_FLUSH_CREATED_GROUP_IDS=7,9
+  # Environment variables override the YAML values. After changing startup
+  # configuration, apply it through the normal rollout/restart procedure.
+  # 环境变量会覆盖 YAML；修改启动配置后需按现有发布/重启流程使其生效。
+  openai_early_flush_created_group_ids: []
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456

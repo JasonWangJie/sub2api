@@ -808,6 +808,42 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	return !openAIStreamEventIsPreamble(eventType)
 }
 
+func openAIStreamOutputDecisions(data, eventType string, forceSemanticOutput, earlyFlushCreated bool) (semanticOutput, downstreamOutput bool) {
+	trimmedData := strings.TrimSpace(data)
+	semanticOutput = forceSemanticOutput || openAIStreamDataStartsClientOutput(trimmedData, eventType)
+	downstreamOutput = semanticOutput ||
+		(earlyFlushCreated && strings.TrimSpace(eventType) == "response.created" && trimmedData != "")
+	return semanticOutput, downstreamOutput
+}
+
+func openAIStreamDataHasVisibleText(data, eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "response.output_text.delta", "response.refusal.delta":
+		return strings.TrimSpace(gjson.Get(data, "delta").String()) != ""
+	default:
+		return false
+	}
+}
+
+func (s *OpenAIGatewayService) openAIEarlyFlushCreated(c *gin.Context) bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	if s.cfg.Gateway.OpenAIEarlyFlushCreated {
+		return true
+	}
+	groupID := getOpenAIGroupIDFromContext(c)
+	if groupID <= 0 {
+		return false
+	}
+	for _, enabledGroupID := range s.cfg.Gateway.OpenAIEarlyFlushCreatedGroupIDs {
+		if enabledGroupID == groupID {
+			return true
+		}
+	}
+	return false
+}
+
 // openAIStreamFailedEventErrorCode 提取流内 failed 事件的错误码（小写），
 // 兼容 response.failed 的嵌套形态与裸 error 形态。
 func openAIStreamFailedEventErrorCode(payload []byte) string {
@@ -1139,7 +1175,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	// SSE headers
 	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
+	c.Header("Cache-Control", "no-cache, no-transform")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 	if v := resp.Header.Get("x-request-id"); v != "" {
@@ -1162,9 +1198,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	sawFailedEvent := false
 	failedMessage := ""
 	clientOutputStarted := false
+	earlyFlushCreated := s.openAIEarlyFlushCreated(c)
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
-	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
+	// pendingLines retains preamble events until downstream output may be
+	// committed. Early-created mode intentionally gives up failover after the
+	// complete response.created boundary is flushed.
 	pendingLines := make([]string, 0, 8)
+	pendingEventStartsDownstreamOutput := false
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
 	flushPending := false
 	flushPendingOutput := func() {
@@ -1210,7 +1250,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	for documentScanner.Scan() {
 		line := documentScanner.Text()
-		lineStartsClientOutput := false
+		semanticOutput := false
+		downstreamOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
@@ -1304,8 +1345,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				trimmedData = strings.TrimSpace(string(sanitizedData))
 				line = "data: " + string(sanitizedData)
 			}
-			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType)
-			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
+			semanticOutput, downstreamOutput = openAIStreamOutputDecisions(
+				trimmedData,
+				eventType,
+				forceFlushFailedEvent,
+				earlyFlushCreated,
+			)
+			if firstTokenMs == nil && semanticOutput && trimmedData != "[DONE]" {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}
@@ -1313,14 +1359,28 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 
 		if !clientDisconnected {
-			if !clientOutputStarted && !lineStartsClientOutput {
+			if !clientOutputStarted {
 				pendingLines = append(pendingLines, line)
-				continue
-			}
-			if !clientOutputStarted && len(pendingLines) > 0 {
+				pendingEventStartsDownstreamOutput = pendingEventStartsDownstreamOutput || downstreamOutput
+				if semanticOutput {
+					if !writePendingLines() {
+						continue
+					}
+					clientOutputStarted = true
+					pendingEventStartsDownstreamOutput = false
+					flushPending = true
+					continue
+				}
+				if line != "" || !pendingEventStartsDownstreamOutput {
+					continue
+				}
 				if !writePendingLines() {
 					continue
 				}
+				flusher.Flush()
+				clientOutputStarted = true
+				pendingEventStartsDownstreamOutput = false
+				continue
 			}
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				clientDisconnected = true

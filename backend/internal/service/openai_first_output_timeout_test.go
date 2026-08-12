@@ -329,6 +329,7 @@ func TestOpenAINativeFirstOutputTimeoutDisarmsAfterSemanticOutput(t *testing.T) 
 	require.NotNil(t, result.firstTokenMs)
 	require.Contains(t, rec.Body.String(), "response.output_text.delta")
 	require.Contains(t, rec.Body.String(), "response.completed")
+	require.Equal(t, "no-cache, no-transform", rec.Result().Header.Get("Cache-Control"))
 	require.Equal(t, "request-winning", rec.Result().Header.Get("X-Request-Id"))
 	require.Equal(t, "42", rec.Result().Header.Get("X-Ratelimit-Remaining-Requests"))
 }

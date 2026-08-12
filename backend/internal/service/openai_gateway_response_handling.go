@@ -67,7 +67,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 	// Set SSE response headers
 	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
+	c.Header("Cache-Control", "no-cache, no-transform")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
@@ -88,7 +88,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		// These headers describe this gateway's SSE stream and are stable across
 		// account attempts. Keep them authoritative over upstream values.
 		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
+		c.Header("Cache-Control", "no-cache, no-transform")
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
 	}
@@ -216,9 +216,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		firstOutputTimer = nil
 		firstOutputCh = nil
 	}
-	// Track downstream writes separately from upstream reads: pre-output failover
-	// can buffer response.created / response.in_progress, so keepalive must be
-	// based on downstream idle time.
+	// Track downstream writes separately from upstream reads. Preamble events are
+	// normally buffered for failover; early-created mode commits only the complete
+	// response.created event. Keepalive remains based on downstream idle time.
 	lastDownstreamWriteAt := time.Now()
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱。
@@ -230,10 +230,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	sawFailedEvent := false
 	failedMessage := ""
 	clientOutputStarted := false
+	earlyFlushCreated := s.openAIEarlyFlushCreated(c)
+	prioritizeFirstVisibleText := earlyFlushCreated
+	firstVisibleTextFlushed := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	eventInProgress := false
-	eventStartsClientOutput := false
+	eventStartsSemanticOutput := false
+	eventStartsDownstreamOutput := false
+	eventStartsVisibleText := false
 	eventShouldFlush := false
 	handlePendingWriteError := func(err error) {
 		if firstOutputStage != nil && firstTokenMs == nil && !firstOutputStage.closed {
@@ -252,11 +257,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 	}
 	completeGuardedEvent := func(queueDrained bool) {
-		completedSemanticEvent := eventStartsClientOutput
+		completedSemanticEvent := eventStartsSemanticOutput
+		completedDownstreamEvent := eventStartsDownstreamOutput
+		completedVisibleTextEvent := eventStartsVisibleText
 		shouldFlush := eventShouldFlush || (queueDrained && clientOutputStarted)
 		eventInProgress = false
 		if !clientDisconnected {
-			if completedSemanticEvent {
+			if completedDownstreamEvent {
 				applyAttemptResponseHeaders()
 			}
 			if shouldFlush {
@@ -265,6 +272,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
 				} else {
 					clientOutputStarted = true
+					if completedVisibleTextEvent {
+						firstVisibleTextFlushed = true
+					}
+					firstOutputScanGuard.Store(false)
 					lastDownstreamWriteAt = time.Now()
 				}
 			}
@@ -275,7 +286,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			firstTokenMs = &ms
 			stopFirstOutputTimer()
 		}
-		eventStartsClientOutput = false
+		eventStartsSemanticOutput = false
+		eventStartsDownstreamOutput = false
+		eventStartsVisibleText = false
 		eventShouldFlush = false
 	}
 	sendErrorEvent := func(reason string) {
@@ -330,9 +343,20 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		clientOutputStarted = true
 		lastDownstreamWriteAt = time.Now()
 	}
+	incompleteDownstreamOnlyEvent := func() bool {
+		return eventInProgress && eventStartsDownstreamOutput && !eventStartsSemanticOutput && !clientOutputStarted
+	}
 	finalizeStream := func() (*openaiStreamingResult, error) {
+		if incompleteDownstreamOnlyEvent() {
+			// response.created is downstream-only in early mode. Without the
+			// terminating blank line it is not a complete SSE event and must stay
+			// private so the attempt can still fail over.
+			eventInProgress = false
+			eventStartsDownstreamOutput = false
+			eventShouldFlush = false
+		}
 		if guardFirstOutput && eventInProgress {
-			// EOF dispatches the final SSE event even without a trailing blank line.
+			// Preserve the existing EOF residual behavior for semantic events.
 			completeGuardedEvent(true)
 		}
 		if sawTerminalEvent && !sawFailedEvent {
@@ -390,6 +414,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			result, err := finalizeStream()
 			return result, err, true
 		}
+		incompleteDownstreamEvent := incompleteDownstreamOnlyEvent()
+		if incompleteDownstreamEvent {
+			eventShouldFlush = false
+		}
 		// 客户端断开/取消请求时，上游读取往往会返回 context canceled。
 		// /v1/responses 的 SSE 事件必须符合 OpenAI 协议；这里不注入自定义 error event，避免下游 SDK 解析失败。
 		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
@@ -397,6 +425,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				flushPending("Client disconnected during canceled stream flush, returning collected usage")
 			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", scanErr), true
+		}
+		if incompleteDownstreamEvent {
+			msg := "OpenAI stream disconnected before completing response.created"
+			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
+				msg += ": " + errText
+			}
+			return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, msg), true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) {
 			logger.LegacyPrintf("service.openai_gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, scanErr)
@@ -538,16 +573,29 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
-			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
-			if guardFirstOutput {
-				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
-			}
+			semanticOutput, downstreamOutput := openAIStreamOutputDecisions(
+				data,
+				eventType,
+				forceFlushFailedEvent,
+				earlyFlushCreated,
+			)
+			eventStartsSemanticOutput = eventStartsSemanticOutput || semanticOutput
+			eventStartsDownstreamOutput = eventStartsDownstreamOutput || downstreamOutput
+			visibleText := prioritizeFirstVisibleText && !firstVisibleTextFlushed &&
+				openAIStreamDataHasVisibleText(data, eventType)
+			eventStartsVisibleText = eventStartsVisibleText || visibleText
 
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected {
-				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
-				if firstTokenMs == nil && startsClientOutput {
-					// 保证首个 token 事件尽快出站，避免影响 TTFT。
+				shouldFlush := queueDrained && (clientOutputStarted || downstreamOutput)
+				if firstTokenMs == nil && downstreamOutput {
+					// Flush the first downstream event at its boundary; semantic
+					// timing is recorded independently below.
+					shouldFlush = true
+				}
+				if prioritizeFirstVisibleText && !firstVisibleTextFlushed && visibleText {
+					// Prioritize only the first non-empty visible-text event. The
+					// actual write still waits for the event's terminating blank line.
 					shouldFlush = true
 				}
 				eventShouldFlush = eventShouldFlush || shouldFlush
@@ -561,7 +609,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 
 			// Record first token time
-			if !guardFirstOutput && firstTokenMs == nil && startsClientOutput {
+			if !guardFirstOutput && firstTokenMs == nil && semanticOutput {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 				stopFirstOutputTimer()
@@ -585,9 +633,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		// Non-guarded streams retain upstream's event-boundary flushing: a keepalive
 		// or queue-drain flush must never split an open SSE event.
 		shouldFlush := false
+		completedVisibleTextEvent := false
 		if line == "" {
 			shouldFlush = eventShouldFlush || (queueDrained && clientOutputStarted)
+			completedVisibleTextEvent = eventStartsVisibleText
 			eventShouldFlush = false
+			eventStartsSemanticOutput = false
+			eventStartsDownstreamOutput = false
+			eventStartsVisibleText = false
 		}
 		if !clientDisconnected {
 			if _, err := writePendingString(line); err != nil {
@@ -602,6 +655,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
 					} else {
 						clientOutputStarted = true
+						if completedVisibleTextEvent {
+							firstVisibleTextFlushed = true
+						}
 						lastDownstreamWriteAt = time.Now()
 					}
 				}
@@ -680,11 +736,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				if guardFirstOutput && eventInProgress {
-					// EOF dispatches the final SSE event even without a trailing blank
-					// line. Do not synthesize extra bytes on the downstream wire.
-					completeGuardedEvent(true)
-				}
 				return finalizeStream()
 			}
 			if result, err, done := handleScanErr(ev.err); done {
@@ -731,6 +782,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			_ = resp.Body.Close()
 			for ev := range events {
 				markEventProcessed(ev)
+			}
+			if clientOutputStarted {
+				sendErrorEvent("first_output_timeout")
+				return resultWithUsage(), errors.New("first output timeout after downstream response started")
 			}
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
 				ctx, c, account, startTime, originalModel, reasoningEffort,
