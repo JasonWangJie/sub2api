@@ -222,10 +222,10 @@ func (h *ImagePlazaHandler) Content(c *gin.Context) {
 		}
 		if reader != nil {
 			defer reader.Close()
-			writeImageObjectStream(c, reader, contentType)
+			writePublishedPlazaObjectStream(c, reader, contentType)
 			return
 		}
-		redirectToImageObject(c, access)
+		redirectToPublishedPlazaObject(c, access)
 		return
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)

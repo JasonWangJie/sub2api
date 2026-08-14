@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -898,6 +899,47 @@ func writeImageObjectStream(c *gin.Context, reader io.Reader, contentType string
 		contentType = "application/octet-stream"
 	}
 	c.Header("Cache-Control", "private, no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
+}
+
+// Published plaza images are immutable per publication id and already public to
+// authenticated plaza viewers. Allow a short private browser cache so reopening
+// the lightbox does not re-download. Private library/admin views keep no-store.
+const publishedPlazaCacheMaxAgeSecs = 3600
+
+func publishedPlazaCacheControl(access service.ObjectAccess) string {
+	maxAge := publishedPlazaCacheMaxAgeSecs
+	if !access.ExpiresAt.IsZero() {
+		// Stay inside the signed URL lifetime with a 60s safety margin.
+		remaining := int(time.Until(access.ExpiresAt).Seconds()) - 60
+		if remaining <= 0 {
+			return "private, no-store"
+		}
+		if remaining < maxAge {
+			maxAge = remaining
+		}
+	}
+	return fmt.Sprintf("private, max-age=%d", maxAge)
+}
+
+func redirectToPublishedPlazaObject(c *gin.Context, access service.ObjectAccess) {
+	c.Header("Cache-Control", publishedPlazaCacheControl(access))
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Redirect(http.StatusTemporaryRedirect, access.URL)
+}
+
+func writePublishedPlazaObjectStream(c *gin.Context, reader io.Reader, contentType string) {
+	if strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/json") {
+		response.Success(c, gin.H{"url": c.Request.URL.Path})
+		return
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Cache-Control", fmt.Sprintf("private, max-age=%d", publishedPlazaCacheMaxAgeSecs))
 	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.DataFromReader(http.StatusOK, -1, contentType, reader, nil)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -89,6 +90,58 @@ func TestWriteImageObjectAccessRedirectsByDefault(t *testing.T) {
 	require.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
 	require.Equal(t, "no-referrer", recorder.Header().Get("Referrer-Policy"))
 	require.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
+}
+
+func TestPublishedPlazaObjectAllowsBrowserCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("stream", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/image-plaza/imgpub_test/content", nil)
+
+		writePublishedPlazaObjectStream(ctx, bytes.NewReader([]byte("webp")), "image/webp")
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.Equal(t, "image/webp", recorder.Header().Get("Content-Type"))
+		require.Equal(t, "private, max-age=3600", recorder.Header().Get("Cache-Control"))
+		require.Equal(t, "webp", recorder.Body.String())
+	})
+
+	t.Run("redirect within signed url lifetime", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/image-plaza/imgpub_test/content", nil)
+		expiresAt := time.Now().Add(30 * time.Minute)
+
+		redirectToPublishedPlazaObject(ctx, service.ObjectAccess{
+			URL:       "https://storage.example.test/plaza/result.png?sig=1",
+			ExpiresAt: expiresAt,
+		})
+
+		require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+		require.Equal(t, "https://storage.example.test/plaza/result.png?sig=1", recorder.Header().Get("Location"))
+		cacheControl := recorder.Header().Get("Cache-Control")
+		require.Regexp(t, `^private, max-age=\d+$`, cacheControl)
+		var maxAge int
+		_, err := fmt.Sscanf(cacheControl, "private, max-age=%d", &maxAge)
+		require.NoError(t, err)
+		require.Greater(t, maxAge, 1700)
+		require.LessOrEqual(t, maxAge, 1740)
+	})
+
+	t.Run("redirect near expiry stays no-store", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/image-plaza/imgpub_test/content", nil)
+
+		redirectToPublishedPlazaObject(ctx, service.ObjectAccess{
+			URL:       "https://storage.example.test/plaza/result.png?sig=2",
+			ExpiresAt: time.Now().Add(30 * time.Second),
+		})
+
+		require.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
+	})
 }
 
 func TestAdminListPublicationsUsesFilterAndCreatedAtCursorContract(t *testing.T) {

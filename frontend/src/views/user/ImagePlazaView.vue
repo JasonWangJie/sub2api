@@ -187,17 +187,19 @@
 
       <Teleport to="body">
         <div
-          v-if="previewItem"
+          v-show="previewOpen"
           class="plaza-lightbox"
           role="dialog"
           aria-modal="true"
-          :aria-label="previewItem.title || t('imageWorkflow.library.untitled')"
+          :aria-hidden="!previewOpen"
+          :aria-label="previewItem?.title || t('imageWorkflow.library.untitled')"
           @click="closePreview"
         >
           <button type="button" class="plaza-lightbox__close" :title="t('common.close')" :aria-label="t('common.close')" @click="closePreview">
             <Icon name="x" size="sm" />
           </button>
           <img
+            v-if="previewItem"
             class="plaza-lightbox__img"
             :src="resolvePlazaImageUrl(previewItem)"
             :alt="previewItem.title || t('imageWorkflow.library.untitled')"
@@ -277,6 +279,7 @@ const nextCursor = ref<string | null>(null)
 const total = ref<number | null>(null)
 const broken = ref(new Set<string>())
 const reportDialog = ref<HTMLDialogElement | null>(null)
+const previewOpen = ref(false)
 const previewItem = ref<ImagePlazaItem | null>(null)
 const reportItem = ref<ImagePlazaItem | null>(null)
 const { target: loadMoreSentinel, inView: loadMoreInView } = useInView({ rootMargin: '400px 0px', once: false })
@@ -385,16 +388,19 @@ function lockBodyScroll(locked: boolean) {
 }
 
 function onPreviewKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && previewItem.value) closePreview()
+  if (event.key === 'Escape' && previewOpen.value) closePreview()
 }
 
 function openPreview(item: ImagePlazaItem) {
+  // Keep the previous <img> mounted when reopening the same item so the browser
+  // can reuse the already-decoded bitmap without a network round-trip.
   previewItem.value = item
+  previewOpen.value = true
   lockBodyScroll(true)
 }
 
 function closePreview() {
-  previewItem.value = null
+  previewOpen.value = false
   lockBodyScroll(false)
 }
 
@@ -648,6 +654,9 @@ onUnmounted(() => {
   padding: 1.25rem;
   background: rgba(3, 7, 18, 0.88);
   cursor: zoom-out;
+}
+.plaza-lightbox[aria-hidden="true"] {
+  pointer-events: none;
 }
 .plaza-lightbox__img {
   max-width: min(96vw, 1400px);

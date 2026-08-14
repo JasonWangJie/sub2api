@@ -4,6 +4,9 @@
 
 ## 从这里开始
 
+##加载代码索引codegraph
+codegraph init
+
 换电脑、换会话或交给新的 AI 后，按以下顺序恢复上下文：
 
 1. 阅读 [wiki-new/文档索引.md](wiki-new/文档索引.md)。
@@ -136,13 +139,13 @@
 
 图片只接受完整解码成功且容器、魔数、实际 MIME 一致的 PNG/JPEG/WebP。SVG、HTML、JavaScript、伪 MIME、尾随载荷、超字节、超像素、解压炸弹和路径穿越必须拒绝。远程图片导入和参考图下载继续执行 HTTPS、DNS、重定向、内网地址、MIME、字节、像素和超时限制。
 
-首页自定义 HTML 经 DOMPurify 严格净化；自定义 URL 使用受限 iframe sandbox 和 `no-referrer`。图片内容响应使用 `nosniff`、隔离 CSP 和安全的 `Content-Disposition`。
+首页自定义 HTML 经 DOMPurify 严格净化；自定义 URL 使用受限 iframe sandbox 和 `no-referrer`。图片内容响应使用 `nosniff`、隔离 CSP 和安全的 `Content-Disposition`。已批准广场 `/content` 允许浏览器私有短缓存；私有图库查看仍为 `no-store`。
 
 ## 主要页面
 
 - 用户图片工作台：`/image-workbench`
 - 用户个人图库：`/image-library`
-- 审核后图片广场：`/image-plaza`
+- 审核后图片广场：`/image-plaza`（已批准 content 允许浏览器私有短缓存；关闭预览不销毁图片节点，同一张图再次打开可复用）
 - 用户/管理员异步任务中心：任务号加宽并可一键复制；列表行点击不打开详情，仅「查看」打开
 - 管理员图片审核、举报、全站图库和清理：含「本机投稿审核」页签（无图预览占位）
 - 分组创建/编辑：“图片生成计费”区域内的“异步生图”开关
@@ -184,7 +187,7 @@
 | [wiki-new/对象存储与保留策略.md](wiki-new/对象存储与保留策略.md) | OSS、对象引用、签名和保留策略 |
 | [wiki-new/图片工作台.md](wiki-new/图片工作台.md) | Key 分组驱动的工作台实时/异步分流 |
 | [wiki-new/图片图库与对象模型.md](wiki-new/图片图库与对象模型.md) | 服务端图库和统一对象引用 |
-| [wiki-new/图片广场审核与迁移.md](wiki-new/图片广场审核与迁移.md) | 审核广场、举报、安全迁移和维护 Worker |
+| [wiki-new/图片广场审核与迁移.md](wiki-new/图片广场审核与迁移.md) | 审核广场、content 缓存、举报、安全迁移和维护 Worker |
 | [wiki-new/本地开发运行手册.md](wiki-new/本地开发运行手册.md) | 本地前后端运行、Docker 联调和常见故障 |
 | [wiki-new/生产部署升级与回滚手册.md](wiki-new/生产部署升级与回滚手册.md) | Fork 生产部署、HTTPS、OSS、备份、升级与回滚 |
 | [发行版发布与安装操作手册.md](发行版发布与安装操作手册.md) | **版本号、打 tag 发 Release、一键安装/升级** |
