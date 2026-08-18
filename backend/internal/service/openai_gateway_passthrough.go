@@ -874,18 +874,18 @@ func openAIStreamDataStartsVisibleOutput(data, eventType string) bool {
 	}
 	if strings.HasSuffix(eventType, ".delta") {
 		delta := gjson.Get(trimmed, "delta")
-		return delta.Exists() && delta.String() != ""
+		return delta.Exists() && strings.TrimSpace(delta.String()) != ""
 	}
 	switch eventType {
 	case "response.output_text.done",
 		"response.reasoning_summary_text.done",
 		"response.reasoning_text.done",
 		"response.audio_transcript.done":
-		return gjson.Get(trimmed, "text").String() != ""
+		return strings.TrimSpace(gjson.Get(trimmed, "text").String()) != ""
 	case "response.function_call_arguments.done":
-		return gjson.Get(trimmed, "arguments").String() != ""
+		return strings.TrimSpace(gjson.Get(trimmed, "arguments").String()) != ""
 	case "response.custom_tool_call_input.done":
-		return gjson.Get(trimmed, "input").String() != ""
+		return strings.TrimSpace(gjson.Get(trimmed, "input").String()) != ""
 	case "response.image_generation_call.partial_image":
 		return gjson.Get(trimmed, "partial_image_b64").String() != ""
 	case "response.content_part.added", "response.content_part.done",

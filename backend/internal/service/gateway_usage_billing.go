@@ -854,8 +854,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		requestedModel = input.OriginalModel
 	}
 
-	// 计算费用。先保留本地的账号映射候选回退，再按上游的严格准入规则
-	// 允许 response_model 覆盖最终的基线成本。
+	// 计算费用。先保留本地的账号模型映射候选链，再允许上游的
+	// response_model 模式在严格校验后降低最终成本。
 	cost, selectedBillingModel, pricingErr := s.calculateRecordUsageCostCandidates(
 		ctx,
 		result,
@@ -892,11 +892,12 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(selectedBillingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
-			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, opts)
+			responseCost, responseErr := s.tryCalculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, opts)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, selectedBillingModel, apiKey) != nil
-			if responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
+			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, selectedBillingModel, responseModel, cost, responseCost)
 				cost = responseCost
+				selectedBillingModel = responseModel
 			}
 		}
 	}

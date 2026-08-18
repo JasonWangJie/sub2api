@@ -265,7 +265,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		completedDownstreamEvent := eventStartsDownstreamOutput
 		completedVisibleEvent := eventStartsVisibleOutput
 		completedVisibleTextEvent := eventStartsVisibleText
-		completedProgressEvent := completedSemanticEvent || completedDownstreamEvent
 		shouldFlush := eventShouldFlush || (queueDrained && clientOutputStarted)
 		eventInProgress = false
 		if !clientDisconnected {
@@ -289,7 +288,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				}
 			}
 		}
-		if completedProgressEvent && !firstOutputProgressObserved {
+		if completedSemanticEvent && !firstOutputProgressObserved {
 			firstOutputScanGuard.Store(false)
 			firstOutputProgressObserved = true
 			stopFirstOutputTimer()
@@ -600,13 +599,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			visibleText := prioritizeFirstVisibleText && !firstVisibleTextFlushed &&
 				openAIStreamDataHasVisibleText(data, eventType)
 			eventStartsVisibleText = eventStartsVisibleText || visibleText
+			semanticOutputSeenBeforeEvent := responsesSemanticOutputSeen
 			if semanticOutput && !openAIStreamEventTypeIsTerminal(eventType) {
 				responsesSemanticOutputSeen = true
 			}
-			// OpenAI Responses streams that terminate with an empty
-			// response.completed are silent upstream refusals. Early-created
-			// mode has already committed the response and therefore intentionally
-			// cannot use this pre-output failover path.
+			// Empty successful completions from OpenAI are silent refusals. Keep
+			// them eligible for account failover until meaningful output is seen.
 			if account != nil && account.Platform == PlatformOpenAI &&
 				(eventType == "response.completed" || eventType == "response.done") &&
 				!sawFailedEvent && !responsesSemanticOutputSeen && !clientOutputStarted &&
@@ -624,8 +622,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					// Preserve a separate boundary for the first semantic event.
 					shouldFlush = true
 				}
-				if !clientOutputStarted && downstreamOutput {
-					// Flush the first committed downstream event at its boundary.
+				if !semanticOutputSeenBeforeEvent && downstreamOutput {
+					// Flush the first downstream event at its boundary; semantic
+					// timing is recorded independently below.
 					shouldFlush = true
 				}
 				if prioritizeFirstVisibleText && !firstVisibleTextFlushed && visibleText {

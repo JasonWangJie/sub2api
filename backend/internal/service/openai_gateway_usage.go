@@ -275,7 +275,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedOpenAIResponsePricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
 	// 既有行为。响应模型与基线同名时直接跳过：重算必然同价，白跑一次定价解析。
-	baselineBillingModel := selectedBillingModel
+	baselineBillingModel := strings.TrimSpace(selectedBillingModel)
+	if baselineBillingModel == "" {
+		baselineBillingModel = firstUsageBillingModel(billingModels)
+	}
 	if responseModel := responseModelBillingDeclaration(
 		input.BillingModelSource,
 		result.UpstreamResponseModel,
@@ -577,6 +580,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	return cost, err
 }
 
+// calculateOpenAIRecordUsageCostResolved preserves the local boolean contract
+// for existing callers while the upstream implementation uses a nil-capable
+// gate for platforms that do not expose an account-level OpenAI setting.
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCostResolved(
 	ctx context.Context,
 	result *OpenAIForwardResult,
@@ -591,16 +597,8 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCostResolved(
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, string, error) {
 	return s.calculateOpenAIRecordUsageCostResolvedWithGate(
-		ctx,
-		result,
-		apiKey,
-		billingModels,
-		multiplier,
-		imageMultiplier,
-		videoMultiplier,
-		webSearchMultiplier,
-		tokens,
-		serviceTier,
+		ctx, result, apiKey, billingModels, multiplier, imageMultiplier,
+		videoMultiplier, webSearchMultiplier, tokens, serviceTier,
 		&longContextBillingEnabled,
 	)
 }

@@ -51,6 +51,7 @@
 | [docs/PAYMENT_CN.md](../docs/PAYMENT_CN.md) | 支付完整配置 |
 | [docs/ASYNC_IMAGE_TASKS.md](../docs/ASYNC_IMAGE_TASKS.md) | 异步图片任务 |
 | [docs/BATCH_IMAGE_MVP.md](../docs/BATCH_IMAGE_MVP.md) | 批量图片 |
+| [wiki-new/文档索引.md](../wiki-new/文档索引.md) | Fork 图片工作台 / 图库 / 审核广场交接 Wiki |
 | [deploy/DATAMANAGEMENTD_CN.md](../deploy/DATAMANAGEMENTD_CN.md) | 数据管理守护进程 |
 | [deploy/APPLE_CONTAINER.md](../deploy/APPLE_CONTAINER.md) | macOS Apple container |
 | [skills/sub2api-admin](../skills/sub2api-admin/SKILL.md) | 管理端 CLI Skill |
