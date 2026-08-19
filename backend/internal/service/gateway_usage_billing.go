@@ -903,9 +903,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	if shouldApplyBillingChargeMultiplier(cost, result.ImageCount, false) {
-		cost.ActualCost = applyBillingChargeMultiplier(
-			cost.ActualCost,
+		applyBillingChargeMultiplierToCost(
+			cost,
 			ResolveBillingChargeMultiplierForGroup(s.settingService, ctx, apiKey.GroupID),
+			multiplier,
 		)
 	}
 

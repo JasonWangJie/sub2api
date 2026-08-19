@@ -37,17 +37,44 @@ type billingChargePolicyPayload struct {
 	GroupIDs   []int64 `json:"group_ids"`
 }
 
-// applyBillingChargeMultiplier scales ActualCost after group/user/peak multipliers.
+// applyBillingChargeMultiplierToCost scales input, output, and cache-read cost
+// before the ordinary group/user/peak multiplier is applied. For ordinary
+// token usage this keeps TotalCost * rate_multiplier == ActualCost, while
+// cache creation, image token costs, and separately rated surcharges remain
+// unchanged.
 // Invalid multipliers fall back to 1 so billing never breaks on misconfiguration.
-func applyBillingChargeMultiplier(actualCost, multiplier float64) float64 {
-	if actualCost <= 0 {
-		return actualCost
+func applyBillingChargeMultiplierToCost(cost *CostBreakdown, multiplier, rateMultiplier float64) {
+	if cost == nil {
+		return
 	}
 	m := normalizeBillingChargeMultiplier(multiplier)
 	if m == 1 {
-		return actualCost
+		return
 	}
-	return actualCost * m
+
+	componentTotal := billingChargeMultiplierComponentTotal(cost)
+	if componentTotal <= 0 {
+		return
+	}
+
+	// Search and similar surcharges are folded into TotalCost by the gateway
+	// paths but are not represented by one of the component fields below. Keep
+	// that portion unchanged when moving the system coefficient to components.
+	otherCost := cost.TotalCost - componentTotal
+	otherActualCost := cost.ActualCost - componentTotal*rateMultiplier
+
+	cost.InputCost *= m
+	cost.OutputCost *= m
+	cost.CacheReadCost *= m
+	cost.TotalCost = componentTotal*m + otherCost
+	cost.ActualCost = componentTotal*m*rateMultiplier + otherActualCost
+}
+
+func billingChargeMultiplierComponentTotal(cost *CostBreakdown) float64 {
+	if cost == nil {
+		return 0
+	}
+	return cost.InputCost + cost.OutputCost + cost.CacheReadCost
 }
 
 // shouldApplyBillingChargeMultiplier excludes media generation from the
@@ -58,10 +85,10 @@ func shouldApplyBillingChargeMultiplier(cost *CostBreakdown, imageCount int, isV
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(cost.BillingMode)) {
-	case string(BillingModeImage), string(BillingModeVideo):
+	case string(BillingModePerRequest), string(BillingModeImage), string(BillingModeVideo):
 		return false
 	default:
-		return true
+		return billingChargeMultiplierComponentTotal(cost) > 0
 	}
 }
 

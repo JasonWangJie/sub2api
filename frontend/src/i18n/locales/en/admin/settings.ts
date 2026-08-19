@@ -430,7 +430,7 @@ export default {
         defaultBalanceHint: 'Initial balance for new users',
         billingChargeMultiplier: 'System Charge Multiplier',
         billingChargeMultiplierHint:
-          'Applied after group/user/peak rates; affects both usage display amounts and actual deductions. Normal, asynchronous, and batch image generation plus video settlement are excluded. Default 1; e.g. 1.1 means 10% more for selected groups. Valid range: (0, 10].',
+          'Applied to token input, output, and cache-read costs before group/user/peak rates, so ordinary token usage satisfies raw cost x billing rate = user charge. Cache creation, image tokens, search surcharges, normal/asynchronous/batch image generation, and video settlement are excluded. Default 1; e.g. 1.1 raises those raw costs by 10% for selected groups. Valid range: (0, 10].',
         billingChargeMultiplierScope: 'Charge Multiplier Scope',
         billingChargeMultiplierScopeHint: 'Matched against the billing group bound to the API key. Ungrouped keys are included only in all-groups mode.',
         billingChargeMultiplierAllGroups: 'All groups',

@@ -309,9 +309,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		}
 	}
 	if shouldApplyBillingChargeMultiplier(cost, result.ImageCount, isVideoUsage) {
-		cost.ActualCost = applyBillingChargeMultiplier(
-			cost.ActualCost,
+		applyBillingChargeMultiplierToCost(
+			cost,
 			ResolveBillingChargeMultiplierForGroup(s.settingService, ctx, apiKey.GroupID),
+			multiplier,
 		)
 	}
 

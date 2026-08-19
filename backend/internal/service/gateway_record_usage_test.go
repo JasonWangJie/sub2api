@@ -931,6 +931,7 @@ func TestGatewayServicePrepareRecordUsage_BillingChargeMultiplierDoesNotScaleAsy
 }
 
 func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *testing.T) {
+	const billingRate = 1.3
 	for _, tt := range []struct {
 		name       string
 		groupID    int64
@@ -952,15 +953,16 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *tes
 					RequestID: "gateway_token_billing_charge_multiplier",
 					Model:     "claude-sonnet-4",
 					Usage: ClaudeUsage{
-						InputTokens:  1000,
-						OutputTokens: 500,
+						InputTokens:          1000,
+						OutputTokens:         500,
+						CacheReadInputTokens: 250,
 					},
 					Duration: time.Second,
 				},
 				APIKey: &APIKey{
 					ID:      812,
 					GroupID: i64p(tt.groupID),
-					Group:   &Group{ID: tt.groupID, RateMultiplier: 1},
+					Group:   &Group{ID: tt.groupID, RateMultiplier: billingRate},
 				},
 				User:    &User{ID: 612, Balance: 100},
 				Account: &Account{ID: 712},
@@ -969,7 +971,12 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *tes
 			require.NoError(t, err)
 			require.NotNil(t, usageRepo.lastLog)
 			require.Positive(t, usageRepo.lastLog.TotalCost)
-			require.InDelta(t, usageRepo.lastLog.TotalCost*tt.wantFactor, usageRepo.lastLog.ActualCost, 1e-12)
+			require.InDelta(t, 1000*3e-6*tt.wantFactor, usageRepo.lastLog.InputCost, 1e-12)
+			require.InDelta(t, 500*15e-6*tt.wantFactor, usageRepo.lastLog.OutputCost, 1e-12)
+			require.InDelta(t, 250*0.3e-6*tt.wantFactor, usageRepo.lastLog.CacheReadCost, 1e-12)
+			require.InDelta(t, usageRepo.lastLog.InputCost+usageRepo.lastLog.OutputCost+usageRepo.lastLog.CacheReadCost, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, billingRate, usageRepo.lastLog.RateMultiplier, 1e-12)
+			require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
 			require.NotNil(t, billingRepo.lastCmd)
 			require.InDelta(t, usageRepo.lastLog.ActualCost, billingRepo.lastCmd.BalanceCost, 1e-12)
 		})

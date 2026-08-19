@@ -8,27 +8,69 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyBillingChargeMultiplier(t *testing.T) {
+func TestApplyBillingChargeMultiplierToCostMovesSystemMultiplierToComponents(t *testing.T) {
 	t.Parallel()
 
-	require.InDelta(t, 1.0, applyBillingChargeMultiplier(1.0, 1), 1e-12)
-	require.InDelta(t, 1.1, applyBillingChargeMultiplier(1.0, 1.1), 1e-12)
-	require.InDelta(t, 0.9, applyBillingChargeMultiplier(1.0, 0.9), 1e-12)
-	require.Zero(t, applyBillingChargeMultiplier(0, 1.1))
-	require.InDelta(t, 1.0, applyBillingChargeMultiplier(1.0, 0), 1e-12)
-	require.InDelta(t, 1.0, applyBillingChargeMultiplier(1.0, -1), 1e-12)
-	require.InDelta(t, 10.0, applyBillingChargeMultiplier(1.0, 11), 1e-12)
+	cost := &CostBreakdown{
+		InputCost:         1,
+		ImageInputCost:    2,
+		OutputCost:        3,
+		ImageOutputCost:   4,
+		CacheCreationCost: 5,
+		CacheReadCost:     6,
+		TotalCost:         22,
+		ActualCost:        44,
+		BillingMode:       string(BillingModeToken),
+	}
+
+	applyBillingChargeMultiplierToCost(cost, 1.5, 2)
+
+	require.InDelta(t, 1.5, cost.InputCost, 1e-12)
+	require.InDelta(t, 2.0, cost.ImageInputCost, 1e-12)
+	require.InDelta(t, 4.5, cost.OutputCost, 1e-12)
+	require.InDelta(t, 4.0, cost.ImageOutputCost, 1e-12)
+	require.InDelta(t, 5.0, cost.CacheCreationCost, 1e-12)
+	require.InDelta(t, 9.0, cost.CacheReadCost, 1e-12)
+	// Cache creation, image token costs, and the 1-unit surcharge stay unchanged.
+	require.InDelta(t, 27, cost.TotalCost, 1e-12)
+	// The original ordinary multiplier is 2x; the system coefficient is not
+	// applied to ActualCost as a separate final-stage multiplier anymore.
+	require.InDelta(t, 54, cost.ActualCost, 1e-12)
+
+	applyBillingChargeMultiplierToCost(cost, 0, 2)
+	require.InDelta(t, 27, cost.TotalCost, 1e-12, "invalid multiplier falls back to 1")
+}
+
+func TestApplyBillingChargeMultiplierToCostPreservesExcludedSurchargeCharge(t *testing.T) {
+	t.Parallel()
+
+	// The token component uses a 2x peak rate while the 1-unit search
+	// surcharge was charged at its separate 0.5x base rate.
+	cost := &CostBreakdown{
+		InputCost:   10,
+		TotalCost:   11,
+		ActualCost:  20.5,
+		BillingMode: string(BillingModeToken),
+	}
+
+	applyBillingChargeMultiplierToCost(cost, 1.5, 2)
+
+	require.InDelta(t, 15, cost.InputCost, 1e-12)
+	require.InDelta(t, 16, cost.TotalCost, 1e-12)
+	require.InDelta(t, 30.5, cost.ActualCost, 1e-12)
 }
 
 func TestShouldApplyBillingChargeMultiplierExcludesMediaGeneration(t *testing.T) {
 	t.Parallel()
 
-	require.True(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 0, false))
+	require.True(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{InputCost: 1, BillingMode: string(BillingModeToken)}, 0, false))
 	require.False(t, shouldApplyBillingChargeMultiplier(nil, 0, false))
-	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 1, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{InputCost: 1, BillingMode: string(BillingModeToken)}, 1, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 0, false))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{InputCost: 1, BillingMode: string(BillingModePerRequest)}, 0, false))
 	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeImage)}, 0, false))
 	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeVideo)}, 0, false))
-	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{BillingMode: string(BillingModeToken)}, 0, true))
+	require.False(t, shouldApplyBillingChargeMultiplier(&CostBreakdown{InputCost: 1, BillingMode: string(BillingModeToken)}, 0, true))
 }
 
 func TestParseBillingChargeMultiplier(t *testing.T) {

@@ -600,8 +600,8 @@ const (
 	SettingKeyOpenAILowUpstreamRatePriorityEnabled = "openai_low_upstream_rate_priority_enabled"
 	// SettingKeyOpenAIOAuthSchedulingRateMultiplier OAuth 账号参与成本调度时使用的参考倍率。
 	SettingKeyOpenAIOAuthSchedulingRateMultiplier = "openai_oauth_scheduling_rate_multiplier"
-	// SettingKeyBillingChargeMultiplier 系统扣款系数：在分组/用户/高峰倍率之后再乘，
-	// 同时影响 usage_logs.actual_cost（前端用量展示）与余额/订阅实际扣款；
+	// SettingKeyBillingChargeMultiplier 系统扣款系数：乘到 token 请求的输入、输出、
+	// 缓存读取费用明细，再按分组/用户/高峰倍率计算用户扣费；
 	// 普通、异步及批量生图和视频结算不应用该系数。默认 1。
 	SettingKeyBillingChargeMultiplier = "billing_charge_multiplier"
 	// SettingKeyBillingChargeMultiplierAllGroups defaults to true so existing

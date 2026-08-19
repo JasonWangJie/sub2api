@@ -439,7 +439,8 @@ func TestOpenAIGatewayServiceRecordUsage_UsesUserSpecificGroupRate(t *testing.T)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierUsesGroupScope(t *testing.T) {
-	usage := OpenAIUsage{InputTokens: 1000, OutputTokens: 500}
+	const billingRate = 1.4
+	usage := OpenAIUsage{InputTokens: 1200, OutputTokens: 500, CacheReadInputTokens: 200}
 	for _, tt := range []struct {
 		name       string
 		groupID    int64
@@ -466,7 +467,7 @@ func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierUsesGroupScope(t
 				APIKey: &APIKey{
 					ID:      1003,
 					GroupID: i64p(tt.groupID),
-					Group:   &Group{ID: tt.groupID, RateMultiplier: 1},
+					Group:   &Group{ID: tt.groupID, RateMultiplier: billingRate},
 				},
 				User:    &User{ID: 2003},
 				Account: &Account{ID: 3003},
@@ -475,7 +476,13 @@ func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierUsesGroupScope(t
 			require.NoError(t, err)
 			require.NotNil(t, usageRepo.lastLog)
 			require.Positive(t, usageRepo.lastLog.TotalCost)
-			require.InDelta(t, usageRepo.lastLog.TotalCost*tt.wantFactor, usageRepo.lastLog.ActualCost, 1e-12)
+			base := expectedOpenAICost(t, svc, "gpt-5.1", usage, 1)
+			require.InDelta(t, base.InputCost*tt.wantFactor, usageRepo.lastLog.InputCost, 1e-12)
+			require.InDelta(t, base.OutputCost*tt.wantFactor, usageRepo.lastLog.OutputCost, 1e-12)
+			require.InDelta(t, base.CacheReadCost*tt.wantFactor, usageRepo.lastLog.CacheReadCost, 1e-12)
+			require.InDelta(t, base.TotalCost*tt.wantFactor, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, billingRate, usageRepo.lastLog.RateMultiplier, 1e-12)
+			require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
 			require.InDelta(t, usageRepo.lastLog.ActualCost, userRepo.lastAmount, 1e-12)
 		})
 	}
