@@ -125,6 +125,13 @@
 
           <!-- Right: Actions and Settings -->
           <div class="flex flex-wrap items-center justify-end gap-2">
+            <div data-test="total-user-balance" class="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 dark:border-emerald-900/40 dark:bg-emerald-900/20">
+              <Icon name="dollar" size="sm" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
+              <span class="text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.users.totalUserBalance') }}</span>
+              <strong class="text-sm tabular-nums text-emerald-800 dark:text-emerald-200">
+                {{ totalBalance == null ? '-' : `$${totalBalance.toFixed(2)}` }}
+              </strong>
+            </div>
             <!-- Mobile: Secondary buttons (icon only) -->
             <div class="flex items-center gap-2 md:contents">
               <!-- Refresh Button -->
@@ -1020,6 +1027,7 @@ const columns = computed<Column[]>(() =>
 )
 
 const users = ref<AdminUser[]>([])
+const totalBalance = ref<number | null>(null)
 const loading = ref(false)
 const searchQuery = ref('')
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
@@ -1595,6 +1603,7 @@ const loadUsers = async () => {
       return
     }
     users.value = response.items
+    totalBalance.value = Number(response.total_balance ?? 0)
     pagination.total = response.total
     pagination.pages = response.pages
     usageStats.value = {}

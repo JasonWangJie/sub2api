@@ -88,6 +88,7 @@ vi.mock('@/api/admin/ops', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
+    cachedPublicSettings: { user_usage_latency_divisor: 2 },
     showError: vi.fn(),
     showWarning: vi.fn(),
     showSuccess: vi.fn(),
@@ -134,7 +135,7 @@ const UsageFiltersStub = defineComponent({
   template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><slot name="after-reset" /></div>',
 })
 const UsageTableStub = {
-  props: ['columns'],
+  props: ['columns', 'latencyDivisor'],
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
 }
@@ -268,6 +269,49 @@ describe('admin UsageView route filters', () => {
 
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ user_id: 42 }), expect.anything())
     expect(wrapper.find('[data-test="user-filter-label"]').text()).toBe('42')
+  })
+})
+
+describe('admin UsageView latency divisor opt-in', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockReset().mockResolvedValue({
+      total_requests: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_cache_tokens: 0,
+      total_tokens: 0,
+      total_cost: 0,
+      total_actual_cost: 0,
+      average_duration_ms: 0,
+    })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps the admin table raw by default and applies the configured divisor when checked', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: UsageTableStub, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, Pagination: true, Select: true, DateRangePicker: true,
+        Icon: true, TokenUsageTrend: true, ModelDistributionChart: true,
+        GroupDistributionChart: true, EndpointDistributionChart: true, UserTokenRanking: true,
+      } },
+    })
+    await flushPromises()
+
+    const usageTable = wrapper.findComponent(UsageTableStub)
+    expect(usageTable.props('latencyDivisor')).toBe(1)
+
+    const checkbox = wrapper.get('input[type="checkbox"]')
+    await checkbox.setValue(true)
+    expect(usageTable.props('latencyDivisor')).toBe(2)
   })
 })
 

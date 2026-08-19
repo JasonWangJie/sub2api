@@ -1276,8 +1276,10 @@ export default {
         description: 'Settings for usage and failed-request records visible to end users.',
       },
       user_usage_latency_divisor: {
+        adminToggleLabel: 'Apply user usage latency divisor',
+        adminToggleHint: 'When checked, the admin usage table applies this divisor to first-token and total latency.',
         label: 'User usage latency divisor',
-        description: 'Only adjusts first-token and total latency in the /usage table and user CSV. It does not affect /admin/usage, stored records, statistics, or real API response time.',
+        description: 'By default, adjusts first-token and total latency in the /usage table and user CSV. Admins can opt in from the /admin/usage detail table; stored records, statistics, and real API response time are unchanged.',
         rangeError: 'The user usage latency divisor must be a valid number between {min} and {max}.',
       },
       user_error_view: {

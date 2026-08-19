@@ -1270,8 +1270,10 @@ export default {
         description: '与终端用户可见的用量及失败请求记录相关的设置。',
       },
       user_usage_latency_divisor: {
+        adminToggleLabel: '应用用户用量页延迟除数',
+        adminToggleHint: '勾选后，管理员用量明细表中的首 Token 延迟和总耗时使用该除数。',
         label: '用户用量页延迟除数',
-        description: '仅调整 /usage 延迟列及用户 CSV 中的首字和总耗时；不影响 /admin/usage、原始记录、统计计算或真实 API 响应耗时。',
+        description: '默认调整 /usage 延迟列及用户 CSV 中的首字和总耗时；管理员可在 /admin/usage 明细中手动勾选应用，不影响原始记录、统计计算或真实 API 响应耗时。',
         rangeError: '用户用量页延迟除数必须是 {min}-{max} 之间的有效数字。',
       },
       user_error_view: {

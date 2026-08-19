@@ -519,6 +519,29 @@ func (r *userRepository) List(ctx context.Context, params pagination.PaginationP
 	return r.ListWithFilters(ctx, params, service.UserListFilters{})
 }
 
+// SumNonAdminBalances returns the current balance of all non-deleted users,
+// excluding administrator accounts. It intentionally ignores list filters and
+// pagination because the admin users page presents this as a global summary.
+func (r *userRepository) SumNonAdminBalances(ctx context.Context) (float64, error) {
+	var result []struct {
+		Sum sql.NullFloat64 `json:"sum"`
+	}
+	err := r.client.User.Query().
+		Where(
+			dbuser.RoleEQ(service.RoleUser),
+			dbuser.DeletedAtIsNil(),
+		).
+		Aggregate(dbent.As(dbent.Sum(dbuser.FieldBalance), "sum")).
+		Scan(ctx, &result)
+	if err != nil {
+		return 0, err
+	}
+	if len(result) == 0 || !result[0].Sum.Valid {
+		return 0, nil
+	}
+	return result[0].Sum.Float64, nil
+}
+
 func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters service.UserListFilters) ([]service.User, *pagination.PaginationResult, error) {
 	// SkipSoftDelete 仅作用于 User 身份解析（下方 Count/All）；订阅、分组等关联实体沿用原始 ctx，避免穿透到这些同样带软删除的实体而带出已删除行。
 	userCtx := ctx

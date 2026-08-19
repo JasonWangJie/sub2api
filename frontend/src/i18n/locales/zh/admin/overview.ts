@@ -485,6 +485,7 @@ export default {
     users: {
       title: '用户管理',
       description: '管理用户账户和权限',
+      totalUserBalance: '普通用户总余额',
       createUser: '创建用户',
       bulkLimits: {
         action: '批量设置限制（{count}）',

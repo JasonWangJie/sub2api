@@ -64,6 +64,19 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 	return users, result.Total, nil
 }
 
+// GetTotalUserBalance returns the global balance of non-deleted ordinary users.
+// The optional repository capability keeps lightweight admin-service test
+// doubles source-compatible while the production user repository provides the
+// database aggregate.
+func (s *adminServiceImpl) GetTotalUserBalance(ctx context.Context) (float64, error) {
+	if repo, ok := s.userRepo.(interface {
+		SumNonAdminBalances(context.Context) (float64, error)
+	}); ok {
+		return repo.SumNonAdminBalances(ctx)
+	}
+	return 0, nil
+}
+
 func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users []User) {
 	if s.userGroupRateRepo == nil {
 		return

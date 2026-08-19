@@ -133,6 +133,7 @@ describe('admin UsersView', () => {
     listUsers.mockResolvedValue({
       items: [createAdminUser()],
       total: 1,
+      total_balance: 42.5,
       page: 1,
       page_size: 20,
       pages: 1
@@ -179,6 +180,8 @@ describe('admin UsersView', () => {
     })
 
     await flushPromises()
+
+    expect(wrapper.get('[data-test="total-user-balance"]').text()).toContain('$42.50')
 
     const columns = wrapper.get('[data-test="columns"]').text()
     const visibleColumns = columns.split(',')
