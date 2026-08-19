@@ -863,6 +863,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		billingModels,
 		multiplier,
 		imageMultiplier,
+		pricingAt,
 		opts,
 	)
 	if pricingErr != nil {
@@ -892,7 +893,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(selectedBillingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
-			responseCost, responseErr := s.tryCalculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, opts)
+			responseCost, responseErr := s.tryCalculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt, opts)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, selectedBillingModel, apiKey) != nil
 			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, selectedBillingModel, responseModel, cost, responseCost)
@@ -1004,9 +1005,10 @@ func (s *GatewayService) calculateRecordUsageCost(
 	billingModel string,
 	multiplier float64,
 	imageMultiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) *CostBreakdown {
-	cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, opts)
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 		return &CostBreakdown{ActualCost: 0}
@@ -1021,6 +1023,7 @@ func (s *GatewayService) calculateRecordUsageCostCandidates(
 	billingModels []string,
 	multiplier float64,
 	imageMultiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, string, error) {
 	if result != nil && result.ImageCount > 0 {
@@ -1031,7 +1034,7 @@ func (s *GatewayService) calculateRecordUsageCostCandidates(
 	}
 	var lastErr error
 	for _, billingModel := range billingModels {
-		cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+		cost, err := s.tryCalculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, opts)
 		if err == nil {
 			return cost, billingModel, nil
 		}
@@ -1080,12 +1083,13 @@ func (s *GatewayService) tryCalculateRecordUsageCost(
 	billingModel string,
 	multiplier float64,
 	imageMultiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
-			return s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+			return s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
 		}
 		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier), nil
 	}
@@ -1109,7 +1113,7 @@ func (s *GatewayService) tryCalculateRecordUsageCost(
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost, err := s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	tokenCost, err := s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1285,9 +1289,10 @@ func (s *GatewayService) calculateTokenCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) *CostBreakdown {
-	cost, err := s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, opts)
+	cost, err := s.tryCalculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 		return &CostBreakdown{ActualCost: 0}
@@ -1301,6 +1306,7 @@ func (s *GatewayService) tryCalculateTokenCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
+	pricingAt time.Time,
 	opts *recordUsageOpts,
 ) (*CostBreakdown, error) {
 	tokens := UsageTokens{
@@ -1328,6 +1334,7 @@ func (s *GatewayService) tryCalculateTokenCost(
 			Tokens:         tokens,
 			RequestCount:   1,
 			RateMultiplier: multiplier,
+			PricingAt:      pricingAt,
 			Resolver:       s.resolver,
 			Resolved:       resolved,
 		})
@@ -1338,7 +1345,7 @@ func (s *GatewayService) tryCalculateTokenCost(
 		gid := apiKey.Group.ID
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, Resolver: s.resolver,
+			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt, Resolver: s.resolver,
 		})
 	} else {
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)

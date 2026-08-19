@@ -139,7 +139,7 @@
                 {{ displayName }}
               </div>
               <div class="text-[11px] capitalize tracking-wide text-slate-500 dark:text-dark-400">
-                {{ user.role }}
+                {{ t('admin.users.roles.' + user.role) }}
               </div>
             </div>
             <Icon
