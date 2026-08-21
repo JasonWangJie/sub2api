@@ -186,6 +186,7 @@ describe('admin UsageTable tooltip', () => {
       total_cost: 0.092883,
       account_rate_multiplier: 1,
       rate_multiplier: 1,
+      billing_charge_multiplier: 1.25,
       service_tier: 'priority',
       input_cost: 0.020285,
       output_cost: 0.00303,
@@ -224,8 +225,8 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('User billed')
     expect(text).toContain('Account billed')
     expect(text).toContain('$0.092883')
-    expect(text).toContain('$5.0000 / 1M tokens')
-    expect(text).toContain('$30.0000 / 1M tokens')
+    expect(text).toContain('$4.0000 / 1M tokens')
+    expect(text).toContain('$24.0000 / 1M tokens')
     expect(text).toContain('$0.069568')
   })
 

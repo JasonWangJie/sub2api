@@ -975,6 +975,7 @@ func TestGatewayServiceRecordUsage_BillingChargeMultiplierScalesTokenCost(t *tes
 			require.InDelta(t, 500*15e-6*tt.wantFactor, usageRepo.lastLog.OutputCost, 1e-12)
 			require.InDelta(t, 250*0.3e-6*tt.wantFactor, usageRepo.lastLog.CacheReadCost, 1e-12)
 			require.InDelta(t, usageRepo.lastLog.InputCost+usageRepo.lastLog.OutputCost+usageRepo.lastLog.CacheReadCost, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, tt.wantFactor, usageRepo.lastLog.BillingChargeMultiplier, 1e-12)
 			require.InDelta(t, billingRate, usageRepo.lastLog.RateMultiplier, 1e-12)
 			require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
 			require.NotNil(t, billingRepo.lastCmd)

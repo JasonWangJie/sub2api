@@ -582,6 +582,27 @@ func (_u *UsageLogUpdate) AddRateMultiplier(v float64) *UsageLogUpdate {
 	return _u
 }
 
+// SetBillingChargeMultiplier sets the "billing_charge_multiplier" field.
+func (_u *UsageLogUpdate) SetBillingChargeMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetBillingChargeMultiplier()
+	_u.mutation.SetBillingChargeMultiplier(v)
+	return _u
+}
+
+// SetNillableBillingChargeMultiplier sets the "billing_charge_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableBillingChargeMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetBillingChargeMultiplier(*v)
+	}
+	return _u
+}
+
+// AddBillingChargeMultiplier adds value to the "billing_charge_multiplier" field.
+func (_u *UsageLogUpdate) AddBillingChargeMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddBillingChargeMultiplier(v)
+	return _u
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (_u *UsageLogUpdate) SetLongContextBillingApplied(v bool) *UsageLogUpdate {
 	_u.mutation.SetLongContextBillingApplied(v)
@@ -1269,6 +1290,12 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(usagelog.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.BillingChargeMultiplier(); ok {
+		_spec.SetField(usagelog.FieldBillingChargeMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedBillingChargeMultiplier(); ok {
+		_spec.AddField(usagelog.FieldBillingChargeMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.LongContextBillingApplied(); ok {
 		_spec.SetField(usagelog.FieldLongContextBillingApplied, field.TypeBool, value)
@@ -2096,6 +2123,27 @@ func (_u *UsageLogUpdateOne) AddRateMultiplier(v float64) *UsageLogUpdateOne {
 	return _u
 }
 
+// SetBillingChargeMultiplier sets the "billing_charge_multiplier" field.
+func (_u *UsageLogUpdateOne) SetBillingChargeMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetBillingChargeMultiplier()
+	_u.mutation.SetBillingChargeMultiplier(v)
+	return _u
+}
+
+// SetNillableBillingChargeMultiplier sets the "billing_charge_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableBillingChargeMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetBillingChargeMultiplier(*v)
+	}
+	return _u
+}
+
+// AddBillingChargeMultiplier adds value to the "billing_charge_multiplier" field.
+func (_u *UsageLogUpdateOne) AddBillingChargeMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddBillingChargeMultiplier(v)
+	return _u
+}
+
 // SetLongContextBillingApplied sets the "long_context_billing_applied" field.
 func (_u *UsageLogUpdateOne) SetLongContextBillingApplied(v bool) *UsageLogUpdateOne {
 	_u.mutation.SetLongContextBillingApplied(v)
@@ -2813,6 +2861,12 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(usagelog.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.BillingChargeMultiplier(); ok {
+		_spec.SetField(usagelog.FieldBillingChargeMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedBillingChargeMultiplier(); ok {
+		_spec.AddField(usagelog.FieldBillingChargeMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.LongContextBillingApplied(); ok {
 		_spec.SetField(usagelog.FieldLongContextBillingApplied, field.TypeBool, value)

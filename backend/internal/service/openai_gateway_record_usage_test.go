@@ -481,6 +481,7 @@ func TestOpenAIGatewayServiceRecordUsage_BillingChargeMultiplierUsesGroupScope(t
 			require.InDelta(t, base.OutputCost*tt.wantFactor, usageRepo.lastLog.OutputCost, 1e-12)
 			require.InDelta(t, base.CacheReadCost*tt.wantFactor, usageRepo.lastLog.CacheReadCost, 1e-12)
 			require.InDelta(t, base.TotalCost*tt.wantFactor, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, tt.wantFactor, usageRepo.lastLog.BillingChargeMultiplier, 1e-12)
 			require.InDelta(t, billingRate, usageRepo.lastLog.RateMultiplier, 1e-12)
 			require.InDelta(t, usageRepo.lastLog.TotalCost*usageRepo.lastLog.RateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
 			require.InDelta(t, usageRepo.lastLog.ActualCost, userRepo.lastAmount, 1e-12)

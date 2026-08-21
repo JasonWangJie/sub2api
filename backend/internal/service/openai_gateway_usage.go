@@ -308,8 +308,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			}
 		}
 	}
+	billingChargeMultiplier := 1.0
 	if shouldApplyBillingChargeMultiplier(cost, result.ImageCount, isVideoUsage) {
-		applyBillingChargeMultiplierToCost(
+		billingChargeMultiplier = applyBillingChargeMultiplierToCost(
 			cost,
 			ResolveBillingChargeMultiplierForGroup(s.settingService, ctx, apiKey.GroupID),
 			multiplier,
@@ -388,6 +389,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:    result.ImageSizeBreakdown,
 	}
+	usageLog.BillingChargeMultiplier = billingChargeMultiplier
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
 		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))

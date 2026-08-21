@@ -43,18 +43,18 @@ type billingChargePolicyPayload struct {
 // cache creation, image token costs, and separately rated surcharges remain
 // unchanged.
 // Invalid multipliers fall back to 1 so billing never breaks on misconfiguration.
-func applyBillingChargeMultiplierToCost(cost *CostBreakdown, multiplier, rateMultiplier float64) {
+func applyBillingChargeMultiplierToCost(cost *CostBreakdown, multiplier, rateMultiplier float64) float64 {
 	if cost == nil {
-		return
+		return defaultBillingChargeMultiplier
 	}
 	m := normalizeBillingChargeMultiplier(multiplier)
 	if m == 1 {
-		return
+		return m
 	}
 
 	componentTotal := billingChargeMultiplierComponentTotal(cost)
 	if componentTotal <= 0 {
-		return
+		return defaultBillingChargeMultiplier
 	}
 
 	// Search and similar surcharges are folded into TotalCost by the gateway
@@ -68,6 +68,7 @@ func applyBillingChargeMultiplierToCost(cost *CostBreakdown, multiplier, rateMul
 	cost.CacheReadCost *= m
 	cost.TotalCost = componentTotal*m + otherCost
 	cost.ActualCost = componentTotal*m*rateMultiplier + otherActualCost
+	return m
 }
 
 func billingChargeMultiplierComponentTotal(cost *CostBreakdown) float64 {

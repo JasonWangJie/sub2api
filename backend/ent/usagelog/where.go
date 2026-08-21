@@ -195,6 +195,11 @@ func RateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// BillingChargeMultiplier applies equality check predicate on the "billing_charge_multiplier" field. It's identical to BillingChargeMultiplierEQ.
+func BillingChargeMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillingChargeMultiplier, v))
+}
+
 // LongContextBillingApplied applies equality check predicate on the "long_context_billing_applied" field. It's identical to LongContextBillingAppliedEQ.
 func LongContextBillingApplied(v bool) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldLongContextBillingApplied, v))
@@ -1573,6 +1578,46 @@ func RateMultiplierLT(v float64) predicate.UsageLog {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// BillingChargeMultiplierEQ applies the EQ predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillingChargeMultiplier, v))
+}
+
+// BillingChargeMultiplierNEQ applies the NEQ predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldBillingChargeMultiplier, v))
+}
+
+// BillingChargeMultiplierIn applies the In predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldBillingChargeMultiplier, vs...))
+}
+
+// BillingChargeMultiplierNotIn applies the NotIn predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldBillingChargeMultiplier, vs...))
+}
+
+// BillingChargeMultiplierGT applies the GT predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldBillingChargeMultiplier, v))
+}
+
+// BillingChargeMultiplierGTE applies the GTE predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldBillingChargeMultiplier, v))
+}
+
+// BillingChargeMultiplierLT applies the LT predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldBillingChargeMultiplier, v))
+}
+
+// BillingChargeMultiplierLTE applies the LTE predicate on the "billing_charge_multiplier" field.
+func BillingChargeMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldBillingChargeMultiplier, v))
 }
 
 // LongContextBillingAppliedEQ applies the EQ predicate on the "long_context_billing_applied" field.

@@ -70,6 +70,8 @@ const (
 	FieldActualCost = "actual_cost"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldBillingChargeMultiplier holds the string denoting the billing_charge_multiplier field in the database.
+	FieldBillingChargeMultiplier = "billing_charge_multiplier"
 	// FieldLongContextBillingApplied holds the string denoting the long_context_billing_applied field in the database.
 	FieldLongContextBillingApplied = "long_context_billing_applied"
 	// FieldAccountRateMultiplier holds the string denoting the account_rate_multiplier field in the database.
@@ -188,6 +190,7 @@ var Columns = []string{
 	FieldTotalCost,
 	FieldActualCost,
 	FieldRateMultiplier,
+	FieldBillingChargeMultiplier,
 	FieldLongContextBillingApplied,
 	FieldAccountRateMultiplier,
 	FieldBillingType,
@@ -262,6 +265,8 @@ var (
 	DefaultActualCost float64
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
 	DefaultRateMultiplier float64
+	// DefaultBillingChargeMultiplier holds the default value on creation for the "billing_charge_multiplier" field.
+	DefaultBillingChargeMultiplier float64
 	// DefaultLongContextBillingApplied holds the default value on creation for the "long_context_billing_applied" field.
 	DefaultLongContextBillingApplied bool
 	// DefaultBillingType holds the default value on creation for the "billing_type" field.
@@ -438,6 +443,11 @@ func ByActualCost(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// ByBillingChargeMultiplier orders the results by the billing_charge_multiplier field.
+func ByBillingChargeMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBillingChargeMultiplier, opts...).ToFunc()
 }
 
 // ByLongContextBillingApplied orders the results by the long_context_billing_applied field.

@@ -155,13 +155,16 @@ type UsageLog struct {
 	ImageOutputTokens int
 	ImageOutputCost   float64
 
-	InputCost                 float64
-	OutputCost                float64
-	CacheCreationCost         float64
-	CacheReadCost             float64
-	TotalCost                 float64
-	ActualCost                float64
-	RateMultiplier            float64
+	InputCost         float64
+	OutputCost        float64
+	CacheCreationCost float64
+	CacheReadCost     float64
+	TotalCost         float64
+	ActualCost        float64
+	RateMultiplier    float64
+	// BillingChargeMultiplier is the system charge multiplier applied to the
+	// token cost components for this request. Media billing keeps the default 1.
+	BillingChargeMultiplier   float64
 	LongContextBillingApplied bool
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示历史数据，按 1.0 处理）
 	AccountRateMultiplier *float64
@@ -205,6 +208,16 @@ type UsageLog struct {
 	Account      *Account
 	Group        *Group
 	Subscription *UserSubscription
+}
+
+// NormalizeBillingChargeMultiplier fills the backward-compatible default and
+// returns the request-level snapshot that should be persisted and exposed.
+func (u *UsageLog) NormalizeBillingChargeMultiplier() float64 {
+	if u == nil {
+		return defaultBillingChargeMultiplier
+	}
+	u.BillingChargeMultiplier = normalizeBillingChargeMultiplier(u.BillingChargeMultiplier)
+	return u.BillingChargeMultiplier
 }
 
 func (u *UsageLog) TotalTokens() int {

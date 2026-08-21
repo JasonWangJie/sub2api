@@ -229,6 +229,22 @@ func TestUsageLogFromService_IncludesImageBillingMetadataForUserAndAdmin(t *test
 	}
 }
 
+func TestUsageLogFromService_IncludesBillingChargeMultiplierSnapshot(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		RequestID:               "req_billing_charge_multiplier",
+		Model:                   "gpt-5.1",
+		BillingChargeMultiplier: 1.25,
+	}
+
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+
+	require.InDelta(t, 1.25, userDTO.BillingChargeMultiplier, 1e-12)
+	require.InDelta(t, 1.25, adminDTO.BillingChargeMultiplier, 1e-12)
+}
+
 func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 	t.Parallel()
 

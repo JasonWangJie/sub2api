@@ -47,3 +47,16 @@ export function formatTokenPricePerMillion(
   const formatted = pricePerMillion.toFixed(fractionDigits)
   return options.withCurrencySymbol == false ? formatted : `$${formatted}`
 }
+
+export function formatOriginalTokenPricePerMillion(
+  cost: number | null | undefined,
+  tokens: number | null | undefined,
+  billingChargeMultiplier: number | null | undefined,
+  options: TokenPriceFormatOptions = {}
+): string {
+  const multiplier = isFiniteNumber(billingChargeMultiplier) && billingChargeMultiplier > 0
+    ? billingChargeMultiplier
+    : 1
+  const originalCost = isFiniteNumber(cost) ? cost / multiplier : cost
+  return formatTokenPricePerMillion(originalCost, tokens, options)
+}

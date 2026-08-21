@@ -23,8 +23,9 @@ func TestApplyBillingChargeMultiplierToCostMovesSystemMultiplierToComponents(t *
 		BillingMode:       string(BillingModeToken),
 	}
 
-	applyBillingChargeMultiplierToCost(cost, 1.5, 2)
+	applied := applyBillingChargeMultiplierToCost(cost, 1.5, 2)
 
+	require.InDelta(t, 1.5, applied, 1e-12)
 	require.InDelta(t, 1.5, cost.InputCost, 1e-12)
 	require.InDelta(t, 2.0, cost.ImageInputCost, 1e-12)
 	require.InDelta(t, 4.5, cost.OutputCost, 1e-12)
@@ -37,7 +38,8 @@ func TestApplyBillingChargeMultiplierToCostMovesSystemMultiplierToComponents(t *
 	// applied to ActualCost as a separate final-stage multiplier anymore.
 	require.InDelta(t, 54, cost.ActualCost, 1e-12)
 
-	applyBillingChargeMultiplierToCost(cost, 0, 2)
+	applied = applyBillingChargeMultiplierToCost(cost, 0, 2)
+	require.InDelta(t, 1, applied, 1e-12)
 	require.InDelta(t, 27, cost.TotalCost, 1e-12, "invalid multiplier falls back to 1")
 }
 
