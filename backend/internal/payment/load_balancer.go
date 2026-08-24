@@ -48,6 +48,7 @@ type DefaultLoadBalancer struct {
 type contextKey string
 
 const wxpayJSAPIAppIDContextKey contextKey = "payment.wxpay.jsapi_app_id"
+const paymentNetworkContextKey contextKey = "payment.network"
 
 // NewDefaultLoadBalancer creates a new load balancer.
 func NewDefaultLoadBalancer(db *dbent.Client, encryptionKey []byte) *DefaultLoadBalancer {
@@ -70,6 +71,24 @@ func wxpayJSAPIAppIDFromContext(ctx context.Context) string {
 	return strings.TrimSpace(appID)
 }
 
+// WithPaymentNetwork constrains provider selection to instances that advertise
+// the requested network (used by the dedicated USDT flow).
+func WithPaymentNetwork(ctx context.Context, network string) context.Context {
+	network = strings.ToLower(strings.TrimSpace(network))
+	if network == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, paymentNetworkContextKey, network)
+}
+
+func paymentNetworkFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	network, _ := ctx.Value(paymentNetworkContextKey).(string)
+	return strings.ToLower(strings.TrimSpace(network))
+}
+
 // instanceCandidate pairs an instance with its pre-fetched daily usage.
 type instanceCandidate struct {
 	inst      *dbent.PaymentProviderInstance
@@ -83,7 +102,8 @@ type instanceCandidate struct {
 //  2. Batch-query daily usage (PENDING + PAID + COMPLETED + RECHARGING) for all candidates
 //  3. Filter out instances where: single-min/max violated OR daily remaining < orderAmount
 //  4. Pick from survivors using the configured strategy (round-robin / least-amount)
-//  5. If all filtered out, fall back to full list (let the provider itself reject)
+//  5. If all filtered out, legacy methods fall back to the full list; USDT
+//     returns an unavailable error so an over-limit order is never created.
 func (lb *DefaultLoadBalancer) SelectInstance(
 	ctx context.Context,
 	providerKey string,
@@ -103,6 +123,9 @@ func (lb *DefaultLoadBalancer) SelectInstance(
 	// Step 3: filter by limits.
 	available := filterByLimits(candidates, paymentType, orderAmount)
 	if len(available) == 0 {
+		if paymentType == TypeUSDT {
+			return nil, fmt.Errorf("no available USDT instance for amount %.2f", orderAmount)
+		}
 		slog.Warn("all instances exceeded limits, using full candidate list",
 			"provider", providerKey, "payment_type", paymentType,
 			"order_amount", orderAmount, "count", len(candidates))
@@ -137,6 +160,7 @@ func (lb *DefaultLoadBalancer) queryEnabledInstances(
 
 	var matched []*dbent.PaymentProviderInstance
 	expectedWxpayJSAPIAppID := wxpayJSAPIAppIDFromContext(ctx)
+	expectedNetwork := paymentNetworkFromContext(ctx)
 	for _, inst := range instances {
 		// Stripe: match by provider_key because supported_types lists sub-types (card,link,alipay,wxpay),
 		// not "stripe" itself. The checkout page aggregates all sub-types under "stripe".
@@ -145,6 +169,12 @@ func (lb *DefaultLoadBalancer) queryEnabledInstances(
 				matched = append(matched, inst)
 			}
 		} else if InstanceSupportsType(inst.SupportedTypes, paymentType) {
+			if expectedNetwork != "" && inst.ProviderKey == TypeEpusdt {
+				config, cfgErr := lb.decryptConfig(inst.Config)
+				if cfgErr != nil || !providerNetworkEnabled(config, expectedNetwork) {
+					continue
+				}
+			}
 			if expectedWxpayJSAPIAppID != "" && normalizeVisibleMethodSupportType(paymentType) == TypeWxpay && inst.ProviderKey == TypeWxpay {
 				config, cfgErr := lb.decryptConfig(inst.Config)
 				if cfgErr != nil {
@@ -162,6 +192,18 @@ func (lb *DefaultLoadBalancer) queryEnabledInstances(
 		return nil, fmt.Errorf("no enabled instance for payment type %s", paymentType)
 	}
 	return matched, nil
+}
+
+func providerNetworkEnabled(config map[string]string, network string) bool {
+	if config == nil {
+		return false
+	}
+	for _, item := range strings.Split(config["networks"], ",") {
+		if strings.EqualFold(strings.TrimSpace(item), network) {
+			return true
+		}
+	}
+	return false
 }
 
 // attachDailyUsage queries daily usage for each instance in a single pass.

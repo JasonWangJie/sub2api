@@ -11,7 +11,8 @@ import type {
   CheckoutInfoResponse,
   CreateOrderRequest,
   CreateOrderResult,
-  PaymentOrder
+  PaymentOrder,
+  USDTCheckoutInfo
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
@@ -39,6 +40,10 @@ export const paymentAPI = {
     return apiClient.get<CheckoutInfoResponse>('/payment/checkout-info')
   },
 
+  getUSDTCheckoutInfo() {
+    return apiClient.get<USDTCheckoutInfo>('/payment/usdt/checkout-info')
+  },
+
   /** Get payment method limits and fee rates */
   getLimits() {
     return apiClient.get<MethodLimitsResponse>('/payment/limits')
@@ -47,6 +52,10 @@ export const paymentAPI = {
   /** Create a new payment order */
   createOrder(data: CreateOrderRequest) {
     return apiClient.post<CreateOrderResult>('/payment/orders', data)
+  },
+
+  createUSDTOrder(data: CreateOrderRequest) {
+    return apiClient.post<CreateOrderResult>('/payment/usdt/orders', { ...data, payment_type: 'usdt', order_type: 'balance' })
   },
 
   /** Get current user's orders */

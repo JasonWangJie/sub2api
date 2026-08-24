@@ -15,6 +15,9 @@ func paymentProviderConfigCurrency(providerKey string, cfg map[string]string) st
 			return currency
 		}
 	}
+	if strings.TrimSpace(providerKey) == payment.TypeEpusdt {
+		return payment.DefaultPaymentCurrency
+	}
 	return payment.DefaultPaymentCurrency
 }
 

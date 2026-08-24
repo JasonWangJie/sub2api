@@ -33,6 +33,8 @@ func RegisterPaymentRoutes(
 		authenticated.GET("/checkout-info", paymentHandler.GetCheckoutInfo)
 		authenticated.GET("/plans", paymentHandler.GetPlans)
 		authenticated.GET("/limits", paymentHandler.GetLimits)
+		authenticated.GET("/usdt/checkout-info", paymentHandler.GetUSDTCheckoutInfo)
+		authenticated.POST("/usdt/orders", paymentHandler.CreateUSDTOrder)
 
 		orders := authenticated.Group("/orders")
 		{
@@ -66,6 +68,7 @@ func RegisterPaymentRoutes(
 		webhook.POST("/wxpay", webhookHandler.WxpayNotify)
 		webhook.POST("/stripe", webhookHandler.StripeWebhook)
 		webhook.POST("/airwallex", webhookHandler.AirwallexWebhook)
+		webhook.POST("/epusdt", webhookHandler.EpusdtNotify)
 	}
 
 	// --- Admin payment endpoints (admin auth) ---

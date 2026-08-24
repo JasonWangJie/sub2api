@@ -18,6 +18,8 @@ const (
 	TypeLink         PaymentType = "link"
 	TypeEasyPay      PaymentType = "easypay"
 	TypeAirwallex    PaymentType = "airwallex"
+	TypeEpusdt       PaymentType = "epusdt"
+	TypeUSDT         PaymentType = "usdt"
 )
 
 // Order status constants shared across payment and service layers.
@@ -112,6 +114,7 @@ type CreatePaymentRequest struct {
 	// alipay.trade.precreate instead of alipay.trade.wap.pay.
 	AlipayMobilePrecreate bool
 	InstanceSubMethods    string // Comma-separated sub-methods from instance supported_types (for Stripe)
+	Network               string // Provider-specific network, currently used by USDT/Epusdt
 }
 
 // CreatePaymentResultType describes the shape of the create-payment result.

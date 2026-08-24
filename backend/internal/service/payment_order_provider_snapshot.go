@@ -18,6 +18,7 @@ type paymentOrderProviderSnapshot struct {
 	MerchantAppID      string
 	MerchantID         string
 	Currency           string
+	Network            string
 }
 
 func psOrderProviderSnapshot(order *dbent.PaymentOrder) *paymentOrderProviderSnapshot {
@@ -33,6 +34,7 @@ func psOrderProviderSnapshot(order *dbent.PaymentOrder) *paymentOrderProviderSna
 		MerchantAppID:      psSnapshotStringValue(order.ProviderSnapshot["merchant_app_id"]),
 		MerchantID:         psSnapshotStringValue(order.ProviderSnapshot["merchant_id"]),
 		Currency:           psSnapshotStringValue(order.ProviderSnapshot["currency"]),
+		Network:            psSnapshotStringValue(order.ProviderSnapshot["network"]),
 	}
 	if snapshot.SchemaVersion == 0 &&
 		snapshot.ProviderInstanceID == "" &&
@@ -186,6 +188,19 @@ func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey str
 			}
 			if !strings.EqualFold(expected, actual) {
 				return fmt.Errorf("easypay pid mismatch: expected %s, got %s", expected, actual)
+			}
+		}
+	case payment.TypeEpusdt:
+		if expected := strings.TrimSpace(snapshot.MerchantID); expected != "" {
+			actual := strings.TrimSpace(metadata["pid"])
+			if actual == "" || !strings.EqualFold(expected, actual) {
+				return fmt.Errorf("epusdt pid mismatch")
+			}
+		}
+		if expected := strings.TrimSpace(snapshot.Currency); expected != "" {
+			actual := strings.ToUpper(strings.TrimSpace(metadata["currency"]))
+			if actual == "" || !strings.EqualFold(expected, actual) {
+				return fmt.Errorf("epusdt currency mismatch")
 			}
 		}
 	case payment.TypeStripe:

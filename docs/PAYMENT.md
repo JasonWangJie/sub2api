@@ -25,6 +25,7 @@ Sub2API has a built-in payment system that enables user self-service top-up with
 | **Alipay (Direct)** | Desktop QR code, mobile Alipay redirect | Direct integration with Alipay Open Platform, returning desktop QR codes and mobile WAP/app launch links |
 | **WeChat Pay (Direct)** | Native QR, H5, MP/JSAPI Pay | Direct integration with WeChat Pay APIv3 with environment-aware routing |
 | **Stripe** | Card, Alipay, WeChat Pay, Link, etc. | International payments, multi-currency support |
+| **Epusdt** | USDT balance recharge | GMPay hosted cashier, CNY pricing, administrator-managed networks |
 
 > Alipay/WeChat Pay direct and EasyPay can both exist as backend provider instances, but the frontend always exposes only two visible buttons: `Alipay` and `WeChat Pay`. Admins choose exactly one source for each visible method: direct or EasyPay. Direct channels connect to payment APIs directly with lower fees; EasyPay aggregates through third-party platforms with easier setup.
 
@@ -154,6 +155,20 @@ International payment platform supporting multiple payment methods and currencie
 | **Publishable Key** | Stripe publishable key (`pk_live_...` or `pk_test_...`) | Yes |
 | **Webhook Secret** | Stripe Webhook signing secret (`whsec_...`) | Yes |
 
+### Epusdt USDT
+
+USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. Amounts are always submitted in CNY. The user chooses one enabled network and is redirected to the hosted Epusdt cashier.
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| **API Base URL** | Public Epusdt URL, for example `https://pay.example.com` | Yes |
+| **PID** | Merchant PID from the Epusdt API key | Yes |
+| **Secret Key** | GMPay HMAC-SHA256 secret; never returned by the admin API | Yes |
+| **Currency** | Fixed to CNY | Yes |
+| **Network list** | Comma-separated codes such as `tron,ethereum,bsc`; normalized to lowercase and deduplicated | Yes |
+
+The webhook must be reachable over public HTTPS: `https://your-domain.com/api/v1/payment/webhook/epusdt`. GMPay JSON callbacks are verified for PID, signature, successful status, and CNY amount. Epusdt v1 has no refund or upstream cancellation capability, so refunds are disabled for this provider; user cancellation only closes the local pending order.
+
 ---
 
 ## Provider Instance Management
@@ -195,6 +210,7 @@ When adding a provider, the system auto-generates callback URLs from your site d
 | **Alipay (Direct)** | `https://your-domain.com/api/v1/payment/webhook/alipay` |
 | **WeChat Pay (Direct)** | `https://your-domain.com/api/v1/payment/webhook/wxpay` |
 | **Stripe** | `https://your-domain.com/api/v1/payment/webhook/stripe` |
+| **Epusdt** | `https://your-domain.com/api/v1/payment/webhook/epusdt` |
 
 > Replace `your-domain.com` with your actual domain. For EasyPay / Alipay / WeChat Pay, the callback URL is auto-filled when adding the provider — no manual configuration needed.
 

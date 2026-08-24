@@ -25,6 +25,7 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 | **支付宝官方** | 桌面二维码扫码、移动端支付宝跳转或当面付唤起 | 直接对接支付宝开放平台；移动端默认 WAP，也可选择当面付二维码唤起支付宝 |
 | **微信官方** | Native 扫码、H5、公众号/JSAPI 支付 | 直接对接微信支付 APIv3，按终端环境自动分流 |
 | **Stripe** | 银行卡、支付宝、微信支付、Link 等 | 国际支付，支持多币种 |
+| **Epusdt** | USDT 余额充值 | GMPay 托管收银台，按 CNY 计价并支持管理员配置的网络 |
 
 > 支付宝官方 / 微信官方与易支付可以同时作为后台服务商实例存在，但前台始终只展示 `支付宝`、`微信支付` 两个可见按钮。管理员需要分别为这两个按钮选择唯一支付来源：官方或易支付。官方渠道直接对接 API，资金直达商户账户，手续费更低；易支付通过第三方平台聚合，接入门槛更低。
 
@@ -162,6 +163,20 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 | **Publishable Key** | Stripe 可公开密钥（`pk_live_...` 或 `pk_test_...`） | 是 |
 | **Webhook Secret** | Stripe Webhook 签名密钥（`whsec_...`） | 是 |
 
+### Epusdt USDT
+
+USDT 充值使用独立的前台 **USDT充值** 页面，仅创建余额充值订单，不参与订阅购买。订单金额固定按 CNY 提交，用户从实例启用的网络中选择一条链，然后跳转 Epusdt 托管收银台。
+
+| 参数 | 说明 | 必填 |
+|------|------|------|
+| **API 基础地址** | Epusdt 公网地址（例如 `https://pay.example.com`） | 是 |
+| **PID** | Epusdt API Key 的商户 PID | 是 |
+| **Secret Key** | GMPay HMAC-SHA256 密钥，后台不会回显 | 是 |
+| **币种** | 固定为 CNY | 是 |
+| **网络列表** | 逗号分隔的网络代码，例如 `tron,ethereum,bsc`；系统会转小写并去重 | 是 |
+
+Webhook 地址必须使用公网 HTTPS：`https://your-domain.com/api/v1/payment/webhook/epusdt`。Epusdt 回调使用 JSON GMPay 签名；系统会校验 PID、签名、成功状态和 CNY 金额。Epusdt v1 不提供退款和上游取消能力，因此该实例不支持退款；用户取消只结束本地待支付订单。
+
 ---
 
 ## 服务商实例管理
@@ -203,6 +218,7 @@ Sub2API 内置支付系统，支持用户自助充值，无需部署独立的支
 | **支付宝官方** | `https://your-domain.com/api/v1/payment/webhook/alipay` |
 | **微信官方** | `https://your-domain.com/api/v1/payment/webhook/wxpay` |
 | **Stripe** | `https://your-domain.com/api/v1/payment/webhook/stripe` |
+| **Epusdt** | `https://your-domain.com/api/v1/payment/webhook/epusdt` |
 
 > 将 `your-domain.com` 替换为你的实际域名。EasyPay / 支付宝 / 微信的回调地址在添加服务商时自动填入，无需手动配置。
 

@@ -116,6 +116,7 @@ var providerSensitiveConfigFields = map[string]map[string]struct{}{
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}},
 	payment.TypeStripe:    {"secretkey": {}, "webhooksecret": {}},
 	payment.TypeAirwallex: {"apikey": {}, "webhooksecret": {}},
+	payment.TypeEpusdt:    {"secretkey": {}},
 }
 
 // providerPendingOrderProtectedConfigFields lists config keys that cannot be
@@ -128,6 +129,7 @@ var providerPendingOrderProtectedConfigFields = map[string]map[string]struct{}{
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}, "appid": {}, "mpappid": {}, "mchid": {}, "publickeyid": {}, "certserial": {}},
 	payment.TypeStripe:    {"secretkey": {}, "webhooksecret": {}, "currency": {}},
 	payment.TypeAirwallex: {"clientid": {}, "apikey": {}, "webhooksecret": {}, "apibase": {}, "accountid": {}, "currency": {}},
+	payment.TypeEpusdt:    {"secretkey": {}, "pid": {}, "apibase": {}, "networks": {}, "currency": {}},
 }
 
 func isSensitiveProviderConfigField(providerKey, fieldName string) bool {
@@ -178,10 +180,21 @@ func (s *PaymentConfigService) countPendingOrdersByPlan(ctx context.Context, pla
 }
 
 var validProviderKeys = map[string]bool{
-	payment.TypeEasyPay: true, payment.TypeAlipay: true, payment.TypeWxpay: true, payment.TypeStripe: true, payment.TypeAirwallex: true,
+	payment.TypeEasyPay: true, payment.TypeAlipay: true, payment.TypeWxpay: true, payment.TypeStripe: true, payment.TypeAirwallex: true, payment.TypeEpusdt: true,
 }
 
 func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req CreateProviderInstanceRequest) (*dbent.PaymentProviderInstance, error) {
+	if req.ProviderKey == payment.TypeEpusdt {
+		req.RefundEnabled = false
+		req.AllowUserRefund = false
+		if strings.TrimSpace(req.Config["networks"]) != "" {
+			config, err := normalizeEpusdtProviderConfig(req.Config)
+			if err != nil {
+				return nil, err
+			}
+			req.Config = config
+		}
+	}
 	typesStr := joinTypes(req.SupportedTypes)
 	if err := validateProviderRequest(req.ProviderKey, req.Name, typesStr); err != nil {
 		return nil, err
@@ -210,6 +223,31 @@ func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req C
 		SetSortOrder(req.SortOrder).SetLimits(req.Limits).SetRefundEnabled(req.RefundEnabled).
 		SetAllowUserRefund(allowUserRefund).
 		Save(ctx)
+}
+
+func normalizeEpusdtProviderConfig(config map[string]string) (map[string]string, error) {
+	result := make(map[string]string, len(config))
+	for key, value := range config {
+		result[key] = value
+	}
+	seen := map[string]struct{}{}
+	networks := make([]string, 0)
+	for _, item := range strings.Split(result["networks"], ",") {
+		network := strings.ToLower(strings.TrimSpace(item))
+		if network == "" || strings.ContainsAny(network, "\r\n,;&= ") {
+			return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt networks must be non-empty comma-separated network codes")
+		}
+		if _, exists := seen[network]; exists {
+			continue
+		}
+		seen[network] = struct{}{}
+		networks = append(networks, network)
+	}
+	if len(networks) == 0 {
+		return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt requires at least one network")
+	}
+	result["networks"] = strings.Join(networks, ",")
+	return result, nil
 }
 
 func validateProviderRequest(providerKey, name, supportedTypes string) error {
@@ -292,6 +330,11 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 	if err != nil {
 		return nil, fmt.Errorf("load provider instance: %w", err)
 	}
+	if current.ProviderKey == payment.TypeEpusdt {
+		falseValue := false
+		req.RefundEnabled = &falseValue
+		req.AllowUserRefund = &falseValue
+	}
 	var pendingOrderCount *int
 	getPendingOrderCount := func() (int, error) {
 		if pendingOrderCount != nil {
@@ -353,6 +396,19 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 			return nil, fmt.Errorf("decrypt existing config: %w", err)
 		}
 	}
+	finalEnabled := current.Enabled
+	if req.Enabled != nil {
+		finalEnabled = *req.Enabled
+	}
+	if current.ProviderKey == payment.TypeEpusdt {
+		if finalEnabled && strings.TrimSpace(configToValidate["networks"]) != "" {
+			configToValidate, err = normalizeEpusdtProviderConfig(configToValidate)
+			if err != nil {
+				return nil, err
+			}
+			mergedConfig = configToValidate
+		}
+	}
 	if current.ProviderKey == payment.TypeEasyPay {
 		if err := validateEasyPayCustomMethods(configToValidate, nextSupportedTypes); err != nil {
 			return nil, err
@@ -361,10 +417,6 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 	// Validate merged config when the instance will end up enabled.
 	// This surfaces provider-level errors (e.g. wxpay missing certSerial) at save time,
 	// so admins see them in the dialog instead of only when an order is created.
-	finalEnabled := current.Enabled
-	if req.Enabled != nil {
-		finalEnabled = *req.Enabled
-	}
 	if finalEnabled {
 		if err := s.validateProviderConfig(current.ProviderKey, configToValidate); err != nil {
 			return nil, err

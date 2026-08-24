@@ -167,18 +167,25 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 	}
 	if resp.Status == payment.ProviderStatusPaid {
 		if !isValidProviderAmount(resp.Amount) {
-			s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", prov.ProviderKey(), map[string]any{
-				"expected": o.PayAmount,
-				"paid":     resp.Amount,
-				"tradeNo":  resp.TradeNo,
-				"queryRef": queryRef,
-			})
-			slog.Warn("query upstream returned invalid paid amount", "orderID", o.ID, "queryRef", queryRef, "paid", resp.Amount)
-			retriedResp, retryOK := requeryPaidOrderOnce(ctx, prov, queryRef)
-			if !retryOK {
-				return ""
+			if prov.ProviderKey() == payment.TypeEpusdt {
+				// Epusdt's status endpoint intentionally returns only trade_id/status.
+				// The trade is already bound to this local order, so use the locally
+				// snapshotted CNY amount for the final amount comparison.
+				resp.Amount = o.PayAmount
+			} else {
+				s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", prov.ProviderKey(), map[string]any{
+					"expected": o.PayAmount,
+					"paid":     resp.Amount,
+					"tradeNo":  resp.TradeNo,
+					"queryRef": queryRef,
+				})
+				slog.Warn("query upstream returned invalid paid amount", "orderID", o.ID, "queryRef", queryRef, "paid", resp.Amount)
+				retriedResp, retryOK := requeryPaidOrderOnce(ctx, prov, queryRef)
+				if !retryOK {
+					return ""
+				}
+				resp = retriedResp
 			}
-			resp = retriedResp
 		}
 		notificationTradeNo := o.PaymentTradeNo
 		if upstreamTradeNo := strings.TrimSpace(resp.TradeNo); paymentOrderShouldPersistUpstreamTradeNo(queryRef, upstreamTradeNo, notificationTradeNo) {

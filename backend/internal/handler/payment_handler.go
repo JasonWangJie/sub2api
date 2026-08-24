@@ -157,6 +157,16 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 	})
 }
 
+// GetUSDTCheckoutInfo returns only the enabled Epusdt networks and CNY limits.
+func (h *PaymentHandler) GetUSDTCheckoutInfo(c *gin.Context) {
+	info, err := h.configService.GetUSDTCheckoutInfo(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, info)
+}
+
 type checkoutInfoResponse struct {
 	Methods                       map[string]service.MethodLimits `json:"methods"`
 	GlobalMin                     float64                         `json:"global_min"`
@@ -239,7 +249,36 @@ type CreateOrderRequest struct {
 	// IsMobile lets the frontend declare its mobile status directly. When
 	// nil we fall back to User-Agent heuristics (which miss iPadOS / some
 	// embedded browsers that strip the "Mobile" keyword).
-	IsMobile *bool `json:"is_mobile,omitempty"`
+	IsMobile *bool  `json:"is_mobile,omitempty"`
+	Network  string `json:"network,omitempty"`
+}
+
+// CreateUSDTOrder creates a balance-only USDT recharge order.
+func (h *PaymentHandler) CreateUSDTOrder(c *gin.Context) {
+	subject, ok := requireAuth(c)
+	if !ok {
+		return
+	}
+	var req CreateOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	mobile := isMobile(c)
+	if req.IsMobile != nil {
+		mobile = *req.IsMobile
+	}
+	result, err := h.paymentService.CreateUSDTOrder(c.Request.Context(), service.CreateOrderRequest{
+		UserID: subject.UserID, Amount: req.Amount, PaymentType: payment.TypeUSDT,
+		Network: req.Network, ClientIP: c.ClientIP(), IsMobile: mobile,
+		SrcHost: c.Request.Host, SrcURL: c.Request.Referer(), ReturnURL: req.ReturnURL,
+		PaymentSource: req.PaymentSource, Locale: c.GetHeader("Accept-Language"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // CreateOrder creates a new payment order.
@@ -286,6 +325,7 @@ func (h *PaymentHandler) CreateOrder(c *gin.Context) {
 		OrderType:       req.OrderType,
 		PlanID:          req.PlanID,
 		Locale:          c.GetHeader("Accept-Language"),
+		Network:         req.Network,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

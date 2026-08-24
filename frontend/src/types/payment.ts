@@ -19,7 +19,7 @@ export type OrderStatus =
   | 'REFUNDED'
   | 'REFUND_FAILED'
 
-export type PaymentType = 'alipay' | 'wxpay' | 'alipay_direct' | 'wxpay_direct' | 'stripe' | 'easypay' | 'airwallex'
+export type PaymentType = 'alipay' | 'wxpay' | 'alipay_direct' | 'wxpay_direct' | 'stripe' | 'easypay' | 'airwallex' | 'usdt'
 
 export type OrderType = 'balance' | 'subscription'
 
@@ -78,6 +78,17 @@ export interface CheckoutInfoResponse {
   alipay_force_qrcode?: boolean
   /** When true, official Alipay mobile orders use precreate plus an Alipay app deep link */
   alipay_mobile_precreate_deep_link?: boolean
+}
+
+export interface USDTCheckoutInfo {
+  enabled: boolean
+  currency: 'CNY' | string
+  min_amount: number
+  max_amount: number
+  daily_limit: number
+  fee_rate: number
+  balance_recharge_multiplier: number
+  networks: string[]
 }
 
 // ==================== Orders ====================
@@ -176,6 +187,7 @@ export interface CreateOrderRequest {
   openid?: string
   wechat_resume_token?: string
   is_mobile?: boolean
+  network?: string
 }
 
 export type CreateOrderResultType = 'order_created' | 'oauth_required' | 'jsapi_ready'

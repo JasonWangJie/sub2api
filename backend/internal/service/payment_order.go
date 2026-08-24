@@ -23,11 +23,37 @@ import (
 // --- Order Creation ---
 
 func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest) (*CreateOrderResponse, error) {
+	return s.createOrder(ctx, req, false)
+}
+
+// CreateUSDTOrder is the dedicated balance-recharge entry point. Keeping this
+// separate prevents a subscription or ordinary checkout request from selecting
+// the USDT provider accidentally.
+func (s *PaymentService) CreateUSDTOrder(ctx context.Context, req CreateOrderRequest) (*CreateOrderResponse, error) {
+	req.PaymentType = payment.TypeUSDT
+	req.OrderType = payment.OrderTypeBalance
+	return s.createOrder(ctx, req, true)
+}
+
+func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest, allowUSDT bool) (*CreateOrderResponse, error) {
 	if req.OrderType == "" {
 		req.OrderType = payment.OrderTypeBalance
 	}
 	if normalized := NormalizeVisibleMethod(req.PaymentType); normalized != "" {
 		req.PaymentType = normalized
+	}
+	if req.PaymentType == payment.TypeUSDT && !allowUSDT {
+		return nil, infraerrors.BadRequest("USDT_DEDICATED_ENDPOINT", "USDT recharge must use the dedicated endpoint")
+	}
+	if allowUSDT && strings.TrimSpace(req.Network) == "" {
+		return nil, infraerrors.BadRequest("USDT_NETWORK_REQUIRED", "USDT network is required")
+	}
+	if allowUSDT {
+		network, networkErr := s.configService.RequireUSDTNetwork(ctx, req.Network)
+		if networkErr != nil {
+			return nil, networkErr
+		}
+		req.Network = network
 	}
 	cfg, err := s.configService.GetPaymentConfig(ctx)
 	if err != nil {
@@ -305,6 +331,15 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 		}
 		snapshot["currency"] = paymentProviderConfigCurrency(providerKey, sel.Config)
 	}
+	if providerKey == payment.TypeEpusdt {
+		if pid := strings.TrimSpace(sel.Config["pid"]); pid != "" {
+			snapshot["merchant_id"] = pid
+		}
+		snapshot["currency"] = payment.DefaultPaymentCurrency
+		if network := strings.ToLower(strings.TrimSpace(req.Network)); network != "" {
+			snapshot["network"] = network
+		}
+	}
 
 	if len(snapshot) == 1 {
 		return nil
@@ -351,8 +386,17 @@ func (s *PaymentService) selectCreateOrderInstance(ctx context.Context, req Crea
 	if err != nil {
 		return nil, err
 	}
-	sel, err := s.loadBalancer.SelectInstance(selectCtx, "", req.PaymentType, payment.Strategy(cfg.LoadBalanceStrategy), payAmount)
+	providerKey := ""
+	if req.PaymentType == payment.TypeUSDT {
+		providerKey = payment.TypeEpusdt
+		selectCtx = payment.WithPaymentNetwork(selectCtx, req.Network)
+	}
+	sel, err := s.loadBalancer.SelectInstance(selectCtx, providerKey, req.PaymentType, payment.Strategy(cfg.LoadBalanceStrategy), payAmount)
 	if err != nil {
+		if req.PaymentType == payment.TypeUSDT {
+			return nil, infraerrors.ServiceUnavailable("USDT_UNAVAILABLE", "no Epusdt instance supports the selected network or amount").
+				WithMetadata(map[string]string{"network": strings.ToLower(strings.TrimSpace(req.Network))})
+		}
 		return nil, infraerrors.ServiceUnavailable("PAYMENT_GATEWAY_ERROR", "method_not_configured").
 			WithMetadata(map[string]string{"payment_type": req.PaymentType})
 	}
@@ -445,6 +489,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		ClientIP:    req.ClientIP,
 		IsMobile:    req.IsMobile,
 		ReturnURL:   providerReturnURL,
+		Network:     req.Network,
 	}, sel, outTradeNo, payAmountStr, subject)
 	providerReq.AlipayMobilePrecreate = shouldUseAlipayMobilePrecreate(req, cfg, sel)
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
@@ -521,6 +566,7 @@ func buildProviderCreatePaymentRequest(req CreateOrderRequest, sel *payment.Inst
 		ClientIP:           req.ClientIP,
 		IsMobile:           req.IsMobile,
 		InstanceSubMethods: selectedInstanceSupportedTypes(sel),
+		Network:            req.Network,
 	}
 }
 
