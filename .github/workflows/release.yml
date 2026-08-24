@@ -190,7 +190,9 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: '~> v2'
+          # Pin the toolchain: v2.17.0 produced the last successful release.
+          # Do not float to a new major/minor GoReleaser release during a tag build.
+          version: 'v2.17.0'
           args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
