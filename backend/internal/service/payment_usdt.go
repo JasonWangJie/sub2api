@@ -51,7 +51,7 @@ func (s *PaymentConfigService) GetUSDTCheckoutInfo(ctx context.Context) (*USDTCh
 	}
 	result := &USDTCheckoutInfo{
 		Currency: payment.DefaultPaymentCurrency, MinAmount: cfg.MinAmount, MaxAmount: cfg.MaxAmount,
-		DailyLimit: cfg.DailyLimit, FeeRate: cfg.RechargeFeeRate,
+		DailyLimit: cfg.DailyLimit, FeeRate: 0,
 		BalanceRechargeMultiplier: cfg.BalanceRechargeMultiplier,
 		Networks:                  []USDTNetwork{},
 	}

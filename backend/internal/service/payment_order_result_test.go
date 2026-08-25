@@ -214,6 +214,17 @@ func TestCalculateCreateOrderPayAmountUsesCurrencyPrecision(t *testing.T) {
 	}
 }
 
+func TestEffectiveRechargeFeeRateExcludesUSDT(t *testing.T) {
+	t.Parallel()
+
+	if got := effectiveRechargeFeeRate(2.5, true); got != 0 {
+		t.Fatalf("USDT fee rate = %v, want 0", got)
+	}
+	if got := effectiveRechargeFeeRate(2.5, false); got != 2.5 {
+		t.Fatalf("ordinary payment fee rate = %v, want 2.5", got)
+	}
+}
+
 func TestCalculateCreateOrderPayAmountForSubscriptionConvertsCNYPriceWhenRateConfigured(t *testing.T) {
 	t.Parallel()
 

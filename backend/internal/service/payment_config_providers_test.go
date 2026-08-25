@@ -627,6 +627,15 @@ func TestUpdateProviderInstanceAllowsSafeConfigChangesWhilePendingOrders(t *test
 			fieldName:     "appId",
 			wantValue:     "alipay-app-test",
 		},
+		{
+			name:          "epusdt bonusRate",
+			providerKey:   payment.TypeEpusdt,
+			createConfig:  validEpusdtProviderConfig,
+			supportedType: []string{payment.TypeUSDT},
+			updateConfig:  map[string]string{"bonusRate": "2.5"},
+			fieldName:     "bonusRate",
+			wantValue:     "2.5",
+		},
 	}
 
 	for _, tc := range tests {
@@ -735,6 +744,8 @@ func createPendingProviderConfigOrder(t *testing.T, ctx context.Context, client 
 
 func providerPendingOrderPaymentType(providerKey string) string {
 	switch providerKey {
+	case payment.TypeEpusdt:
+		return payment.TypeUSDT
 	case payment.TypeWxpay:
 		return payment.TypeWxpay
 	case payment.TypeAlipay:
@@ -745,6 +756,21 @@ func providerPendingOrderPaymentType(providerKey string) string {
 		return payment.TypeStripe
 	default:
 		return payment.TypeAlipay
+	}
+}
+
+func validEpusdtProviderConfig(t *testing.T) map[string]string {
+	t.Helper()
+
+	return map[string]string{
+		"apiBase":   "https://pay.example.com",
+		"pid":       "epusdt-pid-test",
+		"secretKey": "epusdt-secret-test",
+		"networks":  "tron=TRC20",
+		"currency":  "USDT",
+		"bonusRate": "1",
+		"notifyUrl": "https://merchant.example.com/epusdt/notify",
+		"returnUrl": "https://merchant.example.com/epusdt/return",
 	}
 }
 

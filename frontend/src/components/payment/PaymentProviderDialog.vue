@@ -677,7 +677,7 @@ function handleSave() {
   for (const f of PROVIDER_CONFIG_FIELDS[form.provider_key] || []) {
     if (f.optional) continue
     if (props.editing && f.sensitive) continue
-    const val = (config[f.key] || '').trim()
+    const val = String(config[f.key] ?? '').trim()
     if (!val) {
       const label = f.label || t(`admin.settings.payment.field_${f.key}`)
       emitValidationError(t('admin.settings.payment.validationFieldRequired', { field: label }))
@@ -692,13 +692,14 @@ function handleSave() {
   )
   const filteredConfig: Record<string, string> = {}
   for (const [k, v] of Object.entries(config)) {
-    if (!v || !v.trim()) {
+    const normalizedValue = String(v ?? '').trim()
+    if (!normalizedValue) {
       if (clearableConfigKeys.has(k)) {
         filteredConfig[k] = ''
       }
       continue
     }
-    filteredConfig[k] = v
+    filteredConfig[k] = normalizedValue
   }
   if (form.provider_key === 'easypay') {
     filteredConfig.customMethods = serializeEasyPayCustomMethods(normalizedEasyPayCustomMethods())

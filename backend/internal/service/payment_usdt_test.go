@@ -39,6 +39,23 @@ func TestNormalizeEpusdtUnifiedConfig(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUSDTCheckoutInfoExcludesGenericRechargeFee(t *testing.T) {
+	t.Parallel()
+
+	client := newPaymentConfigServiceTestClient(t)
+	svc := &PaymentConfigService{
+		entClient: client,
+		settingRepo: &paymentConfigSettingRepoStub{values: map[string]string{
+			SettingPaymentEnabled:  "true",
+			SettingRechargeFeeRate: "2.5",
+		}},
+	}
+
+	info, err := svc.GetUSDTCheckoutInfo(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, info.FeeRate)
+}
+
 func TestUSDTExchangeRateServiceCachesAndUsesStaleValue(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

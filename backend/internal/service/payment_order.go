@@ -87,7 +87,7 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 	} else if req.OrderType == payment.OrderTypeBalance && !allowUSDT {
 		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
 	}
-	feeRate := cfg.RechargeFeeRate
+	feeRate := effectiveRechargeFeeRate(cfg.RechargeFeeRate, allowUSDT)
 	methodCurrency := payment.DefaultPaymentCurrency
 	if allowUSDT {
 		usdtInfo, infoErr := s.configService.GetUSDTCheckoutInfo(ctx)
@@ -722,6 +722,13 @@ func calculateCreateOrderPayAmount(limitAmount, feeRate float64, currency string
 			WithMetadata(map[string]string{"currency": currency})
 	}
 	return payAmountStr, payAmount, nil
+}
+
+func effectiveRechargeFeeRate(configuredRate float64, isUSDT bool) float64 {
+	if isUSDT {
+		return 0
+	}
+	return configuredRate
 }
 
 func calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate float64, currency, orderType string, usdToCnyRate float64) (string, float64, error) {

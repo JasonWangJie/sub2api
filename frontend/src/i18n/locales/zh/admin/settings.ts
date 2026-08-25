@@ -817,6 +817,7 @@ export default {
         field_secretKey: '密钥',
         field_clientId: 'Client ID',
         field_apiKey: 'API Key',
+        field_bonusRate: '赠送比例',
         field_publishableKey: '公开密钥',
         field_webhookSecret: 'Webhook 密钥',
         field_countryCode: '国家/地区代码',

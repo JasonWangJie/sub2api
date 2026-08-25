@@ -7,6 +7,7 @@ import type { ProviderInstance } from '@/types/payment'
 
 const messages: Record<string, string> = {
   'admin.settings.payment.providerConfig': 'Credentials',
+  'admin.settings.payment.field_bonusRate': 'Recharge bonus percentage',
   'admin.settings.payment.easypayCustomMethods': 'Custom EasyPay methods',
   'admin.settings.payment.easypayCustomMethodsHint': 'Add provider-specific EasyPay type values.',
   'admin.settings.payment.addCustomMethod': 'Add method',
@@ -102,6 +103,37 @@ describe('PaymentProviderDialog payment guide', () => {
     expect(wrapper.text()).not.toContain(messages['admin.settings.payment.alipayGuideSummary'])
     expect(wrapper.text()).not.toContain(messages['admin.settings.payment.wxpayGuideSummary'])
     expect(wrapper.find('button[title="View payment guide"]').exists()).toBe(false)
+  })
+
+  it('serializes an Epusdt bonus rate when saving the provider', async () => {
+    const provider = providerFactory({
+      provider_key: 'epusdt',
+      name: 'Epusdt',
+      config: {
+        apiBase: 'https://pay.example.com',
+        pid: 'epusdt-pid',
+        secretKey: 'epusdt-secret',
+        currency: 'USDT',
+        bonusRate: '1',
+        networks: 'tron=TRC20',
+        notifyUrl: 'https://merchant.example.com/api/v1/payment/webhook/epusdt',
+        returnUrl: 'https://merchant.example.com/payment/result',
+      },
+      supported_types: ['usdt'],
+    })
+    const wrapper = mountDialog({ editing: provider })
+
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Recharge bonus percentage')
+    const bonusRateInput = wrapper.find('input[type="number"]')
+    expect(bonusRateInput.exists()).toBe(true)
+    await bonusRateInput.setValue('2.5')
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
+    expect(payload.config.bonusRate).toBe('2.5')
   })
 
   it.each([

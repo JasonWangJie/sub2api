@@ -822,6 +822,7 @@ export default {
         field_secretKey: 'Secret Key',
         field_clientId: 'Client ID',
         field_apiKey: 'API Key',
+        field_bonusRate: 'Recharge bonus percentage',
         field_publishableKey: 'Publishable Key',
         field_webhookSecret: 'Webhook Secret',
         field_countryCode: 'Country/region code',
