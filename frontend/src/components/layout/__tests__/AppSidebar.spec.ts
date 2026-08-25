@@ -59,4 +59,8 @@ describe('AppSidebar recharge center emphasis', () => {
     expect(componentSource).toContain("label: t('nav.rechargeCenter')")
     expect(componentSource.match(/'font-bold text-red-600 dark:text-red-400': item\.path === '\/purchase'/g)).toHaveLength(2)
   })
+
+  it('uses bold sky-blue text for USDT recharge in every menu renderer', () => {
+    expect(componentSource.match(/'font-bold text-sky-600 dark:text-sky-400': item\.path === '\/usdt-recharge'/g)).toHaveLength(3)
+  })
 })

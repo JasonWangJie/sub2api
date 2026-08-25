@@ -100,6 +100,7 @@
                 class="sidebar-label"
                 :class="{
                   'sidebar-label-collapsed': sidebarCollapsed,
+                  'font-bold text-sky-600 dark:text-sky-400': item.path === '/usdt-recharge',
                   'font-bold text-red-600 dark:text-red-400': item.path === '/purchase'
                 }"
                 :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
@@ -170,6 +171,7 @@
                 class="sidebar-label"
                 :class="{
                   'sidebar-label-collapsed': sidebarCollapsed,
+                  'font-bold text-sky-600 dark:text-sky-400': item.path === '/usdt-recharge',
                   'font-bold text-red-600 dark:text-red-400': item.path === '/purchase'
                 }"
                 :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
@@ -232,7 +234,14 @@
             >
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              <span
+                class="sidebar-label"
+                :class="{
+                  'sidebar-label-collapsed': sidebarCollapsed,
+                  'font-bold text-sky-600 dark:text-sky-400': item.path === '/usdt-recharge'
+                }"
+                :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+              >{{ item.label }}</span>
             </router-link>
           </template>
         </div>
