@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -55,7 +56,20 @@ func NewEpusdt(instanceID string, config map[string]string) (*Epusdt, error) {
 	for k, v := range config {
 		cfg[k] = v
 	}
-	cfg["apiBase"], cfg["networks"], cfg["currency"] = base, strings.Join(networks, ","), "CNY"
+	currency := strings.ToUpper(strings.TrimSpace(config["currency"]))
+	if currency == "" {
+		currency = payment.DefaultPaymentCurrency
+	}
+	if currency != payment.DefaultPaymentCurrency && currency != "USDT" {
+		return nil, fmt.Errorf("epusdt currency must be CNY or USDT")
+	}
+	if bonus := strings.TrimSpace(config["bonusRate"]); bonus != "" {
+		value, parseErr := strconv.ParseFloat(bonus, 64)
+		if parseErr != nil || value < 0 || value > 100 || math.IsNaN(value) || math.IsInf(value, 0) || math.Round(value*100) != value*100 {
+			return nil, fmt.Errorf("epusdt bonusRate must be between 0 and 100 with at most 2 decimals")
+		}
+	}
+	cfg["apiBase"], cfg["networks"], cfg["currency"] = base, strings.Join(networks, ","), currency
 	return &Epusdt{instanceID: instanceID, config: cfg, httpClient: &http.Client{Timeout: epusdtHTTPTimeout}}, nil
 }
 
@@ -73,9 +87,13 @@ func normalizeEpusdtNetworks(raw string) ([]string, error) {
 	seen := map[string]struct{}{}
 	result := make([]string, 0)
 	for _, item := range strings.Split(raw, ",") {
-		n := strings.ToLower(strings.TrimSpace(item))
+		parts := strings.SplitN(strings.TrimSpace(item), "=", 2)
+		n := strings.ToLower(strings.TrimSpace(parts[0]))
 		if n == "" || strings.ContainsAny(n, "\r\n,;&= ") {
 			return nil, fmt.Errorf("epusdt networks contain an invalid value")
+		}
+		if len(parts) == 2 && strings.ContainsAny(strings.TrimSpace(parts[1]), "\r\n,") {
+			return nil, fmt.Errorf("epusdt network aliases contain an invalid value")
 		}
 		if _, ok := seen[n]; ok {
 			continue
@@ -96,7 +114,7 @@ func (e *Epusdt) SupportedTypes() []payment.PaymentType {
 }
 
 func (e *Epusdt) MerchantIdentityMetadata() map[string]string {
-	return map[string]string{"pid": strings.TrimSpace(e.config["pid"]), "currency": payment.DefaultPaymentCurrency}
+	return map[string]string{"pid": strings.TrimSpace(e.config["pid"]), "currency": e.currency()}
 }
 
 func (e *Epusdt) CreatePayment(ctx context.Context, req payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
@@ -109,7 +127,7 @@ func (e *Epusdt) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 		return nil, fmt.Errorf("epusdt amount is invalid")
 	}
 	params := map[string]any{
-		"pid": e.config["pid"], "order_id": req.OrderID, "currency": "cny",
+		"pid": e.config["pid"], "order_id": req.OrderID, "currency": strings.ToLower(e.currency()),
 		"token": "usdt", "network": network, "amount": amount,
 		"notify_url":   resolveEpusdtURL(req.NotifyURL, e.config["notifyUrl"]),
 		"redirect_url": resolveEpusdtURL(req.ReturnURL, e.config["returnUrl"]), "name": req.Subject,
@@ -129,7 +147,7 @@ func (e *Epusdt) CreatePayment(ctx context.Context, req payment.CreatePaymentReq
 	if strings.TrimSpace(resp.Data.TradeID) == "" || strings.TrimSpace(resp.Data.PaymentURL) == "" {
 		return nil, fmt.Errorf("epusdt create response missing trade_id or payment_url")
 	}
-	return &payment.CreatePaymentResponse{TradeNo: resp.Data.TradeID, PayURL: resp.Data.PaymentURL, Currency: payment.DefaultPaymentCurrency}, nil
+	return &payment.CreatePaymentResponse{TradeNo: resp.Data.TradeID, PayURL: resp.Data.PaymentURL, Currency: e.currency()}, nil
 }
 
 func (e *Epusdt) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
@@ -151,7 +169,7 @@ func (e *Epusdt) QueryOrder(ctx context.Context, tradeNo string) (*payment.Query
 	} else if resp.Data.Status == 3 {
 		result = payment.ProviderStatusFailed
 	}
-	return &payment.QueryOrderResponse{TradeNo: resp.Data.TradeID, Status: result, Amount: resp.Data.Amount, Metadata: map[string]string{"status": state, "currency": payment.DefaultPaymentCurrency, "pid": e.config["pid"]}}, nil
+	return &payment.QueryOrderResponse{TradeNo: resp.Data.TradeID, Status: result, Amount: resp.Data.Amount, Metadata: map[string]string{"status": state, "currency": e.currency(), "pid": e.config["pid"]}}, nil
 }
 
 func (e *Epusdt) VerifyNotification(_ context.Context, rawBody string, _ map[string]string) (*payment.PaymentNotification, error) {
@@ -185,7 +203,7 @@ func (e *Epusdt) VerifyNotification(_ context.Context, rawBody string, _ map[str
 	return &payment.PaymentNotification{
 		TradeNo: stringValue(payload["trade_id"]), OrderID: stringValue(payload["order_id"]), Amount: amount,
 		Status: payment.NotificationStatusSuccess, RawData: rawBody,
-		Metadata: map[string]string{"pid": stringValue(payload["pid"]), "currency": payment.DefaultPaymentCurrency, "network": network, "token": strings.ToLower(stringValue(payload["token"]))},
+		Metadata: map[string]string{"pid": stringValue(payload["pid"]), "currency": e.currency(), "network": network, "token": strings.ToLower(stringValue(payload["token"]))},
 	}, nil
 }
 
@@ -194,6 +212,13 @@ func (e *Epusdt) Refund(context.Context, payment.RefundRequest) (*payment.Refund
 }
 
 func (e *Epusdt) apiBase() string { return strings.TrimRight(e.config["apiBase"], "/") }
+func (e *Epusdt) currency() string {
+	currency := strings.ToUpper(strings.TrimSpace(e.config["currency"]))
+	if currency == "USDT" {
+		return currency
+	}
+	return payment.DefaultPaymentCurrency
+}
 func resolveEpusdtURL(value, fallback string) string {
 	if strings.TrimSpace(value) != "" {
 		return value

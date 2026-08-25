@@ -86,6 +86,19 @@ type CreateOrderRequest struct {
 	PlanID          int64
 	Locale          string
 	Network         string
+	USDTQuote       *USDTOrderQuote
+}
+
+type USDTOrderQuote struct {
+	Currency       string    `json:"currency"`
+	ExchangeRate   float64   `json:"exchange_rate"`
+	ExchangeRateAt time.Time `json:"exchange_rate_at"`
+	USDTAmount     float64   `json:"usdt_amount"`
+	BonusRate      float64   `json:"bonus_rate"`
+	CNYAmount      float64   `json:"cny_amount"`
+	BonusAmount    float64   `json:"bonus_amount"`
+	CreditedCNY    float64   `json:"credited_cny"`
+	CreditedUSD    float64   `json:"credited_usd"`
 }
 
 type CreateOrderResponse struct {
@@ -111,6 +124,7 @@ type CreateOrderResponse struct {
 	PaymentMode                   string                          `json:"payment_mode,omitempty"`
 	ResumeToken                   string                          `json:"resume_token,omitempty"`
 	AlipayMobilePrecreateDeepLink bool                            `json:"alipay_mobile_precreate_deep_link,omitempty"`
+	USDTQuote                     *USDTOrderQuote                 `json:"usdt_quote,omitempty"`
 }
 
 type OrderListParams struct {

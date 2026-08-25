@@ -475,6 +475,40 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).toContain(formatPaymentAmount(103, 'HKD'))
   })
 
+  it('renders the USDT recharge, bonus, and credited USD breakdown', async () => {
+    routeState.query = { resume_token: 'resume-usdt' }
+    resolveOrderPublicByResumeToken.mockResolvedValue({
+      data: {
+        ...orderFactory('COMPLETED'),
+        payment_type: 'usdt',
+        currency: 'USDT',
+        amount: 13.58,
+        pay_amount: 20,
+        usdt_quote: {
+          currency: 'USDT',
+          exchange_rate: 6.720838,
+          exchange_rate_at: '2026-08-25T01:29:52Z',
+          usdt_amount: 20,
+          bonus_rate: 1,
+          cny_amount: 134.42,
+          bonus_amount: 1.34,
+          credited_cny: 135.76,
+          credited_usd: 13.58,
+        },
+      },
+    })
+
+    const wrapper = mount(PaymentResultView, {
+      global: { stubs: { OrderStatusBadge: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('20.00 USDT')
+    expect(wrapper.text()).toContain('+¥1.34')
+    expect(wrapper.text()).toContain('¥135.76')
+    expect(wrapper.text()).toContain('$13.58')
+  })
+
   it('normalizes aliased payment methods before rendering the label', async () => {
     routeState.query = {
       resume_token: 'resume-88',

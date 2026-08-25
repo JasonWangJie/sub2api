@@ -200,7 +200,10 @@
             />
             <input
               v-else
-              type="text"
+              :type="field.key === 'bonusRate' ? 'number' : 'text'"
+              :min="field.key === 'bonusRate' ? 0 : undefined"
+              :max="field.key === 'bonusRate' ? 100 : undefined"
+              :step="field.key === 'bonusRate' ? 0.01 : undefined"
               v-model="config[field.key]"
               class="input"
               :placeholder="field.defaultValue || ''"
@@ -833,6 +836,9 @@ function loadProvider(provider: ProviderInstance) {
     }
   }
   applyDefaults()
+  if (provider.provider_key === 'epusdt' && !provider.config?.currency) {
+    config.currency = 'CNY'
+  }
   // Parse existing limits
   if (provider.limits) {
     try {

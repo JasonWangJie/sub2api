@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -76,6 +77,59 @@ func psSnapshotIntValue(value any) int {
 		}
 	}
 	return 0
+}
+
+func psSnapshotFloatValue(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case json.Number:
+		parsed, _ := typed.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+// PaymentOrderUSDTQuote projects immutable quote fields without exposing the
+// provider configuration or raw provider snapshot.
+func PaymentOrderUSDTQuote(order *dbent.PaymentOrder) *USDTOrderQuote {
+	if order == nil || order.PaymentType != payment.TypeUSDT || len(order.ProviderSnapshot) == 0 {
+		return nil
+	}
+	currency := strings.ToUpper(psSnapshotStringValue(order.ProviderSnapshot["currency"]))
+	if currency != payment.DefaultPaymentCurrency && currency != "USDT" {
+		return nil
+	}
+	rate := psSnapshotFloatValue(order.ProviderSnapshot["exchange_rate"])
+	if rate <= 0 {
+		return nil
+	}
+	cnyAmount := psSnapshotFloatValue(order.ProviderSnapshot["cny_amount"])
+	usdtAmount := psSnapshotFloatValue(order.ProviderSnapshot["usdt_amount"])
+	if usdtAmount <= 0 && cnyAmount > 0 {
+		usdtAmount = roundPaymentAmount(cnyAmount / rate)
+	}
+	return &USDTOrderQuote{
+		Currency:       currency,
+		ExchangeRate:   rate,
+		ExchangeRateAt: parseUSDTQuoteTime(psSnapshotStringValue(order.ProviderSnapshot["exchange_rate_at"])),
+		USDTAmount:     usdtAmount,
+		BonusRate:      psSnapshotFloatValue(order.ProviderSnapshot["bonus_rate"]),
+		CNYAmount:      cnyAmount,
+		BonusAmount:    psSnapshotFloatValue(order.ProviderSnapshot["bonus_amount"]),
+		CreditedCNY:    psSnapshotFloatValue(order.ProviderSnapshot["credited_cny"]),
+		CreditedUSD:    psSnapshotFloatValue(order.ProviderSnapshot["credited_usd"]),
+	}
 }
 
 func (s *PaymentService) resolveSnapshotOrderProviderInstance(ctx context.Context, order *dbent.PaymentOrder, snapshot *paymentOrderProviderSnapshot) (*dbent.PaymentProviderInstance, error) {

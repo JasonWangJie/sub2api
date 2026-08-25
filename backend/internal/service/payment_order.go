@@ -84,11 +84,36 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 	if plan != nil {
 		orderAmount = plan.Price
 		limitAmount = plan.Price
-	} else if req.OrderType == payment.OrderTypeBalance {
+	} else if req.OrderType == payment.OrderTypeBalance && !allowUSDT {
 		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
 	}
 	feeRate := cfg.RechargeFeeRate
 	methodCurrency := payment.DefaultPaymentCurrency
+	if allowUSDT {
+		usdtInfo, infoErr := s.configService.GetUSDTCheckoutInfo(ctx)
+		if infoErr != nil {
+			return nil, infoErr
+		}
+		if usdtInfo.Currency == "USDT" && usdtInfo.ExchangeRate <= 0 {
+			return nil, infraerrors.ServiceUnavailable("USDT_RATE_UNAVAILABLE", "USDT exchange rate is unavailable")
+		}
+		cnyAmount := req.Amount
+		usdtAmount := req.Amount
+		if usdtInfo.Currency == "USDT" {
+			cnyAmount = roundPaymentAmount(req.Amount * usdtInfo.ExchangeRate)
+		} else {
+			usdtAmount = roundPaymentAmount(req.Amount / usdtInfo.ExchangeRate)
+		}
+		bonusAmount := roundPaymentAmount(cnyAmount * usdtInfo.BonusRate / 100)
+		creditedCNY := roundPaymentAmount(cnyAmount + bonusAmount)
+		orderAmount = calculateCreditedBalance(creditedCNY, cfg.BalanceRechargeMultiplier)
+		req.USDTQuote = &USDTOrderQuote{
+			Currency: usdtInfo.Currency, ExchangeRate: usdtInfo.ExchangeRate,
+			ExchangeRateAt: parseUSDTQuoteTime(usdtInfo.ExchangeRateAt), BonusRate: usdtInfo.BonusRate,
+			USDTAmount: usdtAmount,
+			CNYAmount:  cnyAmount, BonusAmount: bonusAmount, CreditedCNY: creditedCNY, CreditedUSD: orderAmount,
+		}
+	}
 	if s.configService != nil {
 		methodCurrency, err = s.configService.ValidateMethodCurrencyConsistency(ctx, req.PaymentType)
 		if err != nil {
@@ -335,9 +360,19 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 		if pid := strings.TrimSpace(sel.Config["pid"]); pid != "" {
 			snapshot["merchant_id"] = pid
 		}
-		snapshot["currency"] = payment.DefaultPaymentCurrency
+		snapshot["currency"] = paymentProviderConfigCurrency(providerKey, sel.Config)
 		if network := strings.ToLower(strings.TrimSpace(req.Network)); network != "" {
 			snapshot["network"] = network
+		}
+		if quote := req.USDTQuote; quote != nil {
+			snapshot["exchange_rate"] = quote.ExchangeRate
+			snapshot["exchange_rate_at"] = quote.ExchangeRateAt.UTC().Format(time.RFC3339)
+			snapshot["usdt_amount"] = quote.USDTAmount
+			snapshot["bonus_rate"] = quote.BonusRate
+			snapshot["cny_amount"] = quote.CNYAmount
+			snapshot["bonus_amount"] = quote.BonusAmount
+			snapshot["credited_cny"] = quote.CreditedCNY
+			snapshot["credited_usd"] = quote.CreditedUSD
 		}
 	}
 
@@ -797,6 +832,7 @@ func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest,
 		JSAPIPayload: pr.JSAPI,
 		ExpiresAt:    order.ExpiresAt,
 		PaymentMode:  sel.PaymentMode,
+		USDTQuote:    req.USDTQuote,
 	}
 }
 

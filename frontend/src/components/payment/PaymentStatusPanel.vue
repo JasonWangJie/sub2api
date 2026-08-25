@@ -20,7 +20,7 @@
                 <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderNo') }}</span>
                 <span class="font-medium text-gray-900 dark:text-white">{{ paidOrder.out_trade_no }}</span>
               </div>
-              <div class="flex justify-between">
+              <div v-if="!paidOrder.usdt_quote" class="flex justify-between">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.amount') }}</span>
                 <span class="font-medium text-gray-900 dark:text-white">{{ creditedAmountSymbol }}{{ paidOrder.amount.toFixed(2) }}</span>
               </div>
@@ -28,6 +28,24 @@
                 <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
                 <span class="font-medium text-gray-900 dark:text-white">{{ formatGatewayAmount(paidOrder.pay_amount, paidOrder.currency) }}</span>
               </div>
+              <template v-if="paidOrder.usdt_quote">
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtRechargeAmount') }}</span>
+                  <span class="font-medium text-gray-900 dark:text-white">{{ paidOrder.usdt_quote.usdt_amount.toFixed(2) }} USDT</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtBonusAmount') }} {{ paidOrder.usdt_quote.bonus_rate }}%</span>
+                  <span class="font-medium text-gray-900 dark:text-white">+¥{{ paidOrder.usdt_quote.bonus_amount.toFixed(2) }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtCreditedCNY') }}</span>
+                  <span class="font-medium text-gray-900 dark:text-white">¥{{ paidOrder.usdt_quote.credited_cny.toFixed(2) }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.creditedAmount') }}</span>
+                  <span class="font-medium text-gray-900 dark:text-white">${{ paidOrder.usdt_quote.credited_usd.toFixed(2) }}</span>
+                </div>
+              </template>
             </div>
           </div>
           <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>

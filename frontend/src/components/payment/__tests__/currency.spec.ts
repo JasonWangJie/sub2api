@@ -6,6 +6,7 @@ describe('formatPaymentAmount', () => {
     expect(formatPaymentAmount(100, 'JPY', 'en-US')).not.toContain('.00')
     expect(formatPaymentAmount(100, 'KRW', 'en-US')).not.toContain('.00')
     expect(formatPaymentAmount(100, 'HKD', 'en-US')).toContain('.00')
+    expect(formatPaymentAmount(20, 'USDT', 'en-US')).toBe('20.00 USDT')
   })
 })
 

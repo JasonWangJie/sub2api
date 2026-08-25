@@ -51,6 +51,7 @@ export interface PaymentRecoverySnapshot {
   resumeToken: string
   alipayMobilePrecreateDeepLink?: boolean
   createdAt: number
+  usdtQuote?: import('@/types/payment').USDTOrderQuote
 }
 
 export interface PaymentLaunchContext {
@@ -330,6 +331,7 @@ export function readPaymentRecoverySnapshot(
       resumeToken: parsed.resumeToken,
       alipayMobilePrecreateDeepLink: parsed.alipayMobilePrecreateDeepLink === true,
       createdAt: parsed.createdAt,
+      usdtQuote: parsed.usdtQuote && typeof parsed.usdtQuote === 'object' ? parsed.usdtQuote as PaymentRecoverySnapshot['usdtQuote'] : undefined,
     }
   } catch {
     return null

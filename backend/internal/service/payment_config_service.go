@@ -198,11 +198,22 @@ type PaymentConfigService struct {
 	entClient     *dbent.Client
 	settingRepo   SettingRepository
 	encryptionKey []byte
+	usdtRate      *USDTExchangeRateService
 }
 
 // NewPaymentConfigService creates a new PaymentConfigService.
 func NewPaymentConfigService(entClient *dbent.Client, settingRepo SettingRepository, encryptionKey []byte) *PaymentConfigService {
-	return &PaymentConfigService{entClient: entClient, settingRepo: settingRepo, encryptionKey: encryptionKey}
+	return &PaymentConfigService{entClient: entClient, settingRepo: settingRepo, encryptionKey: encryptionKey, usdtRate: NewUSDTExchangeRateService()}
+}
+
+func (s *PaymentConfigService) usdtExchangeRate(ctx context.Context) (USDTExchangeRate, error) {
+	if s == nil {
+		return USDTExchangeRate{}, fmt.Errorf("USDT exchange rate service is unavailable")
+	}
+	if s.usdtRate == nil {
+		s.usdtRate = NewUSDTExchangeRateService()
+	}
+	return s.usdtRate.Get(ctx)
 }
 
 // IsPaymentEnabled returns whether the payment system is enabled.

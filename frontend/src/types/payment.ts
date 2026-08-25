@@ -88,7 +88,18 @@ export interface USDTCheckoutInfo {
   daily_limit: number
   fee_rate: number
   balance_recharge_multiplier: number
-  networks: string[]
+  bonus_rate: number
+  exchange_rate: number
+  exchange_rate_source: string
+  exchange_rate_at: string
+  exchange_rate_stale: boolean
+  networks: USDTNetwork[]
+}
+
+export interface USDTNetwork {
+  code: string
+  alias?: string
+  display_name: string
 }
 
 // ==================== Orders ====================
@@ -115,6 +126,7 @@ export interface PaymentOrder {
   refund_request_reason?: string
   plan_id?: number
   provider_instance_id?: string
+  usdt_quote?: USDTOrderQuote
 }
 
 // ==================== Plans & Channels ====================
@@ -232,6 +244,19 @@ export interface CreateOrderResult {
   oauth?: WechatOAuthInfo
   jsapi?: WechatJSAPIPayload
   jsapi_payload?: WechatJSAPIPayload
+  usdt_quote?: USDTOrderQuote
+}
+
+export interface USDTOrderQuote {
+  currency: string
+  exchange_rate: number
+  exchange_rate_at: string
+  usdt_amount: number
+  bonus_rate: number
+  cny_amount: number
+  bonus_amount: number
+  credited_cny: number
+  credited_usd: number
 }
 
 export type CurrencyAmounts = Record<string, number>

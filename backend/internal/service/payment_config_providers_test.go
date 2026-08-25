@@ -344,6 +344,29 @@ func TestCreateProviderInstanceAllowsVisibleMethodProvidersFromDifferentSources(
 	require.NoError(t, err)
 }
 
+func TestCreateEpusdtProviderInstanceDefaultsToUSDT(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	svc := &PaymentConfigService{entClient: client}
+
+	instance, err := svc.CreateProviderInstance(ctx, CreateProviderInstanceRequest{
+		ProviderKey:    payment.TypeEpusdt,
+		Name:           "default-usdt",
+		Config:         map[string]string{"networks": "TRON=TRC20"},
+		SupportedTypes: []string{payment.TypeUSDT},
+		Enabled:        false,
+	})
+	require.NoError(t, err)
+
+	config, err := svc.decryptConfig(instance.Config)
+	require.NoError(t, err)
+	require.Equal(t, "USDT", config["currency"])
+	require.Equal(t, "0", config["bonusRate"])
+	require.Equal(t, "tron=TRC20", config["networks"])
+}
+
 func TestUpdateProviderInstanceAllowsEnablingVisibleMethodProviderFromDifferentSource(t *testing.T) {
 	t.Parallel()
 

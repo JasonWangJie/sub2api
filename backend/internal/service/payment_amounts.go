@@ -2,10 +2,23 @@ package service
 
 import (
 	"math"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/shopspring/decimal"
 )
+
+func roundPaymentAmount(value float64) float64 {
+	return decimal.NewFromFloat(value).Round(2).InexactFloat64()
+}
+
+func parseUSDTQuoteTime(raw string) time.Time {
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
 
 const defaultBalanceRechargeMultiplier = 1.0
 

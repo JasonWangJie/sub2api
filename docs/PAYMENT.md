@@ -25,7 +25,7 @@ Sub2API has a built-in payment system that enables user self-service top-up with
 | **Alipay (Direct)** | Desktop QR code, mobile Alipay redirect | Direct integration with Alipay Open Platform, returning desktop QR codes and mobile WAP/app launch links |
 | **WeChat Pay (Direct)** | Native QR, H5, MP/JSAPI Pay | Direct integration with WeChat Pay APIv3 with environment-aware routing |
 | **Stripe** | Card, Alipay, WeChat Pay, Link, etc. | International payments, multi-currency support |
-| **Epusdt** | USDT balance recharge | GMPay hosted cashier, CNY pricing, administrator-managed networks |
+| **Epusdt** | USDT balance recharge | GMPay hosted cashier with CNY/USDT pricing, network aliases, and recharge bonuses |
 
 > Alipay/WeChat Pay direct and EasyPay can both exist as backend provider instances, but the frontend always exposes only two visible buttons: `Alipay` and `WeChat Pay`. Admins choose exactly one source for each visible method: direct or EasyPay. Direct channels connect to payment APIs directly with lower fees; EasyPay aggregates through third-party platforms with easier setup.
 
@@ -157,17 +157,20 @@ International payment platform supporting multiple payment methods and currencie
 
 ### Epusdt USDT
 
-USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. Amounts are always submitted in CNY. The user chooses one enabled network and is redirected to the hosted Epusdt cashier.
+USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. An Epusdt instance can use `USDT` or `CNY` pricing; new instances default to `USDT`, while legacy instances without a currency remain compatible as `CNY`. USDT mode accepts USDT and converts it with the Coinbase USDT/CNY spot rate; CNY mode accepts CNY. Both modes support a per-instance recharge bonus. The account balance remains credited in the existing USD unit.
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | **API Base URL** | Public Epusdt URL, for example `https://pay.example.com` | Yes |
 | **PID** | Merchant PID from the Epusdt API key | Yes |
 | **Secret Key** | GMPay HMAC-SHA256 secret; never returned by the admin API | Yes |
-| **Currency** | Fixed to CNY | Yes |
-| **Network list** | Comma-separated codes such as `tron,ethereum,bsc`; normalized to lowercase and deduplicated | Yes |
+| **Currency** | `USDT` or `CNY`; new instances default to `USDT` | Yes |
+| **Recharge bonus** | `0-100%`, at most two decimals | No |
+| **Network list** | Comma-separated codes with optional `code=display alias`, such as `tron=TRC20,ethereum=ERC20,bsc`; plain codes remain supported | Yes |
 
-The webhook must be reachable over public HTTPS: `https://your-domain.com/api/v1/payment/webhook/epusdt`. GMPay JSON callbacks are verified for PID, signature, successful status, and CNY amount. Epusdt v1 has no refund or upstream cancellation capability, so refunds are disabled for this provider; user cancellation only closes the local pending order.
+The webhook must be reachable over public HTTPS: `https://your-domain.com/api/v1/payment/webhook/epusdt`. GMPay JSON callbacks are verified for PID, signature, successful status, currency, and amount. The server obtains the USDT/CNY rate from Coinbase, refreshes it every 60 seconds, and may use a cache up to 10 minutes old during a transient network failure; recharge is paused when no usable rate exists. Epusdt v1 has no refund or upstream cancellation capability, so refunds are disabled for this provider; user cancellation only closes the local pending order.
+
+When multiple Epusdt instances are enabled, they must use the same pricing currency and `bonusRate`; their network codes and aliases are merged for display. The server re-quotes at order creation and stores the rate, bonus, and CNY/USD breakdown in the provider snapshot, so later rate changes do not affect an existing order. CNY values on the page are previews; the account balance remains recorded in USD.
 
 ---
 

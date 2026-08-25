@@ -53,6 +53,9 @@ func NormalizePaymentCurrency(raw string) (string, error) {
 	if currency == "" {
 		return DefaultPaymentCurrency, nil
 	}
+	if currency == "USDT" {
+		return currency, nil
+	}
 	if len(currency) != 3 {
 		return "", fmt.Errorf("payment currency must be a 3-letter ISO currency code")
 	}

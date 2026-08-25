@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ var providerPendingOrderProtectedConfigFields = map[string]map[string]struct{}{
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}, "appid": {}, "mpappid": {}, "mchid": {}, "publickeyid": {}, "certserial": {}},
 	payment.TypeStripe:    {"secretkey": {}, "webhooksecret": {}, "currency": {}},
 	payment.TypeAirwallex: {"clientid": {}, "apikey": {}, "webhooksecret": {}, "apibase": {}, "accountid": {}, "currency": {}},
-	payment.TypeEpusdt:    {"secretkey": {}, "pid": {}, "apibase": {}, "networks": {}, "currency": {}},
+	payment.TypeEpusdt:    {"secretkey": {}, "pid": {}, "apibase": {}, "networks": {}, "currency": {}, "bonusrate": {}},
 }
 
 func isSensitiveProviderConfigField(providerKey, fieldName string) bool {
@@ -185,6 +186,15 @@ var validProviderKeys = map[string]bool{
 
 func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req CreateProviderInstanceRequest) (*dbent.PaymentProviderInstance, error) {
 	if req.ProviderKey == payment.TypeEpusdt {
+		if req.Config == nil {
+			req.Config = map[string]string{}
+		}
+		if strings.TrimSpace(req.Config["currency"]) == "" {
+			req.Config["currency"] = "USDT"
+		}
+		if strings.TrimSpace(req.Config["bonusRate"]) == "" {
+			req.Config["bonusRate"] = "0"
+		}
 		req.RefundEnabled = false
 		req.AllowUserRefund = false
 		if strings.TrimSpace(req.Config["networks"]) != "" {
@@ -233,20 +243,44 @@ func normalizeEpusdtProviderConfig(config map[string]string) (map[string]string,
 	seen := map[string]struct{}{}
 	networks := make([]string, 0)
 	for _, item := range strings.Split(result["networks"], ",") {
-		network := strings.ToLower(strings.TrimSpace(item))
+		parts := strings.SplitN(strings.TrimSpace(item), "=", 2)
+		network := strings.ToLower(strings.TrimSpace(parts[0]))
 		if network == "" || strings.ContainsAny(network, "\r\n,;&= ") {
 			return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt networks must be non-empty comma-separated network codes")
+		}
+		if len(parts) == 2 && strings.ContainsAny(strings.TrimSpace(parts[1]), "\r\n,") {
+			return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt network aliases contain an invalid value")
 		}
 		if _, exists := seen[network]; exists {
 			continue
 		}
 		seen[network] = struct{}{}
 		networks = append(networks, network)
+		alias := ""
+		if len(parts) == 2 {
+			alias = strings.TrimSpace(parts[1])
+		}
+		if alias != "" {
+			networks[len(networks)-1] += "=" + alias
+		}
 	}
 	if len(networks) == 0 {
 		return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt requires at least one network")
 	}
 	result["networks"] = strings.Join(networks, ",")
+	if currency := strings.ToUpper(strings.TrimSpace(result["currency"])); currency != "" {
+		if currency != payment.DefaultPaymentCurrency && currency != "USDT" {
+			return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt currency must be CNY or USDT")
+		}
+		result["currency"] = currency
+	}
+	if bonus := strings.TrimSpace(result["bonusRate"]); bonus != "" {
+		value, err := strconv.ParseFloat(bonus, 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 || math.Round(value*100) != value*100 {
+			return nil, infraerrors.BadRequest("VALIDATION_ERROR", "Epusdt bonusRate must be between 0 and 100 with at most 2 decimals")
+		}
+		result["bonusRate"] = strconv.FormatFloat(value, 'f', -1, 64)
+	}
 	return result, nil
 }
 

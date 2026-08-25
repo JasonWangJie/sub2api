@@ -16,6 +16,10 @@ func paymentProviderConfigCurrency(providerKey string, cfg map[string]string) st
 		}
 	}
 	if strings.TrimSpace(providerKey) == payment.TypeEpusdt {
+		currency := strings.ToUpper(strings.TrimSpace(cfg["currency"]))
+		if currency == "USDT" {
+			return currency
+		}
 		return payment.DefaultPaymentCurrency
 	}
 	return payment.DefaultPaymentCurrency

@@ -18,7 +18,21 @@
         <span v-if="row.fee_rate > 0" class="ml-1 text-xs text-gray-400" :title="t('payment.orders.fee') + ': ' + row.fee_rate + '%'">
           ({{ t('payment.orders.fee') }} {{ row.fee_rate }}%)
         </span>
-        <div v-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
+        <template v-if="row.usdt_quote">
+          <div class="text-xs text-gray-500">
+            {{ t('payment.orders.usdtRechargeAmount') }}: {{ row.usdt_quote.usdt_amount.toFixed(2) }} USDT
+          </div>
+          <div class="text-xs text-gray-500">
+            {{ t('payment.orders.usdtBonusAmount') }} {{ row.usdt_quote.bonus_rate }}%: +¥{{ row.usdt_quote.bonus_amount.toFixed(2) }}
+          </div>
+          <div class="text-xs text-gray-500">
+            {{ t('payment.orders.usdtCreditedCNY') }}: ¥{{ row.usdt_quote.credited_cny.toFixed(2) }}
+          </div>
+          <div class="text-xs text-gray-500">
+            {{ t('payment.orders.creditedAmount') }}: ${{ row.usdt_quote.credited_usd.toFixed(2) }}
+          </div>
+        </template>
+        <div v-else-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
           {{ t('payment.orders.creditedAmount') }}: {{ creditedAmountSymbol }}{{ row.amount.toFixed(2) }}
         </div>
       </div>

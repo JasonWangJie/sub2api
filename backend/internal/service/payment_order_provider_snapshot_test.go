@@ -6,7 +6,9 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/stretchr/testify/require"
 )
@@ -186,6 +188,69 @@ func TestBuildPaymentOrderProviderSnapshot_IncludesProviderCurrency(t *testing.T
 	}, CreateOrderRequest{})
 	require.Equal(t, "USD", airwallexSnapshot["currency"])
 	require.Equal(t, "acct-78", airwallexSnapshot["merchant_id"])
+}
+
+func TestBuildPaymentOrderProviderSnapshot_FreezesUSDTQuote(t *testing.T) {
+	quoteAt := time.Date(2026, 8, 25, 1, 29, 52, 0, time.UTC)
+	snapshot := buildPaymentOrderProviderSnapshot(&payment.InstanceSelection{
+		InstanceID:  "99",
+		ProviderKey: payment.TypeEpusdt,
+		Config: map[string]string{
+			"pid": "epusdt-99", "currency": "USDT", "networks": "tron=TRC20",
+		},
+	}, CreateOrderRequest{
+		Network: "TRON",
+		USDTQuote: &USDTOrderQuote{
+			Currency:       "USDT",
+			ExchangeRate:   6.720838,
+			ExchangeRateAt: quoteAt,
+			USDTAmount:     20,
+			BonusRate:      1,
+			CNYAmount:      134.42,
+			BonusAmount:    1.34,
+			CreditedCNY:    135.76,
+			CreditedUSD:    13.58,
+		},
+	})
+
+	require.Equal(t, "USDT", snapshot["currency"])
+	require.Equal(t, "tron", snapshot["network"])
+	require.Equal(t, 6.720838, snapshot["exchange_rate"])
+	require.Equal(t, quoteAt.Format(time.RFC3339), snapshot["exchange_rate_at"])
+	require.Equal(t, 20.0, snapshot["usdt_amount"])
+	require.Equal(t, 1.0, snapshot["bonus_rate"])
+	require.Equal(t, 134.42, snapshot["cny_amount"])
+	require.Equal(t, 1.34, snapshot["bonus_amount"])
+	require.Equal(t, 135.76, snapshot["credited_cny"])
+	require.Equal(t, 13.58, snapshot["credited_usd"])
+}
+
+func TestPaymentOrderUSDTQuoteProjectsSnapshotWithoutProviderConfig(t *testing.T) {
+	quoteAt := time.Date(2026, 8, 25, 1, 29, 52, 0, time.UTC)
+	quote := PaymentOrderUSDTQuote(&dbent.PaymentOrder{
+		PaymentType: payment.TypeUSDT,
+		ProviderSnapshot: map[string]any{
+			"schema_version":   2,
+			"provider_key":     payment.TypeEpusdt,
+			"currency":         "USDT",
+			"exchange_rate":    6.720838,
+			"exchange_rate_at": quoteAt.Format(time.RFC3339),
+			"usdt_amount":      20.0,
+			"bonus_rate":       1.0,
+			"cny_amount":       134.42,
+			"bonus_amount":     1.34,
+			"credited_cny":     135.76,
+			"credited_usd":     13.58,
+			"secretKey":        "must-not-be-exposed",
+		},
+	})
+
+	require.NotNil(t, quote)
+	require.Equal(t, "USDT", quote.Currency)
+	require.Equal(t, 20.0, quote.USDTAmount)
+	require.Equal(t, quoteAt, quote.ExchangeRateAt)
+	require.Equal(t, 1.34, quote.BonusAmount)
+	require.Equal(t, 13.58, quote.CreditedUSD)
 }
 
 func valueOrEmpty(v *string) string {

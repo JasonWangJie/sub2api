@@ -199,7 +199,8 @@ func providerNetworkEnabled(config map[string]string, network string) bool {
 		return false
 	}
 	for _, item := range strings.Split(config["networks"], ",") {
-		if strings.EqualFold(strings.TrimSpace(item), network) {
+		code := strings.TrimSpace(strings.SplitN(strings.TrimSpace(item), "=", 2)[0])
+		if strings.EqualFold(code, network) {
 			return true
 		}
 	}

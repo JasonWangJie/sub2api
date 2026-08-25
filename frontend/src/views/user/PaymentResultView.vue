@@ -55,7 +55,25 @@
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
               <span class="font-bold text-primary-600 dark:text-primary-400">{{ formatGatewayAmount(order.pay_amount) }}</span>
             </div>
-            <div v-if="hasAmountFields(order) && order.amount !== order.pay_amount" class="flex justify-between">
+            <template v-if="hasUSDTQuote(order)">
+              <div class="flex justify-between">
+                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtRechargeAmount') }}</span>
+                <span class="font-medium text-gray-900 dark:text-white">{{ order.usdt_quote.usdt_amount.toFixed(2) }} USDT</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtBonusAmount') }} {{ order.usdt_quote.bonus_rate }}%</span>
+                <span class="font-medium text-gray-900 dark:text-white">+¥{{ order.usdt_quote.bonus_amount.toFixed(2) }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.usdtCreditedCNY') }}</span>
+                <span class="font-medium text-gray-900 dark:text-white">¥{{ order.usdt_quote.credited_cny.toFixed(2) }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.creditedAmount') }}</span>
+                <span class="font-medium text-gray-900 dark:text-white">${{ order.usdt_quote.credited_usd.toFixed(2) }}</span>
+              </div>
+            </template>
+            <div v-else-if="hasAmountFields(order) && order.amount !== order.pay_amount" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.creditedAmount') }}</span>
               <span class="font-medium text-gray-900 dark:text-white">{{ order.order_type === 'balance' ? '$' + order.amount.toFixed(2) : formatGatewayAmount(order.amount) }}</span>
             </div>
@@ -209,6 +227,10 @@ function hasAmountFields(nextOrder: ResolvedOrder | null): nextOrder is PaymentO
 
 function hasPaymentType(nextOrder: ResolvedOrder | null): nextOrder is PaymentOrder {
   return !!nextOrder && 'payment_type' in nextOrder && typeof nextOrder.payment_type === 'string' && nextOrder.payment_type.trim() !== ''
+}
+
+function hasUSDTQuote(nextOrder: ResolvedOrder | null): nextOrder is PaymentOrder & { usdt_quote: NonNullable<PaymentOrder['usdt_quote']> } {
+  return hasAmountFields(nextOrder) && !!nextOrder.usdt_quote
 }
 
 function normalizeOrderStatus(status: string | null | undefined): string {

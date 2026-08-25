@@ -23,7 +23,7 @@ const PAYMENT_CURRENCY_SYMBOLS: Record<string, string> = {
 
 export function normalizePaymentCurrency(currency?: string | null): string {
   const normalized = String(currency || '').trim().toUpperCase()
-  return /^[A-Z]{3}$/.test(normalized) ? normalized : DEFAULT_PAYMENT_CURRENCY
+  return normalized === 'USDT' || /^[A-Z]{3}$/.test(normalized) ? normalized : DEFAULT_PAYMENT_CURRENCY
 }
 
 export function currencySymbol(currency?: string | null): string {
@@ -44,6 +44,9 @@ function paymentCurrencyFractionDigits(currency: string): number {
 
 export function formatPaymentAmount(amount: number, currency?: string | null, locale?: string): string {
   const normalized = normalizePaymentCurrency(currency)
+  if (normalized === 'USDT') {
+    return `${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} USDT`
+  }
   const fractionDigits = paymentCurrencyFractionDigits(normalized)
   try {
     return new Intl.NumberFormat(locale || undefined, {
