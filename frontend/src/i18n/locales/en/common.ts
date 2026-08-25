@@ -195,7 +195,7 @@ export default {
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
     rechargeCenter: 'Recharge Center',
-    usdtRecharge: 'USDT Recharge',
+    usdtRecharge: 'USDT Recharge (No Fee)',
     docs: 'Docs',
     installAndGuides: 'Install & Guides',
     guideCcSwitch: 'CC-Switch Setup',

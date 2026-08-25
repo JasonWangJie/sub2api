@@ -450,7 +450,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'USDT Recharge',
+      title: 'USDT Recharge (No Fee)',
       titleKey: 'nav.usdtRecharge',
       requiresPayment: true
     }

@@ -195,7 +195,7 @@ export default {
     mySubscriptions: '我的订阅',
     buySubscription: '充值/订阅',
     rechargeCenter: '充值中心',
-    usdtRecharge: 'USDT充值',
+    usdtRecharge: 'USDT充值（0手续费）',
     docs: '文档',
     installAndGuides: '安装与教程',
     guideCcSwitch: 'CC-Switch 安装',
