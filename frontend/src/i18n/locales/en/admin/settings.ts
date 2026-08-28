@@ -60,6 +60,12 @@ export default {
         previewDisclaimer: 'Search engines may rewrite results based on the query, page content, and device context.',
       },
       features: {
+        enterpriseInvoice: {
+          title: 'Enterprise Invoicing',
+          description: 'Controls user invoice applications plus the admin application and historical backfill views. Disabled by default.',
+          enabled: 'Enable Enterprise Invoicing',
+          enabledHint: 'When off, user and admin entries are hidden and invoice APIs are unavailable. Existing applications and history are retained.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',

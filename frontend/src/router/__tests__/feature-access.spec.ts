@@ -24,6 +24,7 @@ const appStore = vi.hoisted(() => ({
   publicSettingsLoaded: false,
   cachedPublicSettings: null as null | {
     payment_enabled?: boolean
+    enterprise_invoice_enabled?: boolean
     risk_control_enabled?: boolean
     custom_menu_items?: []
   },
@@ -141,6 +142,7 @@ describe('feature route guard', () => {
 
   it.each([
     ['payment', { requiresPayment: true }, '/purchase'],
+    ['enterprise invoice', { requiresEnterpriseInvoice: true }, '/invoices'],
     ['risk control', { requiresRiskControl: true }, '/admin/risk-control'],
   ])('does not treat a failed %s settings load as explicitly disabled', async (_name, meta, path) => {
     authStore.isAdmin = meta.requiresRiskControl === true
@@ -156,6 +158,12 @@ describe('feature route guard', () => {
 
   it.each([
     ['payment', { requiresPayment: true }, { payment_enabled: false }, '/dashboard'],
+    [
+      'enterprise invoice',
+      { requiresEnterpriseInvoice: true },
+      { enterprise_invoice_enabled: false },
+      '/dashboard',
+    ],
     [
       'risk control',
       { requiresRiskControl: true },

@@ -16,6 +16,8 @@ func RegisterPaymentRoutes(
 	paymentHandler *handler.PaymentHandler,
 	webhookHandler *handler.PaymentWebhookHandler,
 	adminPaymentHandler *admin.PaymentHandler,
+	invoiceHandler *handler.InvoiceHandler,
+	adminInvoiceHandler *admin.InvoiceHandler,
 	jwtAuth middleware.JWTAuthMiddleware,
 	adminAuth middleware.AdminAuthMiddleware,
 	auditLog middleware.AuditLogMiddleware,
@@ -45,6 +47,14 @@ func RegisterPaymentRoutes(
 			orders.POST("/:id/cancel", paymentHandler.CancelOrder)
 			orders.POST("/:id/refund-request", paymentHandler.RequestRefund)
 			orders.GET("/refund-eligible-providers", paymentHandler.GetRefundEligibleProviders)
+		}
+
+		invoices := authenticated.Group("/invoices")
+		{
+			invoices.GET("/profile", invoiceHandler.GetProfile)
+			invoices.GET("/records", invoiceHandler.ListRecords)
+			invoices.GET("/applications", invoiceHandler.ListApplications)
+			invoices.POST("/applications", invoiceHandler.CreateApplication)
 		}
 	}
 
@@ -93,6 +103,16 @@ func RegisterPaymentRoutes(
 			adminOrders.POST("/:id/retry", adminPaymentHandler.RetryFulfillment)
 			adminOrders.POST("/:id/refund", adminPaymentHandler.ProcessRefund)
 			adminOrders.POST("/:id/refund/query", adminPaymentHandler.QueryAndFinalizeRefund)
+		}
+
+		invoices := adminGroup.Group("/invoices")
+		{
+			invoices.GET("", adminInvoiceHandler.ListApplications)
+			invoices.GET("/records", adminInvoiceHandler.ListRecords)
+			invoices.POST("/historical-marks", adminInvoiceHandler.MarkHistoricalRecords)
+			invoices.GET("/:id", adminInvoiceHandler.GetApplication)
+			invoices.POST("/:id/complete", adminInvoiceHandler.CompleteApplication)
+			invoices.POST("/:id/reject", adminInvoiceHandler.RejectApplication)
 		}
 
 		// Subscription Plans

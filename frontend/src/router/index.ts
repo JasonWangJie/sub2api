@@ -468,6 +468,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/invoices',
+    name: 'Invoices',
+    component: () => import('@/views/user/InvoicesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Enterprise Invoicing',
+      titleKey: 'nav.invoices',
+      descriptionKey: 'invoice.description',
+      requiresEnterpriseInvoice: true
+    }
+  },
+  {
     path: '/payment/qrcode',
     name: 'PaymentQRCode',
     component: () => import('@/views/user/PaymentQRCodeView.vue'),
@@ -868,6 +881,19 @@ const routes: RouteRecordRaw[] = [
       requiresPayment: true
     }
   },
+  {
+    path: '/admin/invoices',
+    name: 'AdminInvoices',
+    component: () => import('@/views/admin/AdminInvoicesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Enterprise Invoices',
+      titleKey: 'nav.invoices',
+      descriptionKey: 'invoice.adminDescription',
+      requiresEnterpriseInvoice: true
+    }
+  },
 
   // ==================== 404 Not Found ====================
   {
@@ -1062,7 +1088,7 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl) && !appStore.publicSettingsLoaded) {
+  if ((to.meta.requiresPayment || to.meta.requiresEnterpriseInvoice || to.meta.requiresRiskControl) && !appStore.publicSettingsLoaded) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -1076,6 +1102,15 @@ router.beforeEach(async (to, _from, next) => {
     to.meta.requiresPayment &&
     appStore.publicSettingsLoaded &&
     appStore.cachedPublicSettings?.payment_enabled === false
+  ) {
+    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+    return
+  }
+
+  if (
+    to.meta.requiresEnterpriseInvoice &&
+    appStore.publicSettingsLoaded &&
+    appStore.cachedPublicSettings?.enterprise_invoice_enabled !== true
   ) {
     next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
     return

@@ -183,6 +183,7 @@ type SystemSettings struct {
 	CyberSessionBlockEnabled         bool
 	CyberSessionBlockTTLSeconds      int
 	AffiliateEnabled                 bool
+	EnterpriseInvoiceEnabled         bool
 	AffiliateRebateRate              float64
 	AffiliateRebateFreezeHours       int
 	AffiliateRebateDurationDays      int
@@ -415,7 +416,8 @@ type PublicSettings struct {
 	ModelPlazaRequireAuth bool `json:"model_plaza_require_auth"`
 
 	// Affiliate (邀请返利) feature toggle
-	AffiliateEnabled bool `json:"affiliate_enabled"`
+	AffiliateEnabled         bool `json:"affiliate_enabled"`
+	EnterpriseInvoiceEnabled bool `json:"enterprise_invoice_enabled"`
 
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`

@@ -49,6 +49,9 @@ declare module 'vue-router' {
      */
     requiresPayment?: boolean
 
+    /** Whether this route requires enterprise invoicing to be enabled. */
+    requiresEnterpriseInvoice?: boolean
+
     /**
      * 是否要求风控中心功能开关已启用
      * @default false

@@ -16,6 +16,47 @@ import type {
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
+export interface InvoiceRecord {
+  source_type: 'payment_order' | 'redeem_code' | 'admin_grant' | 'affiliate_transfer' | string
+  source_id: number
+  source_reference: string
+  amount: number
+  occurred_at: string
+  selectable: boolean
+  ineligible_reason?: string
+  application_no?: string
+  application_status?: string
+}
+
+export interface InvoiceProfile {
+  email: string
+  tax_number: string
+  company_name: string
+}
+
+export interface InvoiceApplicationItem {
+  source_type: string
+  source_id: number
+  source_reference: string
+  amount: number
+}
+
+export interface InvoiceApplication {
+  id: number
+  application_no: string
+  user_id: number
+  user_email?: string
+  email: string
+  tax_number: string
+  company_name: string
+  total_amount: number
+  status: 'PENDING' | 'COMPLETED' | 'REJECTED' | string
+  rejection_reason?: string
+  created_at: string
+  completed_at?: string
+  items?: InvoiceApplicationItem[]
+}
+
 export interface PublicOrderVerifyResult {
   id?: number
   out_trade_no: string
@@ -104,5 +145,24 @@ export const paymentAPI = {
   /** Get provider instance IDs that allow user refund */
   getRefundEligibleProviders() {
     return apiClient.get<{ provider_instance_ids: string[] }>('/payment/orders/refund-eligible-providers')
+  },
+
+  getInvoiceProfile() {
+    return apiClient.get<InvoiceProfile>('/payment/invoices/profile')
+  },
+
+  getInvoiceRecords(params?: { page?: number; page_size?: number }) {
+    return apiClient.get<BasePaginationResponse<InvoiceRecord>>('/payment/invoices/records', { params })
+  },
+
+  getInvoiceApplications(params?: { page?: number; page_size?: number }) {
+    return apiClient.get<BasePaginationResponse<InvoiceApplication>>('/payment/invoices/applications', { params })
+  },
+
+  createInvoiceApplication(data: InvoiceProfile & { sources: Array<{ source_type: string; source_id: number }> }) {
+    const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    return apiClient.post<InvoiceApplication>('/payment/invoices/applications', data, {
+      headers: { 'Idempotency-Key': `invoice-application-${requestID}` }
+    })
   }
 }

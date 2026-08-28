@@ -83,6 +83,12 @@ const (
 	EdgePromoCodeUsages = "promo_code_usages"
 	// EdgePaymentOrders holds the string denoting the payment_orders edge name in mutations.
 	EdgePaymentOrders = "payment_orders"
+	// EdgeInvoiceProfile holds the string denoting the invoice_profile edge name in mutations.
+	EdgeInvoiceProfile = "invoice_profile"
+	// EdgeInvoiceApplications holds the string denoting the invoice_applications edge name in mutations.
+	EdgeInvoiceApplications = "invoice_applications"
+	// EdgeInvoiceHistoricalMarks holds the string denoting the invoice_historical_marks edge name in mutations.
+	EdgeInvoiceHistoricalMarks = "invoice_historical_marks"
 	// EdgeAuthIdentities holds the string denoting the auth_identities edge name in mutations.
 	EdgeAuthIdentities = "auth_identities"
 	// EdgePendingAuthSessions holds the string denoting the pending_auth_sessions edge name in mutations.
@@ -161,6 +167,27 @@ const (
 	PaymentOrdersInverseTable = "payment_orders"
 	// PaymentOrdersColumn is the table column denoting the payment_orders relation/edge.
 	PaymentOrdersColumn = "user_id"
+	// InvoiceProfileTable is the table that holds the invoice_profile relation/edge.
+	InvoiceProfileTable = "invoice_profiles"
+	// InvoiceProfileInverseTable is the table name for the InvoiceProfile entity.
+	// It exists in this package in order to avoid circular dependency with the "invoiceprofile" package.
+	InvoiceProfileInverseTable = "invoice_profiles"
+	// InvoiceProfileColumn is the table column denoting the invoice_profile relation/edge.
+	InvoiceProfileColumn = "user_id"
+	// InvoiceApplicationsTable is the table that holds the invoice_applications relation/edge.
+	InvoiceApplicationsTable = "invoice_applications"
+	// InvoiceApplicationsInverseTable is the table name for the InvoiceApplication entity.
+	// It exists in this package in order to avoid circular dependency with the "invoiceapplication" package.
+	InvoiceApplicationsInverseTable = "invoice_applications"
+	// InvoiceApplicationsColumn is the table column denoting the invoice_applications relation/edge.
+	InvoiceApplicationsColumn = "user_id"
+	// InvoiceHistoricalMarksTable is the table that holds the invoice_historical_marks relation/edge.
+	InvoiceHistoricalMarksTable = "invoice_historical_marks"
+	// InvoiceHistoricalMarksInverseTable is the table name for the InvoiceHistoricalMark entity.
+	// It exists in this package in order to avoid circular dependency with the "invoicehistoricalmark" package.
+	InvoiceHistoricalMarksInverseTable = "invoice_historical_marks"
+	// InvoiceHistoricalMarksColumn is the table column denoting the invoice_historical_marks relation/edge.
+	InvoiceHistoricalMarksColumn = "user_id"
 	// AuthIdentitiesTable is the table that holds the auth_identities relation/edge.
 	AuthIdentitiesTable = "auth_identities"
 	// AuthIdentitiesInverseTable is the table name for the AuthIdentity entity.
@@ -560,6 +587,41 @@ func ByPaymentOrders(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByInvoiceProfileField orders the results by invoice_profile field.
+func ByInvoiceProfileField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInvoiceProfileStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByInvoiceApplicationsCount orders the results by invoice_applications count.
+func ByInvoiceApplicationsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newInvoiceApplicationsStep(), opts...)
+	}
+}
+
+// ByInvoiceApplications orders the results by invoice_applications terms.
+func ByInvoiceApplications(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInvoiceApplicationsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByInvoiceHistoricalMarksCount orders the results by invoice_historical_marks count.
+func ByInvoiceHistoricalMarksCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newInvoiceHistoricalMarksStep(), opts...)
+	}
+}
+
+// ByInvoiceHistoricalMarks orders the results by invoice_historical_marks terms.
+func ByInvoiceHistoricalMarks(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInvoiceHistoricalMarksStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAuthIdentitiesCount orders the results by auth_identities count.
 func ByAuthIdentitiesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -683,6 +745,27 @@ func newPaymentOrdersStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PaymentOrdersInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, PaymentOrdersTable, PaymentOrdersColumn),
+	)
+}
+func newInvoiceProfileStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InvoiceProfileInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, InvoiceProfileTable, InvoiceProfileColumn),
+	)
+}
+func newInvoiceApplicationsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InvoiceApplicationsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, InvoiceApplicationsTable, InvoiceApplicationsColumn),
+	)
+}
+func newInvoiceHistoricalMarksStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InvoiceHistoricalMarksInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, InvoiceHistoricalMarksTable, InvoiceHistoricalMarksColumn),
 	)
 }
 func newAuthIdentitiesStep() *sqlgraph.Step {

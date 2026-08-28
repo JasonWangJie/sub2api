@@ -114,6 +114,11 @@ export const FeatureFlags = {
     mode: 'opt-out',
     label: 'Payment',
   }),
+  enterpriseInvoice: defineFlag({
+    key: 'enterprise_invoice_enabled',
+    mode: 'opt-in',
+    label: 'Enterprise Invoicing',
+  }),
   riskControl: defineFlag({
     key: 'risk_control_enabled',
     mode: 'opt-in',

@@ -15,6 +15,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/invoiceapplication"
+	"github.com/Wei-Shaw/sub2api/ent/invoicehistoricalmark"
+	"github.com/Wei-Shaw/sub2api/ent/invoiceprofile"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
@@ -502,6 +505,55 @@ func (_c *UserCreate) AddPaymentOrders(v ...*PaymentOrder) *UserCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddPaymentOrderIDs(ids...)
+}
+
+// SetInvoiceProfileID sets the "invoice_profile" edge to the InvoiceProfile entity by ID.
+func (_c *UserCreate) SetInvoiceProfileID(id int64) *UserCreate {
+	_c.mutation.SetInvoiceProfileID(id)
+	return _c
+}
+
+// SetNillableInvoiceProfileID sets the "invoice_profile" edge to the InvoiceProfile entity by ID if the given value is not nil.
+func (_c *UserCreate) SetNillableInvoiceProfileID(id *int64) *UserCreate {
+	if id != nil {
+		_c = _c.SetInvoiceProfileID(*id)
+	}
+	return _c
+}
+
+// SetInvoiceProfile sets the "invoice_profile" edge to the InvoiceProfile entity.
+func (_c *UserCreate) SetInvoiceProfile(v *InvoiceProfile) *UserCreate {
+	return _c.SetInvoiceProfileID(v.ID)
+}
+
+// AddInvoiceApplicationIDs adds the "invoice_applications" edge to the InvoiceApplication entity by IDs.
+func (_c *UserCreate) AddInvoiceApplicationIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddInvoiceApplicationIDs(ids...)
+	return _c
+}
+
+// AddInvoiceApplications adds the "invoice_applications" edges to the InvoiceApplication entity.
+func (_c *UserCreate) AddInvoiceApplications(v ...*InvoiceApplication) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInvoiceApplicationIDs(ids...)
+}
+
+// AddInvoiceHistoricalMarkIDs adds the "invoice_historical_marks" edge to the InvoiceHistoricalMark entity by IDs.
+func (_c *UserCreate) AddInvoiceHistoricalMarkIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddInvoiceHistoricalMarkIDs(ids...)
+	return _c
+}
+
+// AddInvoiceHistoricalMarks adds the "invoice_historical_marks" edges to the InvoiceHistoricalMark entity.
+func (_c *UserCreate) AddInvoiceHistoricalMarks(v ...*InvoiceHistoricalMark) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInvoiceHistoricalMarkIDs(ids...)
 }
 
 // AddAuthIdentityIDs adds the "auth_identities" edge to the AuthIdentity entity by IDs.
@@ -1025,6 +1077,54 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(paymentorder.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InvoiceProfileIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.InvoiceProfileTable,
+			Columns: []string{user.InvoiceProfileColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(invoiceprofile.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InvoiceApplicationsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.InvoiceApplicationsTable,
+			Columns: []string{user.InvoiceApplicationsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(invoiceapplication.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InvoiceHistoricalMarksIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.InvoiceHistoricalMarksTable,
+			Columns: []string{user.InvoiceHistoricalMarksColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(invoicehistoricalmark.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

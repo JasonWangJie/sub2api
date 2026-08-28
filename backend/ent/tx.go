@@ -52,6 +52,14 @@ type Tx struct {
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
+	// InvoiceApplication is the client for interacting with the InvoiceApplication builders.
+	InvoiceApplication *InvoiceApplicationClient
+	// InvoiceApplicationItem is the client for interacting with the InvoiceApplicationItem builders.
+	InvoiceApplicationItem *InvoiceApplicationItemClient
+	// InvoiceHistoricalMark is the client for interacting with the InvoiceHistoricalMark builders.
+	InvoiceHistoricalMark *InvoiceHistoricalMarkClient
+	// InvoiceProfile is the client for interacting with the InvoiceProfile builders.
+	InvoiceProfile *InvoiceProfileClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -242,6 +250,10 @@ func (tx *Tx) init() {
 	tx.Group = NewGroupClient(tx.config)
 	tx.IdempotencyRecord = NewIdempotencyRecordClient(tx.config)
 	tx.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(tx.config)
+	tx.InvoiceApplication = NewInvoiceApplicationClient(tx.config)
+	tx.InvoiceApplicationItem = NewInvoiceApplicationItemClient(tx.config)
+	tx.InvoiceHistoricalMark = NewInvoiceHistoricalMarkClient(tx.config)
+	tx.InvoiceProfile = NewInvoiceProfileClient(tx.config)
 	tx.PaymentAuditLog = NewPaymentAuditLogClient(tx.config)
 	tx.PaymentOrder = NewPaymentOrderClient(tx.config)
 	tx.PaymentProviderInstance = NewPaymentProviderInstanceClient(tx.config)

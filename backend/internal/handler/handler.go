@@ -41,6 +41,7 @@ type AdminHandlers struct {
 	ContentModeration      *admin.ContentModerationHandler
 	PromptAudit            *securityaudit.PromptAdminHandler
 	Payment                *admin.PaymentHandler
+	Invoice                *admin.InvoiceHandler
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
@@ -65,6 +66,7 @@ type Handlers struct {
 	Passkey           *PasskeyHandler
 	Payment           *PaymentHandler
 	PaymentWebhook    *PaymentWebhookHandler
+	Invoice           *InvoiceHandler
 	AvailableChannel  *AvailableChannelHandler
 	ModelPlaza        *ModelPlazaHandler
 	AsyncImageTasks   *AsyncImageTaskCenterHandler

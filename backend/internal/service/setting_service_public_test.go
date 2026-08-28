@@ -20,7 +20,11 @@ func (s *settingPublicRepoStub) Get(ctx context.Context, key string) (*Setting, 
 }
 
 func (s *settingPublicRepoStub) GetValue(ctx context.Context, key string) (string, error) {
-	panic("unexpected GetValue call")
+	value, ok := s.values[key]
+	if !ok {
+		return "", ErrSettingNotFound
+	}
+	return value, nil
 }
 
 func (s *settingPublicRepoStub) Set(ctx context.Context, key, value string) error {
@@ -65,6 +69,41 @@ func TestSettingService_GetPublicSettings_ExposesRegistrationEmailSuffixWhitelis
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, []string{"@example.com", "@foo.bar", "*.edu.cn"}, settings.RegistrationEmailSuffixWhitelist)
+}
+
+func TestSettingService_EnterpriseInvoiceEnabledFailsClosed(t *testing.T) {
+	ctx := context.Background()
+
+	require.False(t, NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
+		IsEnterpriseInvoiceEnabled(ctx))
+	enabled := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "TRUE ",
+	}}, &config.Config{}).IsEnterpriseInvoiceEnabled(ctx)
+	require.False(t, enabled)
+	require.True(t, NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "true",
+	}}, &config.Config{}).IsEnterpriseInvoiceEnabled(ctx))
+	require.False(t, NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "1",
+	}}, &config.Config{}).IsEnterpriseInvoiceEnabled(ctx))
+}
+
+func TestSettingService_GetPublicSettings_ExposesEnterpriseInvoiceFlag(t *testing.T) {
+	settings, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: " true ",
+	}}, &config.Config{}).GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, settings.EnterpriseInvoiceEnabled)
+}
+
+func TestSettingService_GetPublicSettingsForInjection_ExposesEnterpriseInvoiceFlag(t *testing.T) {
+	value, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "true",
+	}}, &config.Config{}).GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	payload, ok := value.(*PublicSettingsInjectionPayload)
+	require.True(t, ok)
+	require.True(t, payload.EnterpriseInvoiceEnabled)
 }
 
 func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {

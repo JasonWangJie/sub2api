@@ -207,6 +207,7 @@ export default {
     guideDocs: 'Documentation',
     infiniteCanvas: 'Infinite Canvas',
     myOrders: 'My Orders',
+    invoices: 'Enterprise Invoicing',
     orderManagement: 'Orders',
     paymentDashboard: 'Payment Dashboard',
     paymentConfig: 'Payment Config',
@@ -222,6 +223,13 @@ export default {
     auditLogs: 'Audit Logs',
     adminAsyncImageTasks: 'Image Task Center',
     adminImageModeration: 'Image Content',
+  },
+
+  invoice: {
+    description: 'Select eligible recharge records and submit an enterprise invoice request.',
+    adminDescription: 'Review and process enterprise invoice requests.',
+    records: 'Invoiceable Recharge Records', applications: 'Applications', profile: 'Invoice Information',
+    email: 'Email', taxNumber: 'Company Tax Number', companyName: 'Company Name', source: 'Source', amount: 'Credited Amount', date: 'Recharge Time', status: 'Status', selectable: 'Eligible', excluded: 'Not Eligible', excludedGrant: 'Grants are excluded from invoicing', excludedAffiliate: 'Affiliate rebates are excluded from invoicing', applied: 'Applied', totalSelected: 'Selected Total', minimumHint: 'Invoice total must reach 1,000.00', submit: 'Submit Invoice Application', confirmTitle: 'Confirm Invoice Information', confirmMessage: 'Please confirm the company information is accurate. It cannot be changed after submission and selected records will be locked.', confirmSubmit: 'Confirm and Submit', noRecords: 'No recharge records', profileSaved: 'Loaded your last saved information', applicationNo: 'Application No.', pending: 'Pending', completed: 'Completed', rejected: 'Rejected', detail: 'Invoice Details', complete: 'Confirm Invoice Completed', reject: 'Reject Application', rejectReason: 'Rejection Reason', confirmComplete: 'Confirm that the invoice has been issued? This status change cannot be undone.', confirmReject: 'Enter a rejection reason', sourcePayment: 'Online Recharge', sourceRedeem: 'Balance Card', sourceGrant: 'Admin Grant', sourceAffiliate: 'Affiliate Transfer', adminViews: 'Enterprise invoice views', historicalRecords: 'Historical invoice backfill', historicalDescription: 'Select recharge records invoiced offline before launch and permanently mark them. This action cannot be undone.', historicalSearch: 'Search email, username, or order number', sourceReference: 'Order Number', user: 'User', userId: 'User ID', markedAt: 'Marked At', markedBy: 'Marked By', available: 'Available for backfill', historicalCompleted: 'Invoiced (historical)', selectedCount: '{count} selected', historicalMark: 'Mark as invoiced', historicalMarkTitle: 'Confirm historical invoice backfill', historicalMarkMessage: 'This records an offline invoice issued before launch. The action cannot be undone, and selected orders can never be invoiced or backfilled again. Verify the selection carefully.', historicalMarkConfirm: 'Confirm irreversible mark', errors: { load: 'Failed to load invoice data', submit: 'Failed to submit invoice application', minimum: 'Selected total is below 1,000.00', historicalMark: 'Failed to mark historical invoices' }
   },
 
   guides: {

@@ -67,6 +67,29 @@ func TestSettingService_UpdateSettingsPersistsUserUsageLatencyDivisor(t *testing
 	require.Equal(t, "2.5", repo.updates[SettingKeyUserUsageLatencyDivisor])
 }
 
+func TestSettingService_UpdateSettingsPersistsEnterpriseInvoiceFlag(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{EnterpriseInvoiceEnabled: true})
+	require.NoError(t, err)
+	require.Equal(t, "true", repo.updates[SettingKeyEnterpriseInvoiceEnabled])
+}
+
+func TestSettingService_ParseSettingsEnterpriseInvoiceDefaultsToDisabled(t *testing.T) {
+	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
+	require.False(t, svc.parseSettings(map[string]string{}).EnterpriseInvoiceEnabled)
+	require.True(t, svc.parseSettings(map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "true",
+	}).EnterpriseInvoiceEnabled)
+	require.True(t, svc.parseSettings(map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: " true ",
+	}).EnterpriseInvoiceEnabled)
+	require.False(t, svc.parseSettings(map[string]string{
+		SettingKeyEnterpriseInvoiceEnabled: "TRUE",
+	}).EnterpriseInvoiceEnabled)
+}
+
 func TestValidateUserUsageLatencyDivisor(t *testing.T) {
 	for _, value := range []float64{UserUsageLatencyDivisorMin, 2.5, UserUsageLatencyDivisorMax} {
 		require.NoError(t, ValidateUserUsageLatencyDivisor(value))

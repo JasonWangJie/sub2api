@@ -27,6 +27,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/invoiceapplication"
+	"github.com/Wei-Shaw/sub2api/ent/invoiceapplicationitem"
+	"github.com/Wei-Shaw/sub2api/ent/invoicehistoricalmark"
+	"github.com/Wei-Shaw/sub2api/ent/invoiceprofile"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -619,6 +623,114 @@ func (f TraverseIdentityAdoptionDecision) Traverse(ctx context.Context, q ent.Qu
 	return fmt.Errorf("unexpected query type %T. expect *ent.IdentityAdoptionDecisionQuery", q)
 }
 
+// The InvoiceApplicationFunc type is an adapter to allow the use of ordinary function as a Querier.
+type InvoiceApplicationFunc func(context.Context, *ent.InvoiceApplicationQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f InvoiceApplicationFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.InvoiceApplicationQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.InvoiceApplicationQuery", q)
+}
+
+// The TraverseInvoiceApplication type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseInvoiceApplication func(context.Context, *ent.InvoiceApplicationQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseInvoiceApplication) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseInvoiceApplication) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.InvoiceApplicationQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.InvoiceApplicationQuery", q)
+}
+
+// The InvoiceApplicationItemFunc type is an adapter to allow the use of ordinary function as a Querier.
+type InvoiceApplicationItemFunc func(context.Context, *ent.InvoiceApplicationItemQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f InvoiceApplicationItemFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.InvoiceApplicationItemQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.InvoiceApplicationItemQuery", q)
+}
+
+// The TraverseInvoiceApplicationItem type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseInvoiceApplicationItem func(context.Context, *ent.InvoiceApplicationItemQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseInvoiceApplicationItem) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseInvoiceApplicationItem) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.InvoiceApplicationItemQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.InvoiceApplicationItemQuery", q)
+}
+
+// The InvoiceHistoricalMarkFunc type is an adapter to allow the use of ordinary function as a Querier.
+type InvoiceHistoricalMarkFunc func(context.Context, *ent.InvoiceHistoricalMarkQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f InvoiceHistoricalMarkFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.InvoiceHistoricalMarkQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.InvoiceHistoricalMarkQuery", q)
+}
+
+// The TraverseInvoiceHistoricalMark type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseInvoiceHistoricalMark func(context.Context, *ent.InvoiceHistoricalMarkQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseInvoiceHistoricalMark) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseInvoiceHistoricalMark) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.InvoiceHistoricalMarkQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.InvoiceHistoricalMarkQuery", q)
+}
+
+// The InvoiceProfileFunc type is an adapter to allow the use of ordinary function as a Querier.
+type InvoiceProfileFunc func(context.Context, *ent.InvoiceProfileQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f InvoiceProfileFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.InvoiceProfileQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.InvoiceProfileQuery", q)
+}
+
+// The TraverseInvoiceProfile type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseInvoiceProfile func(context.Context, *ent.InvoiceProfileQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseInvoiceProfile) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseInvoiceProfile) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.InvoiceProfileQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.InvoiceProfileQuery", q)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogQuery) (ent.Value, error)
 
@@ -1200,6 +1312,14 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.IdempotencyRecordQuery, predicate.IdempotencyRecord, idempotencyrecord.OrderOption]{typ: ent.TypeIdempotencyRecord, tq: q}, nil
 	case *ent.IdentityAdoptionDecisionQuery:
 		return &query[*ent.IdentityAdoptionDecisionQuery, predicate.IdentityAdoptionDecision, identityadoptiondecision.OrderOption]{typ: ent.TypeIdentityAdoptionDecision, tq: q}, nil
+	case *ent.InvoiceApplicationQuery:
+		return &query[*ent.InvoiceApplicationQuery, predicate.InvoiceApplication, invoiceapplication.OrderOption]{typ: ent.TypeInvoiceApplication, tq: q}, nil
+	case *ent.InvoiceApplicationItemQuery:
+		return &query[*ent.InvoiceApplicationItemQuery, predicate.InvoiceApplicationItem, invoiceapplicationitem.OrderOption]{typ: ent.TypeInvoiceApplicationItem, tq: q}, nil
+	case *ent.InvoiceHistoricalMarkQuery:
+		return &query[*ent.InvoiceHistoricalMarkQuery, predicate.InvoiceHistoricalMark, invoicehistoricalmark.OrderOption]{typ: ent.TypeInvoiceHistoricalMark, tq: q}, nil
+	case *ent.InvoiceProfileQuery:
+		return &query[*ent.InvoiceProfileQuery, predicate.InvoiceProfile, invoiceprofile.OrderOption]{typ: ent.TypeInvoiceProfile, tq: q}, nil
 	case *ent.PaymentAuditLogQuery:
 		return &query[*ent.PaymentAuditLogQuery, predicate.PaymentAuditLog, paymentauditlog.OrderOption]{typ: ent.TypePaymentAuditLog, tq: q}, nil
 	case *ent.PaymentOrderQuery:

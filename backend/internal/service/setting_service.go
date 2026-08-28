@@ -390,6 +390,17 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 	return s.parseSettings(settings), nil
 }
 
+// IsEnterpriseInvoiceEnabled is deliberately fail-closed. Invoice endpoints
+// must not become reachable merely because the setting is missing or the
+// settings store is temporarily unavailable.
+func (s *SettingService) IsEnterpriseInvoiceEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyEnterpriseInvoiceEnabled)
+	return err == nil && strings.TrimSpace(value) == "true"
+}
+
 // SetOnUpdateCallback sets a callback function to be called when settings are updated
 // This is used for cache invalidation (e.g., HTML cache in frontend server)
 func (s *SettingService) SetOnUpdateCallback(callback func()) {

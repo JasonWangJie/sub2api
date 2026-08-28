@@ -60,6 +60,12 @@ export default {
         previewDisclaimer: '实际搜索结果可能由搜索引擎根据查询词、页面正文和设备环境重新生成。',
       },
       features: {
+        enterpriseInvoice: {
+          title: '企业开票',
+          description: '控制用户企业开票申请和管理员开票申请、历史补录入口。默认关闭。',
+          enabled: '启用企业开票',
+          enabledHint: '关闭后用户端和管理端菜单隐藏，相关接口同步不可访问；已有申请和历史记录会保留。',
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '启用后在 V1 主动探测与 V2 被动用量监控中二选一。关闭后两种模式的后台任务均停止，用户端入口隐藏。',
