@@ -1170,7 +1170,7 @@ var (
 			},
 			{
 				Name:    "invoiceapplicationitem_source_type_source_id",
-				Unique:  true,
+				Unique:  false,
 				Columns: []*schema.Column{InvoiceApplicationItemsColumns[1], InvoiceApplicationItemsColumns[2]},
 			},
 		},

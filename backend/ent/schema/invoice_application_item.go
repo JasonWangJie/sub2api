@@ -13,7 +13,8 @@ import (
 )
 
 // InvoiceApplicationItem snapshots one eligible recharge record selected for an invoice.
-// The global source identity index permanently prevents a record from being invoiced twice.
+// Rejected applications retain their snapshots for audit history and may be
+// followed by a new application for the same source.
 type InvoiceApplicationItem struct {
 	ent.Schema
 }
@@ -42,6 +43,6 @@ func (InvoiceApplicationItem) Edges() []ent.Edge {
 func (InvoiceApplicationItem) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("application_id"),
-		index.Fields("source_type", "source_id").Unique(),
+		index.Fields("source_type", "source_id"),
 	}
 }

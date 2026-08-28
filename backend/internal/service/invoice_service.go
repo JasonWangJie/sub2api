@@ -554,7 +554,7 @@ func includeAdminInvoiceRecord(record InvoiceRecord, status, keyword string) boo
 	recordStatus := "available"
 	if record.ApplicationStatus == InvoiceRecordStatusHistorical {
 		recordStatus = "historical_completed"
-	} else if record.ApplicationStatus != "" {
+	} else if record.ApplicationStatus != "" && record.ApplicationStatus != InvoiceApplicationStatusRejected {
 		recordStatus = "applied"
 	}
 	if status != "all" && status != recordStatus {
@@ -799,6 +799,10 @@ func ensureSourcesNotAppliedWithClient(ctx context.Context, client *dbent.Client
 		exists, err := client.InvoiceApplicationItem.Query().Where(
 			invoiceapplicationitem.SourceTypeEQ(ref.SourceType),
 			invoiceapplicationitem.SourceIDEQ(ref.SourceID),
+			invoiceapplicationitem.HasApplicationWith(invoiceapplication.StatusIn(
+				InvoiceApplicationStatusPending,
+				InvoiceApplicationStatusCompleted,
+			)),
 		).Exist(ctx)
 		if err != nil {
 			return fmt.Errorf("check invoice source application status: %w", err)
@@ -869,6 +873,11 @@ func (s *InvoiceService) loadSourceBindings(ctx context.Context, userID int64) (
 		if item.Edges.Application == nil {
 			continue
 		}
+		// Rejected applications remain as audit history, but release their
+		// source records so the user can submit a corrected application.
+		if item.Edges.Application.Status == InvoiceApplicationStatusRejected {
+			continue
+		}
 		bindings[invoiceSourceKey(item.SourceType, item.SourceID)] = invoiceApplicationBinding{
 			ApplicationNo: item.Edges.Application.ApplicationNo,
 			Status:        item.Edges.Application.Status,
@@ -896,6 +905,12 @@ func (s *InvoiceService) loadAllSourceBindings(ctx context.Context) (map[string]
 	bindings := make(map[string]invoiceApplicationBinding, len(items))
 	for _, item := range items {
 		if item.Edges.Application == nil {
+			continue
+		}
+		// Rejected applications are not active invoice claims. Keep them in
+		// the application history, while allowing historical backfill to show
+		// the source as available again.
+		if item.Edges.Application.Status == InvoiceApplicationStatusRejected {
 			continue
 		}
 		bindings[invoiceSourceKey(item.SourceType, item.SourceID)] = invoiceApplicationBinding{

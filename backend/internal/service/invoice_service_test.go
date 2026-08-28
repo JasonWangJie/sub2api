@@ -64,6 +64,8 @@ func TestIncludeAdminInvoiceRecord(t *testing.T) {
 	available := InvoiceRecord{UserID: 42, UserEmail: "billing@example.com", UserName: "Acme", SourceReference: "PAY-100", Selectable: true}
 	applied := available
 	applied.ApplicationStatus = InvoiceApplicationStatusPending
+	rejected := available
+	rejected.ApplicationStatus = InvoiceApplicationStatusRejected
 	historical := available
 	historical.ApplicationStatus = InvoiceRecordStatusHistorical
 	historical.Selectable = false
@@ -72,6 +74,8 @@ func TestIncludeAdminInvoiceRecord(t *testing.T) {
 	require.True(t, includeAdminInvoiceRecord(available, "all", "42"))
 	require.False(t, includeAdminInvoiceRecord(available, "applied", ""))
 	require.True(t, includeAdminInvoiceRecord(applied, "applied", "PAY-100"))
+	require.True(t, includeAdminInvoiceRecord(rejected, "available", "PAY-100"))
+	require.False(t, includeAdminInvoiceRecord(rejected, "applied", ""))
 	require.True(t, includeAdminInvoiceRecord(historical, "historical_completed", "acme"))
 	require.False(t, includeAdminInvoiceRecord(historical, "available", ""))
 }
