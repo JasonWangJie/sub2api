@@ -430,7 +430,7 @@ func canonicalOpenAIAccountSchedulingModel(account *Account, requestedModel stri
 		return model
 	}
 	if account.IsOpenAI() {
-		return resolveOpenAIAccountUpstreamModelForRequest(account, model, false)
+		return resolveOpenAIAccountUpstreamModelForRequest(context.Background(), account, model, false)
 	}
 	if mapped := strings.TrimSpace(account.GetMappedModel(model)); mapped != "" {
 		return mapped
@@ -442,6 +442,9 @@ func canonicalOpenAIAccountSchedulingModelForRequest(ctx context.Context, accoun
 	model := strings.TrimSpace(requestedModel)
 	if account == nil || model == "" {
 		return model
+	}
+	if account.IsOpenAI() {
+		return resolveOpenAIAccountUpstreamModelForRequest(ctx, account, model, false)
 	}
 	if mapped := strings.TrimSpace(account.GetMappedModelForRequest(ctx, model)); mapped != "" {
 		return mapped

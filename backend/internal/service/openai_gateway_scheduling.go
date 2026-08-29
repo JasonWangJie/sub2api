@@ -820,6 +820,12 @@ func resolveOpenAIAccountUpstreamModelForRequest(ctx context.Context, account *A
 		}
 		return upstreamModel
 	}
+	if requireCompact {
+		compactModel := resolveOpenAICompactForwardModel(account, requestedModel)
+		if compactModel != strings.TrimSpace(requestedModel) {
+			return compactModel
+		}
+	}
 
 	upstreamModel := resolveOpenAIForwardModelForRequest(ctx, account, requestedModel, "")
 	if upstreamModel == "" {
@@ -836,24 +842,24 @@ func resolveOpenAIAccountUpstreamModelForRequest(ctx context.Context, account *A
 
 // ResolveOpenAIAccountUpstreamModelForRequest exposes the scheduler's exact
 // account mapping chain to handler-side outcome reporting.
-func ResolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
-	return resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+func ResolveOpenAIAccountUpstreamModelForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool) string {
+	return resolveOpenAIAccountUpstreamModelForRequest(ctx, account, requestedModel, requireCompact)
 }
 
 // resolveOpenAIForwardMappedModels is the shared account mapping chain for
 // Forward callers. billingModel retains the ordinary mapping used for usage
 // accounting, while upstreamModel is the model the scheduler has admitted.
-func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, requireCompact bool) (billingModel, upstreamModel string) {
+func resolveOpenAIForwardMappedModels(ctx context.Context, account *Account, requestedModel string, requireCompact bool) (billingModel, upstreamModel string) {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if account != nil && account.IsOpenAIPassthroughEnabled() {
 		billingModel = requestedModel
 	} else if account != nil {
-		billingModel = strings.TrimSpace(account.GetMappedModel(requestedModel))
+		billingModel = strings.TrimSpace(account.GetMappedModelForRequest(ctx, requestedModel))
 	}
 	if billingModel == "" {
 		billingModel = requestedModel
 	}
-	upstreamModel = resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	upstreamModel = resolveOpenAIAccountUpstreamModelForRequest(ctx, account, requestedModel, requireCompact)
 	if strings.TrimSpace(upstreamModel) == "" {
 		upstreamModel = billingModel
 	}

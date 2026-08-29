@@ -1698,16 +1698,16 @@ func TestOpenAIAccountScheduleModelUsesActualOrSharedResolver(t *testing.T) {
 	}
 
 	reported := &service.OpenAIForwardResult{UpstreamModel: "observed-actual"}
-	require.Equal(t, "observed-actual", openAIAccountScheduleModel(nil, account, "public", true, reported))
-	require.Equal(t, "compact-actual", openAIAccountScheduleModel(nil, account, "public", true, nil))
-	require.Equal(t, "billing", openAIAccountScheduleModel(nil, account, "public", false, nil))
+	require.Equal(t, "observed-actual", openAIAccountScheduleModelForGateway(nil, account, "public", true, reported))
+	require.Equal(t, "compact-actual", openAIAccountScheduleModelForGateway(nil, account, "public", true, nil))
+	require.Equal(t, "billing", openAIAccountScheduleModelForGateway(nil, account, "public", false, nil))
 
 	c, _ := gin.CreateTestContext(nil)
 	service.SetOpsUpstreamModel(c, "attempt-actual")
-	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
+	require.Equal(t, "attempt-actual", openAIAccountScheduleModelForGateway(c, account, "public", true, nil))
 
 	setOpsSelectedAccount(c, account.ID, account.Platform)
-	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
+	require.Equal(t, "attempt-actual", openAIAccountScheduleModelForGateway(c, account, "public", true, nil))
 }
 
 func TestShouldReportOpenAIWSProxyAccountFailure(t *testing.T) {

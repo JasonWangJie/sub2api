@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestResolveOpenAIForwardModel(t *testing.T) {
 	tests := []struct {
@@ -281,14 +284,14 @@ func TestResolveOpenAIForwardMappedModels_CompactMappingPrecedence(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			billing, upstream := resolveOpenAIForwardMappedModels(tt.account, "gpt-5.5", tt.requireCompact)
+			billing, upstream := resolveOpenAIForwardMappedModels(context.Background(), tt.account, "gpt-5.5", tt.requireCompact)
 			if billing != tt.wantBilling {
 				t.Fatalf("billing model = %q, want %q", billing, tt.wantBilling)
 			}
 			if upstream != tt.wantUpstream {
 				t.Fatalf("upstream model = %q, want %q", upstream, tt.wantUpstream)
 			}
-			if scheduler := resolveOpenAIAccountUpstreamModelForRequest(tt.account, "gpt-5.5", tt.requireCompact); scheduler != upstream {
+			if scheduler := resolveOpenAIAccountUpstreamModelForRequest(context.Background(), tt.account, "gpt-5.5", tt.requireCompact); scheduler != upstream {
 				t.Fatalf("scheduler model %q disagrees with Forward model %q", scheduler, upstream)
 			}
 		})

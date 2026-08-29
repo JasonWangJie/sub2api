@@ -146,6 +146,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if !isGrokVideoUsageResult(result, nil) {
 		ApplyOpenAIImageBillingResolution(result)
 	}
+	logServiceTierBillingDowngrade("service.openai_gateway", account, result.RequestID, ApplyOpenAIServiceTierBillingResolution(result))
 	accountMappingInputModel := input.ChannelMappedModel
 	if strings.TrimSpace(accountMappingInputModel) == "" {
 		accountMappingInputModel = result.Model

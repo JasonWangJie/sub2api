@@ -138,7 +138,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	requestedModel := reqModel
 	upstreamPassthroughModel := ""
 	if isOpenAIResponsesCompactPath(c) {
-		compactMappedModel := s.resolveOpenAICompactFallbackModel(account, reqModel)
+		compactMappedModel := s.resolveOpenAICompactFallbackModel(ctx, account, reqModel)
 		if compactMappedModel != "" && compactMappedModel != reqModel {
 			nextBody, setErr := sjson.SetBytes(body, "model", compactMappedModel)
 			if setErr != nil {
@@ -1853,6 +1853,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
+	codexFailureTerminal := account != nil && account.Platform == PlatformOpenAI
+	failureDelivered := false
+	suppressCurrentEvent := false
+	responseFailedPending := false
+	var bareErrorPayload []byte
+	bareErrorAccountSideEffectsPending := false
 	earlyFlushCreated := s.openAIEarlyFlushCreated(c)
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	// pendingLines retains preamble events until downstream output may be
@@ -2108,7 +2114,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 		}
 
-		if !clientDisconnected {
+		if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 			if !clientOutputStarted {
 				pendingLines = append(pendingLines, line)
 				pendingEventStartsDownstreamOutput = pendingEventStartsDownstreamOutput || downstreamOutput

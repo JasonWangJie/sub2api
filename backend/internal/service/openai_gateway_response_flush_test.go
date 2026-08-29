@@ -942,7 +942,15 @@ func runOpenAIResponseFlushTest(recorder *openAIResponseFlushRecorder, body io.R
 	return runOpenAIResponseFlushTestForGroup(recorder, body, gatewayCfg, nil)
 }
 
+func runOpenAIResponseFlushTestWithAccount(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig, account *Account) (*openaiStreamingResult, error) {
+	return runOpenAIResponseFlushTestForGroupAndAccount(recorder, body, gatewayCfg, nil, account)
+}
+
 func runOpenAIResponseFlushTestForGroup(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig, groupID *int64) (*openaiStreamingResult, error) {
+	return runOpenAIResponseFlushTestForGroupAndAccount(recorder, body, gatewayCfg, groupID, &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth})
+}
+
+func runOpenAIResponseFlushTestForGroupAndAccount(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig, groupID *int64, account *Account) (*openaiStreamingResult, error) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)

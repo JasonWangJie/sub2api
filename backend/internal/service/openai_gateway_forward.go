@@ -364,18 +364,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("instructions", defaultCodexSynthInstructions(reqModel))
 	}
 
-	billingModel := account.GetMappedModelForRequest(ctx, reqModel)
-	if billingModel != reqModel {
-		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", reqModel, billingModel, account.Name, isCodexCLI)
-		reqModel = billingModel
-		markPatchSet("model", billingModel)
-	}
-	upstreamModel := billingModel
 	isCompactRequest := compactPath
 	requestedModel := reqModel
-	billingModel, upstreamModel := resolveOpenAIForwardMappedModels(account, requestedModel, isCompactRequest)
+	billingModel, upstreamModel := resolveOpenAIForwardMappedModels(ctx, account, requestedModel, isCompactRequest)
 	if isCompactRequest {
-		if compactModel := s.resolveOpenAICompactFallbackModel(account, requestedModel); compactModel != "" {
+		if compactModel := s.resolveOpenAICompactFallbackModel(ctx, account, requestedModel); compactModel != "" {
 			upstreamModel = compactModel
 		}
 	}

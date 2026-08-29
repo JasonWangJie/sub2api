@@ -252,6 +252,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
+	codexFailureTerminal := account != nil && account.IsOpenAIOAuthLike()
 	earlyFlushCreated := s.openAIEarlyFlushCreated(c)
 	prioritizeFirstVisibleText := earlyFlushCreated
 	firstSemanticOutputFlushed := false
@@ -748,7 +749,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 
 			// 写入客户端（客户端断开后继续 drain 上游）
-			if !clientDisconnected {
+			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				shouldFlush := queueDrained && (clientOutputStarted || downstreamOutput)
 				if !firstSemanticOutputFlushed && semanticOutput {
 					// response.created may already have been committed in early mode.
@@ -805,16 +806,22 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				suppressCurrentEvent = false
 				terminalFailurePending = false
 				eventInProgress = false
+				eventStartsSemanticOutput = false
+				eventStartsDownstreamOutput = false
 				eventStartsClientOutput = false
 				eventStartsVisibleOutput = false
+				eventStartsVisibleText = false
 				eventShouldFlush = false
 				return
 			}
 			if failureDelivered {
 				terminalFailurePending = false
 				eventInProgress = false
+				eventStartsSemanticOutput = false
+				eventStartsDownstreamOutput = false
 				eventStartsClientOutput = false
 				eventStartsVisibleOutput = false
+				eventStartsVisibleText = false
 				eventShouldFlush = false
 				return
 			}
@@ -843,6 +850,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				suppressCurrentEvent = false
 				terminalFailurePending = false
 				eventInProgress = false
+				eventStartsSemanticOutput = false
+				eventStartsDownstreamOutput = false
+				eventStartsClientOutput = false
+				eventStartsVisibleOutput = false
+				eventStartsVisibleText = false
 				eventShouldFlush = false
 				return
 			}

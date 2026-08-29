@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -52,7 +53,7 @@ func isExplicitOpenAICompactRequest(c *gin.Context, body []byte) bool {
 // resolveOpenAICompactFallbackModel prefers the account's compact-only rule
 // for the client-visible model. The process-wide fallback is used only when
 // that account has no matching compact rule.
-func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(account *Account, requestedModel string) string {
+func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(ctx context.Context, account *Account, requestedModel string) string {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if account != nil {
 		if mapped, matched := account.ResolveCompactMappedModel(requestedModel); matched {
@@ -68,7 +69,7 @@ func (s *OpenAIGatewayService) resolveOpenAICompactFallbackModel(account *Accoun
 	if fallback == "" {
 		return ""
 	}
-	return strings.TrimSpace(resolveOpenAIAccountUpstreamModelForRequest(account, fallback, false))
+	return strings.TrimSpace(resolveOpenAIAccountUpstreamModelForRequest(ctx, account, fallback, false))
 }
 
 func isOpenAICompactModelFailure(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
@@ -247,7 +248,11 @@ func (s *OpenAIGatewayService) prepareOpenAICompactFallbackRetry(
 		!isOpenAICompactModelFailure(statusCode, upstreamMsg, upstreamBody) {
 		return currentBody, "", false
 	}
-	fallbackModel := s.resolveOpenAICompactFallbackModel(account, requestedModel)
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	fallbackModel := s.resolveOpenAICompactFallbackModel(ctx, account, requestedModel)
 	currentModel := strings.TrimSpace(gjson.GetBytes(currentBody, "model").String())
 	if fallbackModel == "" || strings.EqualFold(fallbackModel, currentModel) {
 		return currentBody, "", false

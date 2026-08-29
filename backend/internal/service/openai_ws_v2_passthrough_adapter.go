@@ -93,7 +93,7 @@ func openAIWSPassthroughPolicyModelForFrame(account *Account, payload []byte) st
 	return openAIWSPassthroughPolicyModelForFrameForRequest(context.Background(), account, payload)
 }
 
-func openAIWSPassthroughPolicyModelForFrameForRequest(ctx context.Context, account *Account, payload []byte) string {
+func openAIWSPassthroughPolicyModelForFrameForRequest(_ context.Context, account *Account, payload []byte) string {
 	if account == nil || len(payload) == 0 {
 		return ""
 	}
@@ -101,7 +101,7 @@ func openAIWSPassthroughPolicyModelForFrameForRequest(ctx context.Context, accou
 	if original == "" {
 		return ""
 	}
-	return normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, original))
+	return original
 }
 
 // openAIWSPassthroughPolicyModelFromSessionFrame returns the upstream model
@@ -125,7 +125,7 @@ func openAIWSPassthroughPolicyModelFromSessionFrame(account *Account, payload []
 	return openAIWSPassthroughPolicyModelFromSessionFrameForRequest(context.Background(), account, payload)
 }
 
-func openAIWSPassthroughPolicyModelFromSessionFrameForRequest(ctx context.Context, account *Account, payload []byte) string {
+func openAIWSPassthroughPolicyModelFromSessionFrameForRequest(_ context.Context, account *Account, payload []byte) string {
 	if account == nil || len(payload) == 0 {
 		return ""
 	}
@@ -137,7 +137,7 @@ func openAIWSPassthroughPolicyModelFromSessionFrameForRequest(ctx context.Contex
 	if original == "" {
 		return ""
 	}
-	return normalizeOpenAIModelForUpstream(account, account.GetMappedModelForRequest(ctx, original))
+	return original
 }
 
 type openAIWSPassthroughUsageMeta struct {

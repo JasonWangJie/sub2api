@@ -470,6 +470,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			canonicalModel := canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, originalModel)
 			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, canonicalModel)
 		}
+		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
+		if writeErr := writeClientMessage(clientError); writeErr == nil {
+			markOpenAIWSClientVisibleFailure(c, "error", clientError)
+		}
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -692,7 +696,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					shouldFailover = s.shouldFailoverGrokUpstreamError(statusCode, upstreamMessage)
 					s.handleGrokAccountUpstreamError(ctx, account, statusCode, resp.Header, upstreamMessage)
 				}
-			} else if eventType == "error" && shouldFailover && !requestScopedCapacity {
+			} else if eventType == "error" && !officialOpenAIResponses && shouldFailover && !requestScopedCapacity {
 				accountStatus := statusCode
 				if transientStatus := openAIWSPayloadTransientStatus(upstreamMessage); transientStatus != 0 {
 					accountStatus = transientStatus
@@ -791,8 +795,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if upstreamEventErr != nil {
 			return resultWithUsage(), upstreamEventErr
 		}
-		if isOpenAIWSTerminalEvent(eventType) {
-			upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(ctx, account, canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, originalModel), resp.Header, upstreamMessage)
+		if isOpenAIWSTerminalEvent(eventType) && !bareErrorPending {
+			if eventType == "response.failed" {
+				upstreamTerminalEvent = "response.failed"
+			} else {
+				upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(ctx, account, canonicalOpenAIAccountSchedulingModelForRequest(ctx, account, originalModel), resp.Header, upstreamMessage)
+			}
 			terminalEventCount++
 			firstTokenMsValue := -1
 			if firstTokenMs != nil {
@@ -847,7 +855,7 @@ func resolveGrokWSCacheIdentity(c *gin.Context, account *Account, seedPayload, c
 }
 
 func resolveGrokWSCacheIdentityForRequest(ctx context.Context, c *gin.Context, account *Account, seedPayload, currentPayload []byte, originalModel string) (string, error) {
-	body, err := prepareOpenAIWSHTTPBridgeBody(seedPayload)
+	body, err := prepareOpenAIWSHTTPBridgeBody(account, seedPayload)
 	if err != nil {
 		return "", err
 	}

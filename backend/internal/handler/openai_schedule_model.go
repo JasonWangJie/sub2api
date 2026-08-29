@@ -16,5 +16,5 @@ func openAIAccountScheduleModel(ctx context.Context, account *service.Account, r
 	if account == nil {
 		return strings.TrimSpace(requestedModel)
 	}
-	return account.GetMappedModelForRequest(ctx, requestedModel)
+	return service.ResolveOpenAIAccountUpstreamModelForRequest(ctx, account, requestedModel, false)
 }

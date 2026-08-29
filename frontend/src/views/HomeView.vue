@@ -420,6 +420,12 @@ const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.model
 const isDark = ref(document.documentElement.classList.contains('dark'))
 const ready = ref(false)
 const isAuthenticated = computed(() => authStore.isAuthenticated)
+const modelPlazaRequiresAuth = computed(
+  () => appStore.cachedPublicSettings?.model_plaza_require_auth === true
+)
+const showModelPlazaEntry = computed(
+  () => modelPlazaEnabled.value && (isAuthenticated.value || !modelPlazaRequiresAuth.value)
+)
 const dashboardPath = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
 const currentYear = computed(() => new Date().getFullYear())
 const latencyHint = ref('12ms')

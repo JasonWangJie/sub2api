@@ -3861,6 +3861,7 @@ import {
   applyHeaderOverride,
   applyInterceptWarmup,
   applyModelMappingPercent,
+  defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   isHeaderOverrideCapable,
   isValidModelMappingPercent,

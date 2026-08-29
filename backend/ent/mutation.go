@@ -52172,6 +52172,7 @@ type UserMutation struct {
 	signup_source                   *string
 	last_login_at                   *time.Time
 	last_active_at                  *time.Time
+	restrict_public_groups          *bool
 	balance_notify_enabled          *bool
 	balance_notify_threshold_type   *string
 	balance_notify_threshold        *float64

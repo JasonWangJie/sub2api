@@ -69,8 +69,8 @@ func TestResolveOpenAICompactFallbackModelPrefersAccountMapping(t *testing.T) {
 		"compact_model_mapping": map[string]any{"gpt-5.5": "account-compact"},
 	}}
 
-	require.Equal(t, "account-compact", svc.resolveOpenAICompactFallbackModel(account, "gpt-5.5"))
-	require.Equal(t, "global-compact", svc.resolveOpenAICompactFallbackModel(account, "unmapped-model"))
+	require.Equal(t, "account-compact", svc.resolveOpenAICompactFallbackModel(context.Background(), account, "gpt-5.5"))
+	require.Equal(t, "global-compact", svc.resolveOpenAICompactFallbackModel(context.Background(), account, "unmapped-model"))
 }
 
 func TestOpenAIGatewayForwardUsesGlobalCompactModelOnInitialLegacyRequest(t *testing.T) {
