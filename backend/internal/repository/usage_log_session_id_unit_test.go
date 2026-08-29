@@ -80,6 +80,8 @@ func TestPrepareUsageLogInsert_PersistsBillingChargeMultiplier(t *testing.T) {
 // TestUsageLogInsertQueries_IncludeSessionID guards that every generated INSERT path
 // and the SELECT column list reference session_id.
 func TestUsageLogInsertQueries_IncludeSessionID(t *testing.T) {
+	require.Contains(t, usageLogSelectColumns, "requested_reasoning_effort",
+		"SELECT column list must include requested_reasoning_effort")
 	require.Contains(t, usageLogSelectColumns, "session_id",
 		"SELECT column list must include session_id")
 
@@ -91,6 +93,7 @@ func TestUsageLogInsertQueries_IncludeSessionID(t *testing.T) {
 	batchQuery, batchArgs := buildUsageLogBatchInsertQuery([]string{key},
 		map[string]usageLogInsertPrepared{key: prepared})
 	require.Contains(t, batchQuery, "session_id")
+	require.Contains(t, batchQuery, "requested_reasoning_effort")
 	// Two column references (INSERT column list + SELECT ... FROM input) plus the CTE def.
 	require.GreaterOrEqual(t, strings.Count(batchQuery, "session_id"), 3)
 	require.Len(t, batchArgs, len(prepared.args)+1,

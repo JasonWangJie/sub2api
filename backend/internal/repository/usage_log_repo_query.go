@@ -488,6 +488,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		videoDurationSeconds      sql.NullInt64
 		serviceTier               sql.NullString
 		reasoningEffort           sql.NullString
+		requestedReasoningEffort  sql.NullString
 		inboundEndpoint           sql.NullString
 		upstreamEndpoint          sql.NullString
 		cacheTTLOverridden        bool
@@ -552,6 +553,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&videoDurationSeconds,
 		&serviceTier,
 		&reasoningEffort,
+		&requestedReasoningEffort,
 		&inboundEndpoint,
 		&upstreamEndpoint,
 		&cacheTTLOverridden,
@@ -658,6 +660,9 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 	if reasoningEffort.Valid {
 		log.ReasoningEffort = &reasoningEffort.String
+	}
+	if requestedReasoningEffort.Valid {
+		log.RequestedReasoningEffort = &requestedReasoningEffort.String
 	}
 	if inboundEndpoint.Valid {
 		log.InboundEndpoint = &inboundEndpoint.String
