@@ -19,15 +19,15 @@ codegraph init
 
 ## 当前版本快照
 
-记录日期：`2026-07-22`（当日续更：延期投稿、OSS 年月日目录、工作台本机生图与异步任务中心 UX）。
+记录日期：`2026-08-30`（续更：企业开票及拒绝后重新申请；图片工作流历史状态仍按各专题记录）。
 
 | 项目 | 当前记录 |
 |---|---|
-| 发布版本文件 | `backend/cmd/server/VERSION = 0.1.162` |
+| 发布版本文件 | `backend/cmd/server/VERSION = 0.1.178.14` |
 | 本轮开发基线 | `51b083d374decf811ac88f8b0194165db9a8ba79` |
 | 基线描述 | `v0.1.162-4-g51b083d37` |
-| 文档记录时 HEAD | `63db66427aa6997c778171b140c786b6dfbfec5e`（工作树可能 dirty；以 `git rev-parse`/`git status` 为准） |
-| HEAD 描述 | `63db6642` / dirty 时见 `git describe --dirty` |
+| 本次文档更新前 HEAD | `29701211d`（工作树状态以 `git status` 为准） |
+| 企业开票功能版本 | `v0.1.178.14`；拒绝后重新申请提交 `0f81a7536` |
 | 当前及后续默认分支 | `main` |
 | 已合并原作者主线 | `upstream/main = 5a8d6c4e41e38f05cea4164e6ff03443fc0f6923` |
 | 上游合并提交 | `433cf0096` |
@@ -40,7 +40,7 @@ codegraph init
 | Fork CI | `BLOCKED`：Actions 页面显示 `Enable Actions`，仓库历史运行数为 0 |
 | 合并并推送 `origin/main` | `COMPLETED`：按用户明确指示绕过原 CI 等待顺序，非强制合并并推送 |
 
-本轮不主动修改 `0.1.162` 发布版本号。最终交付必须同时报告 `VERSION`、完整 SHA、`git describe`、推送分支和 CI 链接/结果。
+本次文档更新不修改 `0.1.178.14` 发布版本号。最终交付必须同时报告 `VERSION`、完整 SHA、`git describe`、推送分支和 CI 链接/结果。
 
 ## 本 Fork 的图片能力
 
@@ -113,6 +113,14 @@ codegraph init
 
 详情见 [wiki-new/计费与幂等.md](wiki-new/计费与幂等.md)。
 
+## 企业开票
+
+企业开票由 `enterprise_invoice_enabled` 控制，默认关闭。启用后，用户可在 `/invoices` 选择已完成的余额充值记录申请开票，单次所选金额至少为 `1000.00`；管理员在 `/admin/invoices` 完成或拒绝申请，也可补录功能上线前已经线下开票的历史记录。
+
+申请被拒绝后，旧申请继续保留企业资料、充值明细和拒绝理由供审计，用户端“申请记录”会展示拒绝理由；对应充值记录重新变为可选，用户可以修正资料后新建申请。管理员历史补录中，被拒绝来源显示为可补录，不再误显示为“已申请”。`PENDING`、`COMPLETED` 和 `HISTORICAL_COMPLETED` 仍锁定来源。
+
+实现通过 PostgreSQL 来源级事务锁和状态检查防止并发重复开票。迁移 `231_ZJ_allow_rejected_invoice_reapplications.sql` 将申请明细的来源唯一索引改为普通查询索引，同时保留拒绝申请的审计快照；历史补录的唯一约束不变。详见 [wiki-new/企业开票.md](wiki-new/企业开票.md)。
+
 ## 存储、配额与安全默认值
 
 全站使用一个当前图片对象存储，支持 `qiniu`、`aliyun`、`tencent` 和兼容已有配置的 `custom_s3`。后台“图片存储”设置统一管理异步任务和个人图库运行参数。
@@ -143,6 +151,8 @@ codegraph init
 
 ## 主要页面
 
+- 用户企业开票：`/invoices`
+- 管理员企业开票与历史补录：`/admin/invoices`
 - 用户图片工作台：`/image-workbench`
 - 用户个人图库：`/image-library`
 - 审核后图片广场：`/image-plaza`（已批准 content 允许浏览器私有短缓存；关闭预览不销毁图片节点，同一张图再次打开可复用）
@@ -156,6 +166,8 @@ codegraph init
 工作树中已经存在工作台能力接口、实时/异步分流、Gemini 实时图片计费采集、服务端图库、统一对象引用、投稿审核、举报、维护 Worker、旧广场迁移、管理页面和安全校验实现。管理员批量审核 API/UI、旧数字/`imgpub_*`/`img_*` 删除兼容、Worker 优雅 `Stop()`、历史成功异步任务归档回填、永久归档错误终止重排、OSS 身份切换保护，以及迁移 `187` 的 SC 上传安全层均已补齐。
 
 `2026-07-22` 续更（多在 dirty 工作树，交付前需提交）：迁移 `188` 延期广场投稿；实时本机投稿+审核后同步上传；OSS 对象 key 年/月/日分区；异步任务中心复制任务号/禁止误开详情；工作台侧栏不再提示异步归档恢复；`upstream_failed` 写入真实 HTTP 状态与上游摘要。
+
+`2026-08-30` 续更：企业开票基础流程和迁移 `228` 至 `230` 已落地；迁移 `231` 允许被拒绝申请的充值来源重新申请或进入历史补录。用户申请记录展示拒绝理由，待处理、已完成和历史补录来源仍不可重复选择。发票相关 Go 定向测试、前端 ESLint/typecheck/build 与 `git diff --check` 已通过，详见 [wiki-new/测试与验收记录.md](wiki-new/测试与验收记录.md)。
 
 `2026-07-22` 已把原作者 `upstream/main` 的 `5a8d6c4e4` 非快进合并为 `433cf0096`，并在代码验证提交 `6412b5eb7` 对应的合并后树上取得以下本地证据：
 
@@ -182,6 +194,7 @@ codegraph init
 | 文档 | 内容 |
 |---|---|
 | [wiki-new/文档索引.md](wiki-new/文档索引.md) | 二次开发 Wiki 入口和真值顺序 |
+| [wiki-new/企业开票.md](wiki-new/企业开票.md) | 用户申请、拒绝后重提、管理员处理、历史补录、接口与迁移 |
 | [wiki-new/异步生图架构.md](wiki-new/异步生图架构.md) | 持久异步任务状态机和恢复边界 |
 | [wiki-new/接口契约.md](wiki-new/接口契约.md) | 下游异步协议与站内图片 API |
 | [wiki-new/对象存储与保留策略.md](wiki-new/对象存储与保留策略.md) | OSS、对象引用、签名和保留策略 |
@@ -207,7 +220,7 @@ codegraph init
 ## 下一位 AI 的一句话上下文
 
 ```text
-这是 JasonWangJie/sub2api Fork，VERSION 保持 0.1.162，当前及后续默认在 main 开发和推送。先读 wiki-new/文档索引.md、当前状态与完成度.md、测试与验收记录.md、智能助手交接清单.md，以及 deploy/FORK_RELEASE.md 与 .cursor/rules/fork-release-deploy.mdc（发行版一键安装身份；合并 upstream 不得改回 Wei-Shaw）。Fork 自研 SQL 使用 NNN_ZJ_description.sql；182_ZJ 是初版图片广场，185_ZJ 是持久异步任务，186_ZJ 是统一图片对象/个人图库/审核广场，187_ZJ 是 SC 上传 PostgreSQL admission/幂等/恢复，188_ZJ 是本机延期投稿（审核通过后再同步 OSS），189_ZJ 是异步结果上传意图；上游 182_prompt、183、184 保持原名。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
+这是 JasonWangJie/sub2api Fork，VERSION 当前为 0.1.178.14，当前及后续默认在 main 开发和推送。先读 wiki-new/文档索引.md、当前状态与完成度.md、测试与验收记录.md、智能助手交接清单.md，以及 deploy/FORK_RELEASE.md 与 .cursor/rules/fork-release-deploy.mdc（发行版一键安装身份；合并 upstream 不得改回 Wei-Shaw）。企业开票使用迁移 228_ZJ 至 231_ZJ：拒绝申请保留审计和拒绝理由，但释放充值来源供重新申请或历史补录；PENDING、COMPLETED、HISTORICAL_COMPLETED 仍锁定。Fork 自研 SQL 使用 NNN_ZJ_description.sql；182_ZJ 是初版图片广场，185_ZJ 是持久异步任务，186_ZJ 是统一图片对象/个人图库/审核广场，187_ZJ 是 SC 上传 PostgreSQL admission/幂等/恢复，188_ZJ 是本机延期投稿（审核通过后再同步 OSS），189_ZJ 是异步结果上传意图；上游 182_prompt、183、184 保持原名。工作台实时结果默认本机；投稿只交元数据；模式只能由 Key 当前分组决定；默认私有，公开需审核；计费必须复用现有链路。OSS key 按年月日分区。upstream/main 5a8d6c4e4 已合并，功能代码以 a9d23973d 非强制合并进 main；合并后 Go 强制全仓、前端 frozen/lint/typecheck/189 files 1277 tests/build 已通过。Fork Actions 仍未启用且运行数为 0；浏览器连接器、真实 PostgreSQL/testcontainers、三家 OSS 和真实上游计费仍待验证。
 ```
 
 
