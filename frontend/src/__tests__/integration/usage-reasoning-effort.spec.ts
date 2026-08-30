@@ -18,6 +18,7 @@ const {
   adminGetModelStats,
   adminGetById,
   listErrorLogs,
+  fetchPublicSettings,
 } = vi.hoisted(() => ({
   userQuery: vi.fn(),
   userGetStats: vi.fn(),
@@ -31,6 +32,7 @@ const {
   adminGetModelStats: vi.fn(),
   adminGetById: vi.fn(),
   listErrorLogs: vi.fn(),
+  fetchPublicSettings: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -125,6 +127,7 @@ vi.mock('@/stores/app', () => ({
     showWarning: vi.fn(),
     showSuccess: vi.fn(),
     showInfo: vi.fn(),
+    fetchPublicSettings,
   }),
 }))
 
@@ -240,6 +243,7 @@ describe('usage reasoning effort page display', () => {
     adminGetModelStats.mockReset().mockResolvedValue({ models: [] })
     adminGetById.mockReset().mockResolvedValue({ id: 7, email: 'liu.jialin@code-dance.com' })
     listErrorLogs.mockReset().mockResolvedValue({ items: [], total: 0 })
+    fetchPublicSettings.mockReset().mockResolvedValue(null)
   })
 
   afterEach(() => {

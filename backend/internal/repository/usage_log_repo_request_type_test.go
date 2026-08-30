@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,26 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUsageLogSelectColumnsMatchScanContract(t *testing.T) {
+	columns := strings.Split(usageLogSelectColumns, ", ")
+	require.Equal(t, 62, len(columns))
+
+	findColumn := func(name string) int {
+		for i, column := range columns {
+			if column == name {
+				return i
+			}
+		}
+		return -1
+	}
+
+	reasoningIndex := findColumn("reasoning_effort")
+	requestedReasoningIndex := findColumn("requested_reasoning_effort")
+	require.GreaterOrEqual(t, reasoningIndex, 0)
+	require.Equal(t, reasoningIndex+1, requestedReasoningIndex)
+	require.GreaterOrEqual(t, findColumn("billing_charge_multiplier"), 0)
+}
 
 func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 	db, mock := newSQLMock(t)
