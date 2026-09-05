@@ -119,6 +119,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	var firstTokenMs *int
+	ttftMode := s.openAITTFTMode(ctx)
 	firstOutputProgressObserved := false
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
@@ -272,6 +273,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	eventStartsClientOutput := false
 	eventStartsVisibleOutput := false
 	eventStartsVisibleText := false
+	eventStartsTTFT := false
 	eventShouldFlush := false
 	handlePendingWriteError := func(err error) {
 		if firstOutputStage != nil && !firstOutputStage.closed {
@@ -293,8 +295,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		completedSemanticEvent := eventStartsSemanticOutput
 		completedDownstreamEvent := eventStartsDownstreamOutput
 		completedClientOutputEvent := eventStartsClientOutput
-		completedVisibleEvent := eventStartsVisibleOutput
 		completedVisibleTextEvent := eventStartsVisibleText
+		completedTTFTEvent := eventStartsTTFT
 		shouldFlush := eventShouldFlush || (queueDrained && clientOutputStarted)
 		eventInProgress = false
 		if !clientDisconnected {
@@ -327,7 +329,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			firstOutputProgressObserved = true
 			stopFirstOutputTimer()
 		}
-		if completedVisibleEvent && firstTokenMs == nil {
+		if completedTTFTEvent && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
@@ -336,6 +338,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		eventStartsClientOutput = false
 		eventStartsVisibleOutput = false
 		eventStartsVisibleText = false
+		eventStartsTTFT = false
 		eventShouldFlush = false
 	}
 	sendErrorEvent := func(reason string) {
@@ -402,6 +405,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			eventInProgress = false
 			eventStartsDownstreamOutput = false
 			eventStartsVisibleOutput = false
+			eventStartsTTFT = false
 			eventShouldFlush = false
 		}
 		if stageFirstOutput && eventInProgress {
@@ -726,10 +730,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				semanticOutput = true
 			}
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
+			startsTTFT := openAIStreamDataStartsTTFT(data, eventType, forceFlushFailedEvent, ttftMode)
 			eventStartsSemanticOutput = eventStartsSemanticOutput || semanticOutput
 			eventStartsDownstreamOutput = eventStartsDownstreamOutput || downstreamOutput
 			eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
 			eventStartsVisibleOutput = eventStartsVisibleOutput || startsVisibleOutput
+			eventStartsTTFT = eventStartsTTFT || startsTTFT
 			visibleText := prioritizeFirstVisibleText && !firstVisibleTextFlushed &&
 				openAIStreamDataHasVisibleText(data, eventType)
 			eventStartsVisibleText = eventStartsVisibleText || visibleText
@@ -790,7 +796,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 			// Record first visible output time. Structural progress only disarms
 			// the first-output retry guard; it must not skew TTFT.
-			if !guardFirstOutput && firstTokenMs == nil && startsVisibleOutput {
+			if !guardFirstOutput && firstTokenMs == nil && startsTTFT {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 				stopFirstOutputTimer()
@@ -811,6 +817,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				eventStartsClientOutput = false
 				eventStartsVisibleOutput = false
 				eventStartsVisibleText = false
+				eventStartsTTFT = false
 				eventShouldFlush = false
 				return
 			}
@@ -822,6 +829,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				eventStartsClientOutput = false
 				eventStartsVisibleOutput = false
 				eventStartsVisibleText = false
+				eventStartsTTFT = false
 				eventShouldFlush = false
 				return
 			}
@@ -867,6 +875,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			eventStartsClientOutput = false
 			eventStartsVisibleOutput = false
 			eventStartsVisibleText = false
+			eventStartsTTFT = false
 		}
 		if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 			if _, err := writePendingString(line); err != nil {

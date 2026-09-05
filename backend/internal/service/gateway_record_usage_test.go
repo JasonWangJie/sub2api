@@ -302,7 +302,6 @@ func TestGatewayServiceImageBillingCandidatesPreferSpecificallyPricedTarget(t *t
 		1,
 		1,
 		time.Time{},
-		nil,
 	)
 
 	require.NoError(t, err)

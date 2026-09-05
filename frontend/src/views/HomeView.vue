@@ -139,6 +139,16 @@
             <span class="home-icon-sheen" aria-hidden="true"></span>
             <Icon name="book" size="md" />
           </a>
+          <router-link
+            v-if="showModelPlazaEntry"
+            to="/model-plaza"
+            class="home-icon-button home-model-plaza-link"
+            :title="t('nav.modelPlaza')"
+            :aria-label="t('nav.modelPlaza')"
+          >
+            <Icon name="grid" size="md" />
+            <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
+          </router-link>
           <button
             type="button"
             class="home-icon-button"
