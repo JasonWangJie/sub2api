@@ -610,6 +610,9 @@ type AudioUsage struct {
 
 type ForwardResult struct {
 	RequestID string
+	// UpstreamHeaders are the raw response headers from the upstream request.
+	// They are used to resolve account-configured upstream request identifiers.
+	UpstreamHeaders http.Header
 	Usage     ClaudeUsage
 	Model     string
 	// AccountMappingApplied is true only when an explicit credentials.model_mapping

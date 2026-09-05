@@ -1904,8 +1904,8 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 // handleConcurrencyError handles concurrency-related acquire errors.
 func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
 	markOpsRoutingCapacityLimited(c)
-	status, errType, message := concurrencyErrorResponse(err, slotType)
-	h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+	status, errType, code, message := concurrencyErrorResponse(err, slotType)
+	h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, streamStarted)
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {

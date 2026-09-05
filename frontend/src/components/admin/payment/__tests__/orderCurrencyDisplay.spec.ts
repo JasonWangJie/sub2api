@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import type { PaymentOrder } from '@/types/payment'
 import AdminOrderDetail from '../AdminOrderDetail.vue'
 import AdminOrderTable from '../AdminOrderTable.vue'
+import AdminPaymentDashboardView from '@/views/admin/orders/AdminPaymentDashboardView.vue'
 import AdminRefundDialog from '../AdminRefundDialog.vue'
+import OrderStatsCards from '../OrderStatsCards.vue'
 import OrderTable from '@/components/payment/OrderTable.vue'
+
+const { getDashboard } = vi.hoisted(() => ({
+  getDashboard: vi.fn(),
+}))
+
+vi.mock('@/api/admin/payment', () => ({
+  adminPaymentAPI: {
+    getDashboard,
+  },
+  default: {
+    getDashboard,
+  },
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -52,6 +68,64 @@ function orderFactory(overrides: Partial<PaymentOrder> = {}): PaymentOrder {
 }
 
 describe('admin order currency display', () => {
+  it('renders the payment dashboard with USDT statistics', async () => {
+    getDashboard.mockResolvedValue({
+      data: {
+        today_amount: { USDT: 20 },
+        total_amount: { USDT: 120 },
+        today_count: 1,
+        total_count: 6,
+        avg_amount: { USDT: 20 },
+        daily_series: [],
+        payment_methods: [{ type: 'usdt', amount: { USDT: 20 }, count: 1 }],
+        top_users: { USDT: [{ user_id: 1, email: 'user@example.com', amount: 20 }] },
+      },
+    })
+
+    const wrapper = mount(AdminPaymentDashboardView, {
+      global: {
+        plugins: [createPinia()],
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          DailyRevenueChart: true,
+          Icon: true,
+          LoadingSpinner: true,
+          OrderStatsCards: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('20.00 USDT')
+    expect(wrapper.text()).toContain('user@example.com')
+  })
+
+  it('renders USDT dashboard amounts without throwing an invalid currency error', () => {
+    const wrapper = mount(OrderStatsCards, {
+      props: {
+        stats: {
+          today_amount: { USDT: 20 },
+          total_amount: { USDT: 120 },
+          today_count: 1,
+          total_count: 6,
+          avg_amount: { USDT: 20 },
+          daily_series: [],
+          payment_methods: [],
+          top_users: {},
+        },
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('20.00 USDT')
+    expect(wrapper.text()).toContain('120.00 USDT')
+  })
+
   it('uses order currency for paid/base/fee amounts and USD for credited/refund amounts', () => {
     const wrapper = mount(AdminOrderDetail, {
       props: {

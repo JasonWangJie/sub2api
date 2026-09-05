@@ -44,6 +44,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatPaymentAmount } from '@/components/payment/currency'
 import type { CurrencyAmounts, PaymentMethodStats } from '@/types/payment'
 
 const { t } = useI18n()
@@ -86,6 +87,6 @@ function barWidth(currency: string, amount: number): number {
 }
 
 function formatMoney(currency: string, amount: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  return formatPaymentAmount(amount, currency)
 }
 </script>

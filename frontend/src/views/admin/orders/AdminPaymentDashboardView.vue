@@ -76,6 +76,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminPaymentAPI } from '@/api/admin/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
+import { formatPaymentAmount } from '@/components/payment/currency'
 import type { CurrencyAmounts, DashboardStats, TopUserPaymentStats } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -121,7 +122,7 @@ function hasTopUsers(usersByCurrency: Record<string, TopUserPaymentStats[]>): bo
 }
 
 function formatMoney(currency: string, amount: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  return formatPaymentAmount(amount, currency)
 }
 
 async function loadDashboard() {

@@ -360,10 +360,6 @@ func TestEstimateOpenAIInputTokens_CompareWithOpenAIAPI(t *testing.T) {
 					errors.As(err, &netErr) {
 					t.Skipf("OpenAI live comparison unavailable: %v", err)
 				}
-				var netErr net.Error
-				if errors.As(err, &netErr) {
-					t.Skipf("OpenAI live API unavailable: %v", err)
-				}
 				require.NoError(t, err)
 			}
 

@@ -87,6 +87,16 @@ func TestAccountGetModelMappingPercentForModelInvalidEntriesFallbackToUnifiedPer
 	require.Equal(t, 25, account.GetModelMappingPercentForModel("other-model"))
 }
 
+func TestAccountGetModelMappingPercentForModelInvalidExactEntryDoesNotFallThroughToWildcard(t *testing.T) {
+	account := modelMappingRolloutTestAccount(12, 37)
+	account.Credentials[ModelMappingPercentByModelCredentialKey] = map[string]any{
+		"model-a": "invalid",
+		"model-*": 25,
+	}
+
+	require.Equal(t, 37, account.GetModelMappingPercentForModel("model-a"))
+}
+
 func TestAccountGetModelMappingPercentForModelUsesNormalizedExplicitSourceRule(t *testing.T) {
 	account := &Account{
 		ID:       9,

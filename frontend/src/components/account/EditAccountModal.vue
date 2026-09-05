@@ -5514,6 +5514,23 @@ const handleSubmit = async () => {
       )
     }
 
+    // Only write the upstream request ID header when it changed, so opening
+    // the modal cannot overwrite runtime updates made after the account load.
+    const nextUpstreamRequestIdHeader = upstreamRequestIdHeader.value.trim()
+    if (nextUpstreamRequestIdHeader !== readUpstreamRequestIdHeader(props.account.extra)) {
+      const currentExtra =
+        (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) ||
+        {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (nextUpstreamRequestIdHeader) {
+        newExtra.upstream_request_id_header = nextUpstreamRequestIdHeader
+      } else {
+        delete newExtra.upstream_request_id_header
+      }
+      updatePayload.extra = newExtra
+    }
+
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       await submitUpdateAccount(accountID, updatePayload)
     })

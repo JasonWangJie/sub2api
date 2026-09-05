@@ -69,6 +69,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { formatPaymentAmount } from '@/components/payment/currency'
 import type { CurrencyAmounts, DashboardStats } from '@/types/payment'
 
 const { t } = useI18n()
@@ -82,6 +83,6 @@ function sortedAmounts(amounts: CurrencyAmounts): [string, number][] {
 }
 
 function formatMoney(currency: string, amount: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  return formatPaymentAmount(amount, currency)
 }
 </script>

@@ -143,6 +143,15 @@ func (a *Account) GetModelMappingPercentForModel(sourceModel string) int {
 	if model == "" {
 		return a.GetModelMappingPercent()
 	}
+	// Preserve the mapping resolver's exact-key precedence even when the
+	// exact percentage is malformed. A dirty exact entry must fall back to
+	// the account-wide default rather than silently selecting a wildcard rule.
+	if modelMappingPercentKeyPresent(values, model) {
+		if percent, ok := lookup(model); ok {
+			return percent
+		}
+		return a.GetModelMappingPercent()
+	}
 	if percent, ok := lookup(model); ok {
 		return percent
 	}
@@ -158,6 +167,22 @@ func (a *Account) GetModelMappingPercentForModel(sourceModel string) int {
 		}
 	}
 	return a.GetModelMappingPercent()
+}
+
+func modelMappingPercentKeyPresent(raw any, key string) bool {
+	switch values := raw.(type) {
+	case map[string]any:
+		_, ok := values[key]
+		return ok
+	case map[string]int:
+		_, ok := values[key]
+		return ok
+	case map[string]float64:
+		_, ok := values[key]
+		return ok
+	default:
+		return false
+	}
 }
 
 func rangeModelMappingPercentKeys(raw any) map[string]int {
