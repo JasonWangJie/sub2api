@@ -19,7 +19,7 @@ import (
 
 func TestUsageLogSelectColumnsMatchScanContract(t *testing.T) {
 	columns := strings.Split(usageLogSelectColumns, ", ")
-	require.Equal(t, 62, len(columns))
+	require.Equal(t, 63, len(columns))
 
 	findColumn := func(name string) int {
 		for i, column := range columns {
@@ -122,6 +122,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
 			1.0,              // billing_charge_multiplier defaults to 1
+			false,            // native_compaction_v2
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -216,6 +217,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // account_stats_cost
 			sqlmock.AnyArg(), // session_id
 			1.0,              // billing_charge_multiplier defaults to 1
+			false,            // native_compaction_v2
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -978,6 +980,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullFloat64{},
 			sql.NullString{},
 			1.0,
+			false, // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -1057,6 +1060,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
 			1.0,               // billing_charge_multiplier
+			false,             // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -1119,6 +1123,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
 			1.0,               // billing_charge_multiplier
+			true,              // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)
@@ -1182,6 +1187,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullFloat64{}, // account_stats_cost
 			sql.NullString{},  // session_id
 			1.0,               // billing_charge_multiplier
+			false,             // native_compaction_v2
 			now,
 		}})
 		require.NoError(t, err)

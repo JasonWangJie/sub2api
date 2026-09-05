@@ -1020,6 +1020,13 @@ func parseUserUsageLatencyDivisor(raw string) float64 {
 	return value
 }
 
+func normalizeOpenAITTFTMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), OpenAITTFTModeVisible) {
+		return OpenAITTFTModeVisible
+	}
+	return OpenAITTFTModeSemantic
+}
+
 func ValidateUserUsageLatencyDivisor(value float64) error {
 	if math.IsNaN(value) || math.IsInf(value, 0) ||
 		value < UserUsageLatencyDivisorMin || value > UserUsageLatencyDivisorMax {
