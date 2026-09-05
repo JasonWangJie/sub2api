@@ -469,6 +469,8 @@ func grokSSOImportCredentials(built map[string]any, reqCredentials map[string]an
 	// (password / sso_token / cookie / etc.) into stored credentials.
 	allowedReqKeys := map[string]struct{}{
 		"base_url": {}, "model_mapping": {},
+		service.ModelMappingPercentCredentialKey:        {},
+		service.ModelMappingPercentByModelCredentialKey: {},
 		"header_override": {}, "header_overrides": {}, "header_override_enabled": {},
 		"custom_headers": {},
 	}

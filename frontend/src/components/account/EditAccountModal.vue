@@ -308,6 +308,7 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -727,6 +728,7 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -957,6 +959,7 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -1134,6 +1137,7 @@
               <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
               <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
+              <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
               <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
                 <Icon name="trash" size="sm" />
               </button>
@@ -1292,6 +1296,7 @@
                   ]"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeAntigravityModelMapping(index)"
@@ -2974,6 +2979,8 @@ import {
   applyHeaderOverride,
   applyInterceptWarmup,
   applyModelMappingPercent,
+  applyModelMappingPercentByModel,
+  areModelMappingPercentsValid,
   applyPlanType,
   buildPlanTypeOptions,
   readPlanType,
@@ -3016,6 +3023,7 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  buildModelMappingPercentByModelObject,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3066,6 +3074,7 @@ const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
 interface ModelMapping {
   from: string
   to: string
+  percent?: number | null
 }
 
 interface TempUnschedRuleForm {
@@ -3736,8 +3745,11 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
-  const parsed = splitModelMappingObject(rawMapping)
+const loadModelRestrictionFromMapping = (
+  rawMapping?: Record<string, unknown>,
+  percentByModel?: Record<string, unknown>
+) => {
+  const parsed = splitModelMappingObject(rawMapping, percentByModel)
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
@@ -3972,8 +3984,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const rawAgMapping = credentials?.model_mapping as Record<string, string> | undefined
     if (rawAgMapping && typeof rawAgMapping === 'object') {
       const entries = Object.entries(rawAgMapping)
+      const percentByModel = credentials?.model_mapping_percent_by_model as Record<string, unknown> | undefined
       // 无论是白名单样式(key===value)还是真正的映射，都统一转换为映射列表
-      antigravityModelMappings.value = entries.map(([from, to]) => ({ from, to }))
+      antigravityModelMappings.value = entries.map(([from, to]) => {
+        const percent = typeof percentByModel?.[from] === 'number' && Number.isInteger(percentByModel[from]) && percentByModel[from] >= 0 && percentByModel[from] <= 100
+          ? percentByModel[from] as number
+          : undefined
+        return percent == null ? { from, to } : { from, to, percent }
+      })
     } else {
       // 兼容旧数据：从 model_whitelist 读取，转换为映射格式
       const rawWhitelist = credentials?.model_whitelist
@@ -4100,7 +4118,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       : (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      credentials.model_mapping as Record<string, unknown> | undefined,
+      credentials.model_mapping_percent_by_model as Record<string, unknown> | undefined
+    )
 
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true
@@ -4147,7 +4168,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadQuotaNotifyFromExtra(bedrockExtra)
 
     // Load model mappings for bedrock
-    loadModelRestrictionFromMapping(bedrockCreds.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      bedrockCreds.model_mapping as Record<string, unknown> | undefined,
+      bedrockCreds.model_mapping_percent_by_model as Record<string, unknown> | undefined
+    )
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
@@ -4158,7 +4182,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
 
     // Load model mappings for service_account
-    loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+    loadModelRestrictionFromMapping(
+      credentials.model_mapping as Record<string, unknown> | undefined,
+      credentials.model_mapping_percent_by_model as Record<string, unknown> | undefined
+    )
   } else {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
@@ -4173,7 +4200,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     // Load model mappings for OpenAI/Grok OAuth accounts
     if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
-      loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
+      loadModelRestrictionFromMapping(
+        oauthCredentials.model_mapping as Record<string, unknown> | undefined,
+        oauthCredentials.model_mapping_percent_by_model as Record<string, unknown> | undefined
+      )
     } else {
       modelRestrictionMode.value = 'whitelist'
       modelMappings.value = []
@@ -4214,6 +4244,11 @@ watch(
 // Model mapping helpers
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
+}
+
+const updateModelMappingPercent = (mapping: ModelMapping, event: Event) => {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  mapping.percent = raw === '' ? undefined : Number(raw)
 }
 
 const removeModelMapping = (index: number) => {
@@ -4737,6 +4772,10 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   if (!props.account) return
+  if (!areModelMappingPercentsValid([...modelMappings.value, ...antigravityModelMappings.value])) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   if (
     (modelRestrictionMode.value === 'mapping' || props.account.platform === 'antigravity') &&
     !isValidModelMappingPercent(modelMappingPercent.value)
@@ -5465,6 +5504,14 @@ const handleSubmit = async () => {
         appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
         return
       }
+      applyModelMappingPercentByModel(
+        credentials,
+        buildModelMappingPercentByModelObject([
+          ...modelMappings.value,
+          ...antigravityModelMappings.value
+        ]),
+        'replace'
+      )
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	ModelMappingPercentCredentialKey = "model_mapping_percent"
-	DefaultModelMappingPercent       = 100
-	modelMappingRolloutBuckets       = 10_000
+	ModelMappingPercentCredentialKey        = "model_mapping_percent"
+	ModelMappingPercentByModelCredentialKey = "model_mapping_percent_by_model"
+	DefaultModelMappingPercent              = 100
+	modelMappingRolloutBuckets              = 10_000
 )
 
 var modelMappingRolloutHashSeed = maphash.MakeSeed()
@@ -40,14 +41,56 @@ func ValidateModelMappingPercentCredentials(credentials map[string]any) error {
 		return nil
 	}
 	raw, exists := credentials[ModelMappingPercentCredentialKey]
-	if !exists {
-		return nil
+	if exists {
+		if _, ok := parseModelMappingPercent(raw); !ok {
+			return infraerrors.New(http.StatusBadRequest, "INVALID_MODEL_MAPPING_PERCENT",
+				"model_mapping_percent must be an integer between 0 and 100")
+		}
 	}
-	if _, ok := parseModelMappingPercent(raw); !ok {
-		return infraerrors.New(http.StatusBadRequest, "INVALID_MODEL_MAPPING_PERCENT",
-			"model_mapping_percent must be an integer between 0 and 100")
+	if rawByModel, exists := credentials[ModelMappingPercentByModelCredentialKey]; exists {
+		if !validateModelMappingPercentByModel(rawByModel) {
+			return infraerrors.New(http.StatusBadRequest, "INVALID_MODEL_MAPPING_PERCENT_BY_MODEL",
+				"model_mapping_percent_by_model must contain integer percentages between 0 and 100")
+		}
 	}
 	return nil
+}
+
+func validateModelMappingPercentByModel(raw any) bool {
+	switch values := raw.(type) {
+	case map[string]any:
+		for key, value := range values {
+			if strings.TrimSpace(key) == "" {
+				return false
+			}
+			if _, ok := parseModelMappingPercent(value); !ok {
+				return false
+			}
+		}
+		return true
+	case map[string]int:
+		for key, value := range values {
+			if strings.TrimSpace(key) == "" {
+				return false
+			}
+			if _, ok := parseModelMappingPercent(value); !ok {
+				return false
+			}
+		}
+		return true
+	case map[string]float64:
+		for key, value := range values {
+			if strings.TrimSpace(key) == "" {
+				return false
+			}
+			if _, ok := parseModelMappingPercent(value); !ok {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // GetModelMappingPercent returns the account-wide rollout percentage for
@@ -62,6 +105,78 @@ func (a *Account) GetModelMappingPercent() int {
 		return DefaultModelMappingPercent
 	}
 	return percent
+}
+
+// GetModelMappingPercentForModel returns the rule-specific rollout percentage
+// when configured. Exact source-model keys win; otherwise the longest matching
+// wildcard key is used. Invalid or missing entries fall back to the legacy
+// account-wide percentage.
+func (a *Account) GetModelMappingPercentForModel(sourceModel string) int {
+	if a == nil || a.Credentials == nil {
+		return DefaultModelMappingPercent
+	}
+	values := a.Credentials[ModelMappingPercentByModelCredentialKey]
+	if values == nil {
+		return a.GetModelMappingPercent()
+	}
+	lookup := func(key string) (int, bool) {
+		var raw any
+		switch typed := values.(type) {
+		case map[string]any:
+			raw, _ = typed[key]
+		case map[string]int:
+			if value, ok := typed[key]; ok {
+				raw = value
+			}
+		case map[string]float64:
+			if value, ok := typed[key]; ok {
+				raw = value
+			}
+		default:
+			return 0, false
+		}
+		percent, ok := parseModelMappingPercent(raw)
+		return percent, ok
+	}
+
+	model := strings.TrimSpace(sourceModel)
+	if model == "" {
+		return a.GetModelMappingPercent()
+	}
+	if percent, ok := lookup(model); ok {
+		return percent
+	}
+	bestPattern := ""
+	for pattern := range rangeModelMappingPercentKeys(values) {
+		if matchWildcard(pattern, model) && (bestPattern == "" || len(pattern) > len(bestPattern) || (len(pattern) == len(bestPattern) && pattern < bestPattern)) {
+			bestPattern = pattern
+		}
+	}
+	if bestPattern != "" {
+		if percent, ok := lookup(bestPattern); ok {
+			return percent
+		}
+	}
+	return a.GetModelMappingPercent()
+}
+
+func rangeModelMappingPercentKeys(raw any) map[string]int {
+	keys := make(map[string]int)
+	switch values := raw.(type) {
+	case map[string]any:
+		for key := range values {
+			keys[key] = 0
+		}
+	case map[string]int:
+		for key := range values {
+			keys[key] = 0
+		}
+	case map[string]float64:
+		for key := range values {
+			keys[key] = 0
+		}
+	}
+	return keys
 }
 
 func parseModelMappingPercent(raw any) (int, bool) {
@@ -123,7 +238,7 @@ func parseModelMappingPercent(raw any) (int, bool) {
 // matched remains true when a rule is rolled out to the original model so
 // lower-priority mapping fallbacks cannot silently replace the chosen branch.
 func (a *Account) ResolveMappedModelForRequest(ctx context.Context, requestedModel string) (mappedModel string, matched bool) {
-	if a == nil || a.GetModelMappingPercent() >= DefaultModelMappingPercent {
+	if a == nil || (a.GetModelMappingPercent() >= DefaultModelMappingPercent && !a.hasModelMappingPercentByModel()) {
 		if a == nil {
 			return requestedModel, false
 		}
@@ -131,6 +246,22 @@ func (a *Account) ResolveMappedModelForRequest(ctx context.Context, requestedMod
 	}
 	resolution := a.ResolveMappedModelDetailedForRequest(ctx, requestedModel)
 	return resolution.Model, resolution.ExplicitMatched || resolution.EffectiveMatched
+}
+
+func (a *Account) hasModelMappingPercentByModel() bool {
+	if a == nil || a.Credentials == nil {
+		return false
+	}
+	switch values := a.Credentials[ModelMappingPercentByModelCredentialKey].(type) {
+	case map[string]any:
+		return len(values) > 0
+	case map[string]int:
+		return len(values) > 0
+	case map[string]float64:
+		return len(values) > 0
+	default:
+		return false
+	}
 }
 
 func (a *Account) GetMappedModelForRequest(ctx context.Context, requestedModel string) string {
@@ -146,7 +277,9 @@ func (a *Account) ResolveMappedModelDetailedForRequest(ctx context.Context, requ
 	if a == nil || !resolution.ExplicitChanged {
 		return resolution
 	}
-	percent := a.GetModelMappingPercent()
+	// Use the actual source rule key so normalized requests and wildcard rules
+	// select the same per-model percentage as the corresponding mapping entry.
+	percent := a.GetModelMappingPercentForModel(resolution.ExplicitSource)
 	if percent >= DefaultModelMappingPercent {
 		return resolution
 	}

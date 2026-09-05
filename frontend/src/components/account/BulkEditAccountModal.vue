@@ -411,6 +411,7 @@
                     class="input flex-1"
                     :placeholder="t('admin.accounts.actualModel')"
                   />
+                  <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                   <button
                     type="button"
                     class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
@@ -1500,12 +1501,15 @@ import ModelMappingPercentField from '@/components/account/ModelMappingPercentFi
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
+  buildModelMappingPercentByModelObject,
   getPresetMappingsByPlatform
 } from '@/composables/useModelWhitelist'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
   buildHeaderOverridesObject,
   applyModelMappingPercent,
+  applyModelMappingPercentByModel,
+  areModelMappingPercentsValid,
   isHeaderOverrideCapable,
   isValidModelMappingPercent,
   validateHeaderOverrideRows,
@@ -1649,6 +1653,7 @@ const filteredPresets = computed(() => {
 interface ModelMapping {
   from: string
   to: string
+  percent?: number | null
 }
 
 // State - field enable flags
@@ -1842,6 +1847,11 @@ const openAIAPIKeyWSModeConcurrencyHintKey = computed(() =>
 // Model mapping helpers
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
+}
+
+const updateModelMappingPercent = (mapping: ModelMapping, event: Event) => {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  mapping.percent = raw === '' ? undefined : Number(raw)
 }
 
 const removeModelMapping = (index: number) => {
@@ -2041,6 +2051,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'bulk-merge')) {
       return null
     }
+    applyModelMappingPercentByModel(
+      credentials,
+      buildModelMappingPercentByModelObject(modelMappings.value),
+      'bulk-merge'
+    )
   }
 
   if (enableCustomErrorCodes.value) {
@@ -2205,6 +2220,10 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
 }
 
 const handleSubmit = async () => {
+  if (!areModelMappingPercentsValid(modelMappings.value)) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   if (
     enableModelRestriction.value &&
     modelRestrictionMode.value === 'mapping' &&

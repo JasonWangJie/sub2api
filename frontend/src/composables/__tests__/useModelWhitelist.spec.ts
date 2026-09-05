@@ -4,7 +4,13 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import {
+  buildModelMappingObject,
+  buildModelMappingPercentByModelObject,
+  getModelsByPlatform,
+  getPresetMappingsByPlatform,
+  splitModelMappingObject
+} from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -166,5 +172,36 @@ describe('useModelWhitelist', () => {
       allowedModels: ['gpt-5.4'],
       modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }]
     })
+  })
+
+  it('splitModelMappingObject only materializes explicitly configured percentages', () => {
+    expect(
+      splitModelMappingObject(
+        { 'model-a': 'model-b', 'model-*': 'model-c', identity: 'identity' },
+        { 'model-a': 0, 'model-*': 75 }
+      )
+    ).toEqual({
+      allowedModels: ['identity'],
+      modelMappings: [
+        { from: 'model-a', to: 'model-b', percent: 0 },
+        { from: 'model-*', to: 'model-c', percent: 75 }
+      ]
+    })
+
+    expect(
+      splitModelMappingObject({ source: 'target' }, { source: '50' as unknown as number })
+    ).toEqual({ allowedModels: [], modelMappings: [{ from: 'source', to: 'target' }] })
+  })
+
+  it('buildModelMappingPercentByModelObject skips identity and invalid mapping rows', () => {
+    expect(
+      buildModelMappingPercentByModelObject([
+        { from: 'source', to: 'target', percent: 0 },
+        { from: 'identity', to: 'identity', percent: 25 },
+        { from: 'bad**', to: 'target', percent: 50 },
+        { from: 'source-2', to: 'target*', percent: 75 },
+        { from: 'missing', to: 'target' }
+      ])
+    ).toEqual({ source: 0 })
   })
 })

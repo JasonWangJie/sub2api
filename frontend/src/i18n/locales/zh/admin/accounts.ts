@@ -829,7 +829,7 @@ export default {
       modelWhitelist: '模型白名单',
       modelMapping: '模型映射',
       modelMappingPercent: '映射流量占比',
-      modelMappingPercentHint: '命中映射规则后，按此请求流量占比使用目标模型；其余请求使用原模型。不是计费折扣。',
+      modelMappingPercentHint: '未单独设置模型比例时，命中映射规则按此请求流量占比使用目标模型；其余请求使用原模型。不是计费折扣。',
       modelMappingPercentInvalid: '请输入 0 到 100 之间的整数',
       selectAllowedModels: '选择允许的模型。留空则支持所有模型。',
       mapRequestModels:

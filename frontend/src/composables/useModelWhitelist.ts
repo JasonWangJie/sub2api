@@ -480,10 +480,12 @@ export type ModelRestrictionMode = 'whitelist' | 'mapping' | 'combined'
 export interface ModelMappingEntry {
   from: string
   to: string
+  percent?: number | null
 }
 
 export function splitModelMappingObject(
-  modelMapping?: Record<string, unknown> | null
+  modelMapping?: Record<string, unknown> | null,
+  modelMappingPercentByModel?: Record<string, unknown> | null
 ): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {
   const allowedModels: string[] = []
   const modelMappings: ModelMappingEntry[] = []
@@ -501,11 +503,41 @@ export function splitModelMappingObject(
     if (from === to) {
       allowedModels.push(from)
     } else {
-      modelMappings.push({ from, to })
+      const rawPercent = modelMappingPercentByModel?.[rawFrom] ?? modelMappingPercentByModel?.[from]
+      const hasExplicitPercent =
+        typeof rawPercent === 'number' &&
+        Number.isInteger(rawPercent) &&
+        rawPercent >= 0 &&
+        rawPercent <= 100
+      modelMappings.push(
+        hasExplicitPercent ? { from, to, percent: rawPercent } : { from, to }
+      )
     }
   }
 
   return { allowedModels, modelMappings }
+}
+
+export function buildModelMappingPercentByModelObject(
+  modelMappings: ModelMappingEntry[]
+): Record<string, number> | null {
+  const result: Record<string, number> = {}
+  for (const mapping of modelMappings) {
+    const from = mapping.from.trim()
+    const to = mapping.to.trim()
+    if (!from || !to || from === to) continue
+    const percent = mapping.percent
+    if (
+      !isValidWildcardPattern(from) ||
+      to.includes('*') ||
+      typeof percent !== 'number' ||
+      !Number.isInteger(percent) ||
+      percent < 0 ||
+      percent > 100
+    ) continue
+    result[from] = percent
+  }
+  return Object.keys(result).length > 0 ? result : null
 }
 
 export function buildModelMappingObject(

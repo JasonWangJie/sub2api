@@ -326,9 +326,11 @@ func TestGrokSSOImportCredentialsPreservesRequestedBaseURL(t *testing.T) {
 		"base_url":     xai.DefaultCLIBaseURL,
 	}
 	reqCredentials := map[string]any{
-		"base_url":                "https://relay.example.com/v1",
-		"header_override_enabled": true,
-		"header_overrides":        map[string]any{"x-relay-key": "k"},
+		"base_url":                                      "https://relay.example.com/v1",
+		service.ModelMappingPercentCredentialKey:        35,
+		service.ModelMappingPercentByModelCredentialKey: map[string]any{"grok-alias": 0},
+		"header_override_enabled":                       true,
+		"header_overrides":                              map[string]any{"x-relay-key": "k"},
 	}
 
 	credentials := grokSSOImportCredentials(built, reqCredentials)
@@ -338,6 +340,8 @@ func TestGrokSSOImportCredentialsPreservesRequestedBaseURL(t *testing.T) {
 	require.Equal(t, "https://relay.example.com/v1", credentials["base_url"])
 	require.Equal(t, true, credentials["header_override_enabled"])
 	require.Equal(t, map[string]any{"x-relay-key": "k"}, credentials["header_overrides"])
+	require.Equal(t, 35, credentials[service.ModelMappingPercentCredentialKey])
+	require.Equal(t, map[string]any{"grok-alias": 0}, credentials[service.ModelMappingPercentByModelCredentialKey])
 	// 入参不被污染（req.Credentials 会被多个 worker 并发读取）
 	require.Equal(t, "https://relay.example.com/v1", reqCredentials["base_url"])
 }

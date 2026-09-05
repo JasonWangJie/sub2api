@@ -163,7 +163,8 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       credentials: {
         model_mapping: {},
-        model_mapping_percent: 100
+        model_mapping_percent: 100,
+        model_mapping_percent_by_model: {}
       }
     })
   })
@@ -193,7 +194,8 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       credentials: {
         model_mapping: { 'model-a': 'model-b' },
-        model_mapping_percent: 0
+        model_mapping_percent: 0,
+        model_mapping_percent_by_model: {}
       }
     })
   })

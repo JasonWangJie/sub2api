@@ -60,6 +60,97 @@ func TestAccountGetModelMappingPercentDefaultsInvalidLegacyValues(t *testing.T) 
 	require.Equal(t, 0, (&Account{Credentials: map[string]any{ModelMappingPercentCredentialKey: float64(0)}}).GetModelMappingPercent())
 }
 
+func TestAccountGetModelMappingPercentForModelUsesExactAndLongestWildcardRules(t *testing.T) {
+	account := modelMappingRolloutTestAccount(7, 33)
+	account.Credentials[ModelMappingPercentByModelCredentialKey] = map[string]any{
+		"model-*":     float64(20),
+		"model-long*": json.Number("70"),
+		"model-a":     0,
+	}
+
+	require.Equal(t, 0, account.GetModelMappingPercentForModel("model-a"))
+	require.Equal(t, 70, account.GetModelMappingPercentForModel("model-longer"))
+	require.Equal(t, 20, account.GetModelMappingPercentForModel("model-other"))
+	require.Equal(t, 33, account.GetModelMappingPercentForModel("unlisted"))
+}
+
+func TestAccountGetModelMappingPercentForModelInvalidEntriesFallbackToUnifiedPercent(t *testing.T) {
+	account := modelMappingRolloutTestAccount(8, 41)
+	account.Credentials[ModelMappingPercentByModelCredentialKey] = map[string]any{
+		"model-a": "50",
+		"model-*": 101,
+		"other-*": 25,
+	}
+
+	require.Equal(t, 41, account.GetModelMappingPercentForModel("model-a"))
+	require.Equal(t, 41, account.GetModelMappingPercentForModel("model-other"))
+	require.Equal(t, 25, account.GetModelMappingPercentForModel("other-model"))
+}
+
+func TestAccountGetModelMappingPercentForModelUsesNormalizedExplicitSourceRule(t *testing.T) {
+	account := &Account{
+		ID:       9,
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gemini-3.1-pro-preview": "mapped-gemini",
+			},
+			ModelMappingPercentCredentialKey: 100,
+			ModelMappingPercentByModelCredentialKey: map[string]any{
+				"gemini-3.1-pro-preview": 0,
+			},
+		},
+	}
+
+	resolution := account.ResolveMappedModelDetailedForRequest(
+		modelMappingRolloutTestContext("normalized-source"),
+		"gemini-3.1-pro-preview-customtools",
+	)
+	require.Equal(t, "gemini-3.1-pro-preview-customtools", resolution.Model)
+	require.True(t, resolution.ExplicitMatched)
+	require.False(t, resolution.ExplicitChanged)
+}
+
+func TestAccountResolveMappedModelForRequestUsesPerModelPercentage(t *testing.T) {
+	zero := modelMappingRolloutTestAccount(10, 100)
+	zero.Credentials[ModelMappingPercentByModelCredentialKey] = map[string]any{"model-a": 0}
+	model, matched := zero.ResolveMappedModelForRequest(modelMappingRolloutTestContext("per-model-zero"), "model-a")
+	require.Equal(t, "model-a", model)
+	require.True(t, matched)
+
+	hundred := modelMappingRolloutTestAccount(11, 0)
+	hundred.Credentials[ModelMappingPercentByModelCredentialKey] = map[string]any{"model-a": 100}
+	model, matched = hundred.ResolveMappedModelForRequest(modelMappingRolloutTestContext("per-model-hundred"), "model-a")
+	require.Equal(t, "mapped-a", model)
+	require.True(t, matched)
+}
+
+func TestValidateModelMappingPercentByModelCredentials(t *testing.T) {
+	valid := map[string]any{
+		ModelMappingPercentByModelCredentialKey: map[string]any{
+			"model-a": 0,
+			"model-*": json.Number("100"),
+		},
+	}
+	require.NoError(t, ValidateModelMappingPercentCredentials(valid))
+
+	invalidCases := []map[string]any{
+		{ModelMappingPercentByModelCredentialKey: map[string]any{"": 50}},
+		{ModelMappingPercentByModelCredentialKey: map[string]any{"model-a": "50"}},
+		{ModelMappingPercentByModelCredentialKey: map[string]any{"model-a": 100.5}},
+		{ModelMappingPercentByModelCredentialKey: []any{"model-a", 50}},
+	}
+	for index, credentials := range invalidCases {
+		t.Run(fmt.Sprintf("invalid_%d", index), func(t *testing.T) {
+			err := ValidateModelMappingPercentCredentials(credentials)
+			require.Error(t, err)
+			require.Equal(t, 400, infraerrors.Code(err))
+			require.Equal(t, "INVALID_MODEL_MAPPING_PERCENT_BY_MODEL", infraerrors.Reason(err))
+		})
+	}
+}
+
 func TestAccountResolveMappedModelForRequestBoundariesAndRules(t *testing.T) {
 	ctx := modelMappingRolloutTestContext("rollout-boundaries")
 

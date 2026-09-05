@@ -11,6 +11,7 @@ export function applyInterceptWarmup(
 }
 
 export const MODEL_MAPPING_PERCENT_CREDENTIAL_KEY = 'model_mapping_percent'
+export const MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY = 'model_mapping_percent_by_model'
 export const DEFAULT_MODEL_MAPPING_PERCENT = 100
 
 export function isValidModelMappingPercent(value: unknown): value is number {
@@ -20,6 +21,14 @@ export function isValidModelMappingPercent(value: unknown): value is number {
     Number.isInteger(value) &&
     value >= 0 &&
     value <= DEFAULT_MODEL_MAPPING_PERCENT
+  )
+}
+
+export function areModelMappingPercentsValid(
+  mappings: Array<{ percent?: unknown }>
+): boolean {
+  return mappings.every(
+    ({ percent }) => percent == null || isValidModelMappingPercent(percent)
   )
 }
 
@@ -56,6 +65,27 @@ export function applyModelMappingPercent(
     delete credentials[MODEL_MAPPING_PERCENT_CREDENTIAL_KEY]
   }
   return true
+}
+
+export function applyModelMappingPercentByModel(
+  credentials: Record<string, unknown>,
+  percentByModel: Record<string, number> | null | undefined,
+  mode: 'replace' | 'bulk-merge'
+): void {
+  const hasEffectiveMapping =
+    credentials.model_mapping &&
+    typeof credentials.model_mapping === 'object' &&
+    !Array.isArray(credentials.model_mapping) &&
+    Object.entries(credentials.model_mapping as Record<string, unknown>).some(
+      ([source, target]) => typeof target === 'string' && source.trim() !== target.trim()
+    )
+  if (hasEffectiveMapping && percentByModel && Object.keys(percentByModel).length > 0) {
+    credentials[MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY] = percentByModel
+  } else if (mode === 'bulk-merge') {
+    credentials[MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY] = {}
+  } else if (mode === 'replace') {
+    delete credentials[MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY]
+  }
 }
 
 export const ANTIGRAVITY_PROJECT_ID_CREDENTIAL_KEY = 'antigravity_project_id'

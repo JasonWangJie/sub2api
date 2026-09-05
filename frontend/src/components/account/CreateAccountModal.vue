@@ -1206,6 +1206,7 @@
                   ]"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeAntigravityModelMapping(index)"
@@ -1518,6 +1519,7 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -1960,6 +1962,7 @@
               <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
               <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
+              <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
               <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
                 <Icon name="trash" size="sm" />
               </button>
@@ -2340,6 +2343,7 @@
                   class="input flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
+                <input :value="mapping.percent ?? modelMappingPercent" @input="updateModelMappingPercent(mapping, $event)" type="number" min="0" max="100" step="1" class="input w-20" placeholder="%" aria-label="Mapping traffic percent" />
                 <button
                   type="button"
                   @click="removeModelMapping(index)"
@@ -3842,6 +3846,7 @@ import {
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  buildModelMappingPercentByModelObject,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3892,6 +3897,8 @@ import {
   applyHeaderOverride,
   applyInterceptWarmup,
   applyModelMappingPercent,
+  applyModelMappingPercentByModel,
+  areModelMappingPercentsValid,
   cnSupportsNativeResponses,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
@@ -4073,6 +4080,7 @@ const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 interface ModelMapping {
   from: string
   to: string
+  percent?: number | null
 }
 
 interface TempUnschedRuleForm {
@@ -4885,6 +4893,11 @@ const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
 }
 
+const updateModelMappingPercent = (mapping: ModelMapping, event: Event) => {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  mapping.percent = raw === '' ? undefined : Number(raw)
+}
+
 const addOpenAICompactModelMapping = () => {
   openAICompactModelMappings.value.push({ from: '', to: '' })
 }
@@ -5132,9 +5145,51 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 }
 
+const applyCurrentModelMappingCredentials = (
+  credentials: Record<string, unknown>,
+  platform: AccountPlatform = form.platform
+): boolean => {
+  const openAIPassthrough = platform === 'openai' && isOpenAIModelRestrictionDisabled.value
+  const mappingRows = platform === 'antigravity'
+    ? antigravityModelMappings.value
+    : modelMappings.value
+
+  // Rebuild the ordinary model_mapping from the same form state used by the
+  // direct create path. OAuth/import paths also pass through this helper so
+  // every account creation entry persists identical mapping metadata.
+  if (!openAIPassthrough) {
+    const modelMapping = platform === 'antigravity'
+      ? buildModelMappingObject('mapping', [], antigravityModelMappings.value)
+      : buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    } else {
+      delete credentials.model_mapping
+    }
+  }
+
+  if (openAIPassthrough) {
+    delete credentials.model_mapping_percent
+    delete credentials.model_mapping_percent_by_model
+    return true
+  }
+  if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'replace')) {
+    return false
+  }
+  applyModelMappingPercentByModel(
+    credentials,
+    buildModelMappingPercentByModelObject(mappingRows),
+    'replace'
+  )
+  return true
+}
+
+const applyMappingPercentCredentials = (credentials: Record<string, unknown>): boolean =>
+  applyCurrentModelMappingCredentials(credentials)
+
 const createAccountWithMappingPercent = (payload: CreateAccountRequest) => {
   const credentials = { ...((payload.credentials as Record<string, unknown> | undefined) || {}) }
-  if (!applyModelMappingPercent(credentials, modelMappingPercent.value, 'replace')) {
+  if (!applyCurrentModelMappingCredentials(credentials, payload.platform)) {
     throw new Error(t('admin.accounts.modelMappingPercentInvalid'))
   }
   return adminAPI.accounts.create({ ...payload, credentials })
@@ -5507,6 +5562,10 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (!areModelMappingPercentsValid([...modelMappings.value, ...antigravityModelMappings.value])) {
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   if (
     (modelRestrictionMode.value === 'mapping' || form.platform === 'antigravity') &&
     !isValidModelMappingPercent(modelMappingPercent.value)
@@ -6006,6 +6065,11 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
+  if (!applyMappingPercentCredentials(credentials)) {
+    grokOAuth.loading.value = false
+    appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
+    return
+  }
   if (!applyTempUnschedConfig(credentials)) {
     grokOAuth.loading.value = false
     return
@@ -6115,6 +6179,9 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
         )
         if (modelMapping) {
           credentials.model_mapping = modelMapping
+        }
+        if (!applyMappingPercentCredentials(credentials)) {
+          throw new Error(t('admin.accounts.modelMappingPercentInvalid'))
         }
         if (!applyTempUnschedConfig(credentials)) {
           return
@@ -6273,6 +6340,14 @@ const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | nul
     appStore.showError(t('admin.accounts.modelMappingPercentInvalid'))
     return null
   }
+  applyModelMappingPercentByModel(
+    credentials,
+    buildModelMappingPercentByModelObject([
+      ...modelMappings.value,
+      ...antigravityModelMappings.value
+    ]),
+    'replace'
+  )
   return credentials
 }
 

@@ -7,6 +7,8 @@ import {
   applyHeaderOverride,
   applyInterceptWarmup,
   applyModelMappingPercent,
+  applyModelMappingPercentByModel,
+  areModelMappingPercentsValid,
   applyPlanType,
   buildHeaderOverridesObject,
   buildPlanTypeOptions,
@@ -14,6 +16,7 @@ import {
   isHeaderOverrideCapable,
   isValidModelMappingPercent,
   loadModelMappingPercent,
+  MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY,
   MODEL_MAPPING_PERCENT_CREDENTIAL_KEY,
   GROK_BASE_URL_PRESETS,
   parseHeaderOverridesJson,
@@ -64,6 +67,29 @@ describe('model mapping percent credentials', () => {
     const whitelist: Record<string, unknown> = { model_mapping: { source: 'source' } }
     expect(applyModelMappingPercent(whitelist, 25, 'bulk-merge')).toBe(true)
     expect(whitelist.model_mapping_percent).toBe(100)
+  })
+
+  it('stores only explicit per-model percentages for effective mappings', () => {
+    const credentials: Record<string, unknown> = {
+      model_mapping: { source: 'target' },
+      [MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY]: { old: 10 }
+    }
+    applyModelMappingPercentByModel(credentials, { source: 0 }, 'replace')
+    expect(credentials[MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY]).toEqual({ source: 0 })
+
+    credentials.model_mapping = { source: 'source' }
+    applyModelMappingPercentByModel(credentials, { source: 50 }, 'replace')
+    expect(credentials).not.toHaveProperty(MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY)
+
+    credentials.model_mapping = {}
+    applyModelMappingPercentByModel(credentials, null, 'bulk-merge')
+    expect(credentials[MODEL_MAPPING_PERCENT_BY_MODEL_CREDENTIAL_KEY]).toEqual({})
+  })
+
+  it('validates optional row percentages while allowing omitted fallback values', () => {
+    expect(areModelMappingPercentsValid([{ percent: undefined }, { percent: 0 }, { percent: 100 }])).toBe(true)
+    expect(areModelMappingPercentsValid([{ percent: 1.5 }])).toBe(false)
+    expect(areModelMappingPercentsValid([{ percent: -1 }])).toBe(false)
   })
 })
 

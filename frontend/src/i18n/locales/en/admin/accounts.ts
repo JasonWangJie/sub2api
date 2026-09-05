@@ -752,7 +752,7 @@ export default {
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
       modelMappingPercent: 'Mapped traffic share',
-      modelMappingPercentHint: 'After a rule matches, this share of requests uses the target model; the rest uses the original model. This is not a billing discount.',
+      modelMappingPercentHint: 'Default share for mapping rules without an individual percentage; the rest uses the original model. This is not a billing discount.',
       modelMappingPercentInvalid: 'Enter a whole number from 0 to 100',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:

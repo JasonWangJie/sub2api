@@ -20,6 +20,18 @@ func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	require.NotContains(t, filtered, "refresh_token")
 }
 
+func TestFilterSchedulerCredentialsKeepsModelMappingPercentages(t *testing.T) {
+	filtered := filterSchedulerCredentials(map[string]any{
+		service.ModelMappingPercentCredentialKey:        35,
+		service.ModelMappingPercentByModelCredentialKey: map[string]any{"model-a": 0},
+		"access_token": "secret-access-token",
+	})
+
+	require.Equal(t, 35, filtered[service.ModelMappingPercentCredentialKey])
+	require.Equal(t, map[string]any{"model-a": 0}, filtered[service.ModelMappingPercentByModelCredentialKey])
+	require.NotContains(t, filtered, "access_token")
+}
+
 func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 	account := service.Account{
 		ID:       24,

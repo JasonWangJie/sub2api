@@ -924,6 +924,7 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 type AccountModelMappingResolution struct {
 	Model            string
 	InputModel       string
+	ExplicitSource   string
 	ExplicitTarget   string
 	EffectiveMatched bool
 	ExplicitMatched  bool
@@ -945,11 +946,11 @@ func (a *Account) ResolveMappedModelDetailed(requestedModel string) AccountModel
 
 	resolution.Model, resolution.EffectiveMatched = a.ResolveMappedModel(requestedModel)
 	matchedInputModel := requestedModel
-	explicitTarget, matched := resolveRequestedModelInRawMapping(a.Credentials["model_mapping"], requestedModel)
+	explicitSource, explicitTarget, matched := resolveRequestedModelRuleInRawMapping(a.Credentials["model_mapping"], requestedModel)
 	if !matched {
 		normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 		if normalized != requestedModel {
-			explicitTarget, matched = resolveRequestedModelInRawMapping(a.Credentials["model_mapping"], normalized)
+			explicitSource, explicitTarget, matched = resolveRequestedModelRuleInRawMapping(a.Credentials["model_mapping"], normalized)
 			if matched {
 				matchedInputModel = normalized
 			}
@@ -960,6 +961,7 @@ func (a *Account) ResolveMappedModelDetailed(requestedModel string) AccountModel
 	}
 
 	resolution.ExplicitMatched = true
+	resolution.ExplicitSource = strings.TrimSpace(explicitSource)
 	resolution.ExplicitTarget = strings.TrimSpace(explicitTarget)
 	resolution.ExplicitChanged = strings.TrimSpace(matchedInputModel) != resolution.ExplicitTarget &&
 		inputModel != strings.TrimSpace(resolution.Model)
@@ -1145,12 +1147,16 @@ func matchWildcardMappingResult(mapping map[string]string, requestedModel string
 }
 
 func resolveRequestedModelInRawMapping(raw any, requestedModel string) (string, bool) {
+	_, target, matched := resolveRequestedModelRuleInRawMapping(raw, requestedModel)
+	return target, matched
+}
+
+func resolveRequestedModelRuleInRawMapping(raw any, requestedModel string) (source, target string, matched bool) {
 	if requestedModel == "" {
-		return "", false
+		return "", "", false
 	}
 	bestPattern := ""
 	bestTarget := ""
-	matched := false
 	consider := func(pattern, target string) {
 		if pattern == requestedModel {
 			bestPattern, bestTarget, matched = pattern, target, true
@@ -1166,7 +1172,7 @@ func resolveRequestedModelInRawMapping(raw any, requestedModel string) (string, 
 	switch mapping := raw.(type) {
 	case map[string]any:
 		if target, ok := mapping[requestedModel].(string); ok {
-			return target, true
+			return requestedModel, target, true
 		}
 		for pattern, rawTarget := range mapping {
 			target, ok := rawTarget.(string)
@@ -1176,16 +1182,16 @@ func resolveRequestedModelInRawMapping(raw any, requestedModel string) (string, 
 		}
 	case map[string]string:
 		if target, ok := mapping[requestedModel]; ok {
-			return target, true
+			return requestedModel, target, true
 		}
 		for pattern, target := range mapping {
 			consider(pattern, target)
 		}
 	}
 	if !matched {
-		return requestedModel, false
+		return "", requestedModel, false
 	}
-	return bestTarget, true
+	return bestPattern, bestTarget, true
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {
