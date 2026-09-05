@@ -19,7 +19,7 @@ import (
 
 func TestUsageLogSelectColumnsMatchScanContract(t *testing.T) {
 	columns := strings.Split(usageLogSelectColumns, ", ")
-	require.Equal(t, 63, len(columns))
+	require.Equal(t, 64, len(columns))
 
 	findColumn := func(name string) int {
 		for i, column := range columns {
@@ -35,6 +35,12 @@ func TestUsageLogSelectColumnsMatchScanContract(t *testing.T) {
 	require.GreaterOrEqual(t, reasoningIndex, 0)
 	require.Equal(t, reasoningIndex+1, requestedReasoningIndex)
 	require.GreaterOrEqual(t, findColumn("billing_charge_multiplier"), 0)
+	accountStatsCostIndex := findColumn("account_stats_cost")
+	upstreamRequestIDIndex := findColumn("upstream_request_id")
+	sessionIndex := findColumn("session_id")
+	require.GreaterOrEqual(t, accountStatsCostIndex, 0)
+	require.Equal(t, accountStatsCostIndex+1, upstreamRequestIDIndex)
+	require.Equal(t, upstreamRequestIDIndex+1, sessionIndex)
 }
 
 func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
