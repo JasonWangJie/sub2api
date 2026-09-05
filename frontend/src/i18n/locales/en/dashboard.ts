@@ -360,6 +360,10 @@ export default {
     ws: 'WS',
     stream: 'Stream',
     sync: 'Sync',
+    nativeCompactionV2: 'Compaction',
+    compactionFilter: 'Request Kind',
+    allCompactionTypes: 'All Requests',
+    compactionOnly: 'Compaction Only',
     cyber: 'Cyber',
     live: 'Live',
     unknown: 'Unknown',
@@ -476,7 +480,6 @@ export default {
     // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
     quota: {
       unavailable: 'Quota unavailable',
-      resetSoon: 'resetting',
       windows: {
         '5h': '5h',
         '7d': '7d',
@@ -586,6 +589,8 @@ export default {
       inputPrice: 'Input',
       outputPrice: 'Output',
       cacheWritePrice: 'Cache Write',
+      cacheWrite5mPrice: 'Cache Write (5m)',
+      cacheWrite1hPrice: 'Cache Write (1h)',
       cacheReadPrice: 'Cache Read',
       imageInputPrice: 'Image Input',
       imageOutputPrice: 'Image Output',
