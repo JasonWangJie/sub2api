@@ -423,7 +423,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
 	req.Header.Del("cookie")
-	setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+	// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer（同上方
+	// targetURL 的 base 取值），其余保持 extra/default 行为。
+	setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
 
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
@@ -528,7 +530,9 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if tokenType == "oauth" {
 		setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	} else {
-		setAnthropicAPIKeyAuthHeader(req.Header, account, token)
+		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer（同上方
+		// targetURL 的 base 取值），其余保持 extra/default 行为。
+		setAnthropicAPIKeyAuthHeader(req.Header, account, token, account.GetBaseURL())
 	}
 
 	// 账号级兼容模式忽略下游指纹头；OAuth 路径保持既有 count_tokens 行为。

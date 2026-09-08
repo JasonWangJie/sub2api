@@ -202,10 +202,10 @@ func imageWorkbenchModelsForGroup(group *Group, available []string) []ImageWorkb
 		source = fallback
 	}
 
-	if group.ModelsListConfig.Enabled {
+	if group.ModelAllowlist.Enabled {
 		source = mergeImageWorkbenchModelIDs(source, fallback)
-		selected := make([]string, 0, len(group.ModelsListConfig.Models))
-		for _, model := range group.ModelsListConfig.Models {
+		selected := make([]string, 0, len(group.ModelAllowlist.Models))
+		for _, model := range group.ModelAllowlist.Models {
 			model = strings.TrimSpace(model)
 			if model == "" {
 				continue

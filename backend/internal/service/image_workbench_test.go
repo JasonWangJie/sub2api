@@ -36,10 +36,10 @@ func imageWorkbenchTestKey(platform string) *APIKey {
 	}
 }
 
-func TestImageWorkbenchCapabilitiesOpenAIAsyncUsesGroupModelList(t *testing.T) {
+func TestImageWorkbenchCapabilitiesOpenAIAsyncUsesGroupModelAllowlist(t *testing.T) {
 	key := imageWorkbenchTestKey(PlatformOpenAI)
 	key.Group.AllowAsyncImageGeneration = true
-	key.Group.ModelsListConfig = GroupModelsListConfig{
+	key.Group.ModelAllowlist = GroupModelAllowlist{
 		Enabled: true,
 		Models:  []string{"gpt-5.6", "gpt-image-2", "gpt-image-2"},
 	}
@@ -63,7 +63,7 @@ func TestImageWorkbenchCapabilitiesOpenAIAsyncUsesGroupModelList(t *testing.T) {
 
 func TestImageWorkbenchCapabilitiesGeminiRealtimeSupportsExplicitAliasAndWildcard(t *testing.T) {
 	key := imageWorkbenchTestKey(PlatformGemini)
-	key.Group.ModelsListConfig = GroupModelsListConfig{
+	key.Group.ModelAllowlist = GroupModelAllowlist{
 		Enabled: true,
 		Models:  []string{"gemini-3-pro-image", "gemini-2.5-pro", "gemini-3.1*"},
 	}

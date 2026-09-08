@@ -310,6 +310,7 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        minimax: 'MiniMax',
       },
       cnProviders: {
         accountMode: {
@@ -831,6 +832,8 @@ export default {
       modelMappingPercent: '映射流量占比',
       modelMappingPercentHint: '未单独设置模型比例时，命中映射规则按此请求流量占比使用目标模型；其余请求使用原模型。不是计费折扣。',
       modelMappingPercentInvalid: '请输入 0 到 100 之间的整数',
+      fromModel: '请求模型',
+      toModel: '目标模型',
       selectAllowedModels: '选择允许的模型。留空则支持所有模型。',
       mapRequestModels:
         '将请求模型映射到实际模型。左边是请求模型，右边是发送到 API 的实际模型；模型实际发生映射时，计费优先使用请求侧模型价格，缺价时回退到实际模型价格。',

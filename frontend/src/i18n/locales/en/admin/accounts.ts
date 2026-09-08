@@ -107,6 +107,7 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        minimax: 'MiniMax',
       },
       cnProviders: {
         accountMode: {
@@ -754,6 +755,8 @@ export default {
       modelMappingPercent: 'Mapped traffic share',
       modelMappingPercentHint: 'Default share for mapping rules without an individual percentage; the rest uses the original model. This is not a billing discount.',
       modelMappingPercentInvalid: 'Enter a whole number from 0 to 100',
+      fromModel: 'Request model',
+      toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the request-side model and right is the actual model sent to the API. When the model changes, billing prefers the request-side model price and falls back to the actual model price if unavailable.',
