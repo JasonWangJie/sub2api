@@ -132,6 +132,9 @@ vi.mock("@/stores", () => ({
     showInfo: vi.fn(),
     fetchPublicSettings,
   }),
+  useAuthStore: () => ({
+    isSimpleMode: false,
+  }),
 }));
 
 vi.mock("@/stores/adminSettings", () => ({
