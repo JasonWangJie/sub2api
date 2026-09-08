@@ -2,15 +2,15 @@
 # 传文件方法
 rsync -avzP /www/backup/database/sub2api_2026-07-21_23-31-37_pgsql_data.sql.gz root@170.178.174.119:/www/backup/database/
 # 迁移数据库文件
-rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-08-07_16-07-54_pgsql_data.sql.gz root@64.32.27.60:/www/backup/database/
+rsync -avzP /www/backup/database/pgsql/sub2api/sub2api_2026-09-06_11-52-35_pgsql_data.sql.gz root@40.160.139.185:/www/backup/database/
 
 # 还需要把config.yaml 迁移
 
 # sub2生成的图片广场迁移：
-rsync -avzP /opt/sub2api/data/image_durable root@64.32.27.60:/opt/sub2api/data
+rsync -avzP /opt/sub2api/data/image_durable root@40.160.139.185:/opt/sub2api/data
 
 # sub2监控数据迁移：
-rsync -avzP /www/sub2-api-monitoring/cursor版/data root@64.32.27.60:/www/sub2-api-monitoring/cursor版/
+rsync -avzP /www/sub2-api-monitoring/cursor版/data root@40.160.139.185:/www/sub2-api-monitoring/cursor版/
 
 
 curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
