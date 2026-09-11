@@ -6,6 +6,15 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <div class="space-y-2" data-testid="bulk-openai-429-mode">
+        <label for="bulk-openai-429-mode" class="input-label">{{ t('admin.accounts.mode429.title') }}</label>
+        <select id="bulk-openai-429-mode" v-model="openAI429Mode" class="input">
+          <option value="unchanged">{{ t('admin.accounts.mode429.unchanged') }}</option>
+          <option value="enabled">{{ t('admin.accounts.mode429.enable') }}</option>
+          <option value="disabled">{{ t('admin.accounts.mode429.disable') }}</option>
+        </select>
+        <p class="input-hint">{{ t('admin.accounts.mode429.bulkHint') }}</p>
+      </div>
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -1549,6 +1558,8 @@ const emit = defineEmits<{
   updated: []
 }>()
 
+const openAI429Mode = ref<'unchanged' | 'enabled' | 'disabled'>('unchanged')
+
 const { t } = useI18n()
 const appStore = useAppStore()
 
@@ -1953,6 +1964,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     }
     return updates.extra as Record<string, unknown>
   }
+	if (openAI429Mode.value !== 'unchanged') {
+		ensureExtra().openai_429_mode_enabled = openAI429Mode.value === 'enabled'
+	}
 
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
@@ -2238,6 +2252,7 @@ const handleSubmit = async () => {
   }
 
   const hasAnyFieldEnabled =
+		openAI429Mode.value !== 'unchanged' ||
     enableBaseUrl.value ||
     enableOpenAIPassthrough.value ||
     enableOpenAIFlattenNamespaces.value ||
@@ -2404,6 +2419,7 @@ watch(
       enableOpenAIPassthrough.value = false
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAILongContextBilling.value = false
+			openAI429Mode.value = 'unchanged'
       enableOpenAIEndpointCapabilities.value = false
       enableOpenAIResponsesMode.value = false
       enableOpenAIWSMode.value = false

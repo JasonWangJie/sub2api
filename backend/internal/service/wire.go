@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/redisstate"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -187,6 +188,17 @@ func ProvideOpenAIQuotaService(
 	service := NewOpenAIQuotaService(accountRepo, proxyRepo, tokenProvider, privacyClientFactory)
 	service.agentIdentityWS = openAIGatewayService
 	return service
+}
+
+func ProvideOpenAI429ModeService(client *redis.Client, accounts AccountRepository, quota *OpenAIQuotaService, gateway *OpenAIGatewayService, rateLimit *RateLimitService, admin AdminService) *OpenAI429ModeService {
+	svc := NewOpenAI429ModeService(redisstate.New(client), accounts, quota, gateway)
+	gateway.openAI429Mode = svc
+	rateLimit.openAI429Mode = svc
+	if impl, ok := admin.(*adminServiceImpl); ok {
+		impl.openAI429Mode = svc
+	}
+	svc.Start()
+	return svc
 }
 
 // ProvideOpenAIQuotaAutoResetService 启动账号级自动用卡队列与补偿扫描。
@@ -906,6 +918,7 @@ var ProviderSet = wire.NewSet(
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
+	ProvideOpenAI429ModeService,
 	ProvideOpenAIQuotaAutoResetService,
 	ProvideGrokQuotaService,
 	ProvideCNProviderQuotaService,

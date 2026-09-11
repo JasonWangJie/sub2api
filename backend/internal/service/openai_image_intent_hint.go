@@ -13,6 +13,9 @@ func SetOpenAIImageIntentHint(c *gin.Context, imageIntent bool) {
 		return
 	}
 	c.Set(openAIImageIntentHintContextKey, imageIntent)
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(WithOpenAI429ModeExcluded(c.Request.Context(), imageIntent))
+	}
 }
 
 func getOpenAIImageIntentHint(c *gin.Context) (imageIntent bool, known bool) {

@@ -1,5 +1,12 @@
 export default {
     accounts: {
+      mode429: {
+        title: '429 mode', enable: 'Enable 429 mode', disable: 'Disable', unchanged: 'Leave unchanged',
+        hint: 'For ordinary OpenAI OAuth / Setup Token text accounts. Concentrates real requests at 90% usage. After exhaustion, probes until 9 consecutive 429s, then admits one real request. Quota threshold pauses and automatic reset credits are suspended while their settings are preserved.',
+        bulkHint: 'Only ordinary OpenAI OAuth / Setup Token text accounts are supported. The entire batch is rejected if it includes unsupported accounts such as API keys or Spark accounts.',
+        recovery: 'Expected recovery: {time}', unknownRecovery: 'Checks quota every 5 minutes; resumes after confirmed recovery',
+        phases: { normal: 'Normal scheduling', concentrating: 'Concentrating requests', draining: 'Draining in-flight requests', probing: 'Automatic requests', waiting_real: 'Waiting for a real request', real_inflight: 'Real request in progress', stopped: 'Stopped until quota resets' }
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

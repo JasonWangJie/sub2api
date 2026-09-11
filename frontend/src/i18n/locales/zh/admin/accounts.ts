@@ -1,5 +1,12 @@
 export default {
     accounts: {
+      mode429: {
+        title: '卡 429', enable: '启用卡 429', disable: '关闭', unchanged: '不修改',
+        hint: '仅限普通 OpenAI OAuth / Setup Token 文本账号。额度使用达到 90% 后集中真实请求；耗尽后自动补到连续 9 次 429，再放行一次真实请求。启用期间暂停额度阈值和自动重置卡策略，原配置保留。',
+        bulkHint: '仅支持普通 OpenAI OAuth / Setup Token 文本账号；包含 API Key、Spark 等不支持账号时，整批拒绝修改。',
+        recovery: '预计恢复：{time}', unknownRecovery: '每 5 分钟查询额度，确认恢复后放行',
+        phases: { normal: '普通调度', concentrating: '集中调度', draining: '等待在途请求', probing: '自动请求', waiting_real: '等待真实请求', real_inflight: '真实请求进行中', stopped: '停调至额度重置' }
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

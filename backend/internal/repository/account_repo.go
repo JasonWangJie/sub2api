@@ -775,6 +775,9 @@ func lockAndMergeAccountProbeExtra(
 			}
 		}
 	}
+	if err := preserveOpenAI429ManagedExtra(ctx, client, account, extra); err != nil {
+		return nil, err
+	}
 	return extra, nil
 }
 
@@ -2608,6 +2611,9 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		}
 	}
 	extraExpression := "COALESCE(extra, '{}'::jsonb) || $1::jsonb"
+	if _, changesMode := updates[service.OpenAI429ModeEnabledKey]; changesMode {
+		extraExpression = openAI429BulkExtraExpression(extraExpression, "$1::jsonb")
+	}
 	if clearProbeSnapshot {
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 	}
@@ -2951,6 +2957,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				return 0, err
 			}
 			extraExpression += " || $" + itoa(idx) + "::jsonb"
+			if _, present := updates.Extra[service.OpenAI429ModeEnabledKey]; present {
+				extraExpression = openAI429BulkExtraExpression(extraExpression, "$"+itoa(idx)+"::jsonb")
+			}
 			args = append(args, payload)
 			idx++
 			if upstreamBillingProbeExplicitlyDisabled(updates.Extra) || upstreamBillingProbeSnapshotClearRequested(updates.Extra) {

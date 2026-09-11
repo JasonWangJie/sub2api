@@ -20,6 +20,7 @@ import (
 
 // RateLimitService 处理限流和过载状态管理
 type RateLimitService struct {
+	openAI429Mode         *OpenAI429ModeService
 	accountRepo           AccountRepository
 	usageRepo             UsageLogRepository
 	cfg                   *config.Config
@@ -342,6 +343,12 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	if len(requestedModel) > 0 && isCodexSparkModel(requestedModel[0]) {
+		ctx = WithOpenAI429ModeExcluded(ctx, true)
+	}
+	if statusCode == http.StatusTooManyRequests && s.openAI429Mode.handles429(ctx, account, headers, responseBody) {
+		return false
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
@@ -1148,6 +1155,9 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 // handle429 处理429限流错误
 // 解析响应头获取重置时间，标记账号为限流状态
 func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+	if s.openAI429Mode.handles429(ctx, account, headers, responseBody) {
+		return
+	}
 	// OpenAI OAuth stays on the same account for the gateway's bounded retry
 	// window. Persisting a rate-limit reset on the first 429 would make the next
 	// retry ineligible and silently turn same-account recovery into a switch.
@@ -2156,6 +2166,9 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 
 // ClearRateLimit 清除账号的限流状态
 func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) error {
+	if err := s.openAI429Mode.Reset(ctx, accountID); err != nil {
+		return err
+	}
 	if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
 		return err
 	}

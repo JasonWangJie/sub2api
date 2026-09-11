@@ -35,7 +35,7 @@ func ResolveOpenAIAutoResetCreditConfig(account *Account) OpenAIAutoResetCreditC
 		Threshold5h: openAIAutoResetCreditDefaultThreshold,
 		Threshold7d: openAIAutoResetCreditDefaultThreshold,
 	}
-	if !isOpenAIAutoResetCreditAccount(account) || account.Extra == nil {
+	if !isOpenAIAutoResetCreditAccount(account) || account.Extra == nil || OpenAI429ModeEnabled(account) {
 		return config
 	}
 	config.Enabled = resolveAccountExtraBool(account.Extra, OpenAIAutoResetCreditEnabledExtraKey)

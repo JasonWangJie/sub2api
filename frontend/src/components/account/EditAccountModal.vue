@@ -2431,6 +2431,11 @@
         </div>
       </div>
 
+      <OpenAI429ModeSettings
+        v-if="supportsOpenAI429Mode"
+        v-model="openAI429ModeEnabled"
+      />
+
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -3001,6 +3006,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import OpenAI429ModeSettings from '@/components/account/OpenAI429ModeSettings.vue'
 import { useAppStore } from '@/stores/app'
 
 import { adminAPI } from '@/api/admin'
@@ -3123,6 +3129,10 @@ const selectableGroups = computed(() => {
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+const supportsOpenAI429Mode = computed(() => props.account?.platform === 'openai'
+  && (props.account.type === 'oauth' || props.account.type === 'setup-token')
+  && !isSparkShadow.value
+  && (!props.account.quota_dimension || props.account.quota_dimension === 'global'))
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -3396,6 +3406,7 @@ const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
 const autoResetCreditEnabled = ref(false)
+const openAI429ModeEnabled = ref(false)
 const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
@@ -3947,6 +3958,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+	openAI429ModeEnabled.value = extra?.openai_429_mode_enabled === true
 	autoResetCreditEnabled.value = extra?.auto_reset_credit_enabled === true
 	autoResetCredit5hThreshold.value =
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
@@ -5547,6 +5559,11 @@ const handleSubmit = async () => {
 		}
 		// 运行态只允许后端服务更新，账号编辑不得回写旧状态。
 		delete newExtra.codex_auto_reset_credit_state
+		if (supportsOpenAI429Mode.value) {
+			newExtra.openai_429_mode_enabled = openAI429ModeEnabled.value
+		}
+		delete newExtra.openai_429_mode_state
+		delete newExtra.openai_429_mode_generation
 
 		delete newExtra.codex_image_generation_bridge_enabled
       switch (codexImageToolMode.value) {

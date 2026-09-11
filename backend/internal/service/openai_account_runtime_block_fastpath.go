@@ -93,6 +93,12 @@ func isOpenAIAccount(account *Account) bool {
 // handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
 // for scheduling after applying account mapping exactly once.
 func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, canonicalModel ...string) bool {
+	if len(canonicalModel) > 0 && isCodexSparkModel(canonicalModel[0]) {
+		ctx = WithOpenAI429ModeExcluded(ctx, true)
+	}
+	if s != nil && statusCode == http.StatusTooManyRequests && s.openAI429Mode.handles429(ctx, account, headers, responseBody) {
+		return false
+	}
 	if account != nil && account.Platform == PlatformGrok && isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
@@ -213,6 +219,9 @@ func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []b
 }
 
 func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+	if s != nil && s.openAI429Mode.handles429(ctx, account, headers, responseBody) {
+		return
+	}
 	if s == nil || !isOpenAIOAuthAccount(account) {
 		return
 	}
@@ -248,6 +257,9 @@ func (s *OpenAIGatewayService) shouldRetryOpenAIOAuth429OnSameAccount(account *A
 }
 
 func (s *OpenAIGatewayService) shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account *Account, statusCode int, shouldDisable bool, headers http.Header, responseBody []byte) bool {
+	if s != nil && s.openAI429Mode.handles429(context.Background(), account, headers, responseBody) {
+		return false
+	}
 	if shouldDisable || statusCode != http.StatusTooManyRequests || !isOpenAIOAuthAccount(account) || account.IsShadow() {
 		return false
 	}
@@ -266,6 +278,9 @@ func (s *OpenAIGatewayService) shouldRetryOpenAIOAuth429OnSameAccountWithRespons
 // ShouldRetryOpenAIOAuth429 lets RateLimitService defer persistent account
 // cooldown until the gateway's same-account retry window is exhausted.
 func (s *OpenAIGatewayService) ShouldRetryOpenAIOAuth429(account *Account, headers http.Header, responseBody []byte) bool {
+	if s != nil && s.openAI429Mode.handles429(context.Background(), account, headers, responseBody) {
+		return false
+	}
 	if s == nil || !isOpenAIOAuthAccount(account) || account.IsShadow() || s.isOpenAIAccountRuntimeBlocked(account) {
 		return false
 	}
@@ -593,6 +608,9 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Acc
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlockedForRequest(ctx context.Context, account *Account, requestedModel string) bool {
+	if s != nil && !openAI429ModeExcluded(ctx) && openAI429TextRequest("/responses", requestedModel, nil) && s.openAI429Mode.blocked(ctx, account) {
+		return true
+	}
 	if s == nil {
 		return false
 	}

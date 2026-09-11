@@ -318,20 +318,31 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
-	if err := s.performOpenAIWSGeneratePrewarm(
-		ctx,
-		lease,
-		decision,
-		payload,
-		previousResponseID,
-		reqBody,
-		account,
-		stateStore,
-		groupID,
-	); err != nil {
-		return nil, err
+	var modeTicket *openAI429Ticket
+	modeEnabled := false
+	modeObserver := openAI429Observer{status: 200, stream: true}
+	if payloadJSON := payloadAsJSONBytes(payload); openAI429TextRequest("/responses", mappedModel, payloadJSON) {
+		modeTicket, modeEnabled, err = s.openAI429Mode.beginFresh(ctx, account, mappedModel)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { modeTicket.finish(modeObserver.result(false)) }()
 	}
-
+	if modeTicket == nil && !modeEnabled {
+		if err := s.performOpenAIWSGeneratePrewarm(
+			ctx,
+			lease,
+			decision,
+			payload,
+			previousResponseID,
+			reqBody,
+			account,
+			stateStore,
+			groupID,
+		); err != nil {
+			return nil, err
+		}
+	}
 	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
@@ -563,6 +574,12 @@ readLoop:
 				return nil, wrapOpenAIWSFallback("invalid_event_json", errors.New("upstream websocket returned malformed Responses event JSON"))
 			}
 			return nil, errors.New("upstream websocket returned malformed Responses event JSON after downstream output")
+		}
+		if modeTicket != nil && readErr == nil {
+			modeObserver.document(message)
+			if modeObserver.terminal {
+				modeTicket.finish(modeObserver.result(false))
+			}
 		}
 		if readErr != nil {
 			lease.MarkBroken()

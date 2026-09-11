@@ -2223,6 +2223,9 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	if requiredImageCapability != "" {
+		ctx = WithOpenAI429ModeExcluded(ctx, true)
+	}
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
 	// 入口已在请求开始经 WithOpenAIRequestPricingContext 装门并固定 pricingAt，
@@ -2241,6 +2244,22 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
+	concentrated, concentrationErr := s.selectOpenAI429Concentrated(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, Platform: platform, SessionHash: sessionHash,
+		PreviousResponseID: previousResponseID, PreviousResponseCanMove: previousResponseCanMove, GuardianParentAccountID: guardianParentAccountID,
+		RequestedModel: requestedModel, RequiredTransport: requiredTransport,
+		RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability,
+		RequireCompact: requireCompact, ExcludedIDs: excludedIDs,
+	})
+	if concentrationErr != nil {
+		return nil, decision, concentrationErr
+	}
+	if concentrated != nil && concentrated.Account != nil {
+		decision.Layer = "openai_429_concentrating"
+		decision.SelectedAccountID = concentrated.Account.ID
+		decision.SelectedAccountType = concentrated.Account.Type
+		return concentrated, decision, nil
+	}
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if guardianParentAccountID > 0 {

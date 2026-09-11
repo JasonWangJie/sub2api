@@ -406,7 +406,7 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		TTL:        openAIAutoResetAttemptTTL,
 		RequireKey: true,
 	}, func(execCtx context.Context) (any, error) {
-		resetResult, resetErr := s.quota.ResetCreditTargeted(execCtx, accountID, candidate.ID, redeemRequestID)
+		resetResult, resetErr := s.resetCreditIfEnabled(execCtx, accountID, candidate.ID, redeemRequestID)
 		if resetErr != nil {
 			return nil, resetErr
 		}
@@ -416,6 +416,9 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		// 幂等表只保存脱敏结果，避免上游返回的卡 ID 被持久化到响应体列。
 		return openAIAutoResetConsumeResult{Code: resetResult.Code, WindowsReset: resetResult.WindowsReset}, nil
 	})
+	if errors.Is(err, errOpenAIAutoResetDisabled) {
+		return nil
+	}
 	if err != nil {
 		// 另一个实例已持有同一周期的兑换时保持 resetting，等待下一轮读取同一
 		// 幂等结果；不能把并发冲突误报成上游消费失败，更不能改选下一张卡。
@@ -482,6 +485,21 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		"windows_reset", consumeResult.WindowsReset,
 	)
 	return nil
+}
+
+var errOpenAIAutoResetDisabled = errors.New("automatic quota reset is disabled")
+
+// Recheck inside the execution callback, after acquiring idempotency ownership.
+// A task queued before 429 mode was enabled must not consume a reset credit.
+func (s *OpenAIQuotaAutoResetService) resetCreditIfEnabled(ctx context.Context, accountID int64, creditID, requestID string) (*OpenAIQuotaResetResult, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsActive() || !account.Schedulable || !ResolveOpenAIAutoResetCreditConfig(account).Enabled {
+		return nil, errOpenAIAutoResetDisabled
+	}
+	return s.quota.ResetCreditTargeted(ctx, accountID, creditID, requestID)
 }
 
 type openAIAutoResetConsumeResult struct {

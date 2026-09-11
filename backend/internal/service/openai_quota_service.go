@@ -334,6 +334,9 @@ func (s *OpenAIQuotaService) resetCredit(ctx context.Context, accountID int64, c
 		if acc.IsShadow() {
 			return nil, ErrSparkShadowResetNotSupported
 		}
+		if acc.Type != AccountTypeOAuth {
+			return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_TYPE", "reset credits require an OAuth account")
+		}
 	}
 
 	accessToken, chatGPTAccountID, proxyURL, fedRAMP, err := s.prepareUpstreamCall(ctx, accountID)
@@ -416,7 +419,7 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	if account.Platform != PlatformOpenAI {
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_PLATFORM", "account is not an OpenAI account")
 	}
-	if account.Type != AccountTypeOAuth {
+	if !account.IsOpenAIOAuthLike() {
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_TYPE", "account is not an OAuth account")
 	}
 
@@ -441,12 +444,16 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	}
 
 	if !account.IsOpenAIAgentIdentity() {
-		if s.tokenProvider == nil {
-			return "", "", "", false, infraerrors.New(http.StatusInternalServerError, "OPENAI_QUOTA_NOT_CONFIGURED", "openai quota token provider is not configured")
-		}
-		accessToken, err = s.tokenProvider.GetAccessToken(ctx, account)
-		if err != nil {
-			return "", "", "", false, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_TOKEN_UNAVAILABLE", "failed to acquire access token: %v", err)
+		if account.Type == AccountTypeSetupToken {
+			accessToken = account.GetOpenAIAccessToken()
+		} else {
+			if s.tokenProvider == nil {
+				return "", "", "", false, infraerrors.New(http.StatusInternalServerError, "OPENAI_QUOTA_NOT_CONFIGURED", "openai quota token provider is not configured")
+			}
+			accessToken, err = s.tokenProvider.GetAccessToken(ctx, account)
+			if err != nil {
+				return "", "", "", false, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_TOKEN_UNAVAILABLE", "failed to acquire access token: %v", err)
+			}
 		}
 		if strings.TrimSpace(accessToken) == "" {
 			return "", "", "", false, infraerrors.New(http.StatusBadGateway, "OPENAI_QUOTA_TOKEN_UNAVAILABLE", "access token is empty")

@@ -81,6 +81,25 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  it.each([['enabled', true], ['disabled', false]] as const)('卡 429 批量三态 %s 显式写入布尔值', async (choice, enabled) => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['oauth'] })
+    await wrapper.get('#bulk-openai-429-mode').setValue(choice)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { extra: { openai_429_mode_enabled: enabled } })
+    wrapper.unmount()
+  })
+
+  it('卡 429 按筛选结果批量修改保留 filters', async () => {
+    const filters = { platform: 'openai', type: 'oauth' }
+    const wrapper = mountModal({ target: { mode: 'filtered', filters, previewCount: 40, selectedPlatforms: ['openai'], selectedTypes: ['oauth'] } })
+    await wrapper.get('#bulk-openai-429-mode').setValue('enabled')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith({ filters, extra: { openai_429_mode_enabled: true } })
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.mocked(adminAPI.accounts.bulkUpdate).mockReset()
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset()

@@ -114,6 +114,21 @@ func (c *tempUnschedCache) DeleteTempUnsched(ctx context.Context, accountID int6
 	return c.rdb.Del(ctx, key).Err()
 }
 
+var tempUnschedDeleteIfUnchanged = redis.NewScript(`
+local value = redis.call('GET', KEYS[1])
+if value == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0
+`)
+
+// A newer credential or health cooldown must survive a quota-only takeover.
+func (c *tempUnschedCache) DeleteTempUnschedIfUnchanged(ctx context.Context, accountID int64, expected *service.TempUnschedState) error {
+	data, err := json.Marshal(expected)
+	if err != nil {
+		return err
+	}
+	return tempUnschedDeleteIfUnchanged.Run(ctx, c.rdb, []string{fmt.Sprintf("%s%d", tempUnschedPrefix, accountID)}, string(data)).Err()
+}
+
 func (c *tempUnschedCache) openAIAPIKeyHealthKey(accountID int64) string {
 	// The hash tag keeps the rolling window and sequence key in one Redis
 	// Cluster slot even though the Lua script derives the latter dynamically.

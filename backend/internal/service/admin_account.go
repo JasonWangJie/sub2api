@@ -500,6 +500,11 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	modeExtra, modeErr := normalizeOpenAI429ModeExtra(&Account{Platform: input.Platform, Type: input.Type, Name: input.Name}, input.Extra)
+	if modeErr != nil {
+		return nil, modeErr
+	}
+	input.Extra = modeExtra
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -600,6 +605,17 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	previousModeGeneration := account.GetExtraString(OpenAI429ModeGenerationKey)
+	modeReconfigure := false
+	if value, modeOnly := input.Extra[OpenAI429ModeEnabledKey]; modeOnly && len(input.Extra) == 1 {
+		copyInput := *input
+		copyInput.Extra = cloneOpenAIAutoResetExtra(account.Extra)
+		if copyInput.Extra == nil {
+			copyInput.Extra = make(map[string]any)
+		}
+		copyInput.Extra[OpenAI429ModeEnabledKey] = value
+		input = &copyInput
+	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -623,6 +639,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
+	if input.Extra != nil || input.Type != "" {
+		modeAccount := *account
+		if input.Type != "" {
+			modeAccount.Type = input.Type
+		}
+		if input.Extra == nil {
+			normalizedExtra = cloneOpenAIAutoResetExtra(account.Extra)
+		}
+		normalizedExtra, err = normalizeOpenAI429ModeExtra(&modeAccount, normalizedExtra)
+		if err != nil {
+			return nil, err
+		}
+		modeReconfigure = fmt.Sprint(normalizedExtra[OpenAI429ModeGenerationKey]) != previousModeGeneration
+	}
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
 	// 必须在此守住,否则仅在创建时的保证可被这些路径绕过。
@@ -905,6 +935,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
+	if modeReconfigure {
+		s.openAI429Mode.reconfigure(ctx, id)
+	}
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
 		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
@@ -930,6 +963,26 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	updates = cloneOpenAIAutoResetExtra(updates)
+	delete(updates, OpenAI429ModeStateKey)
+	delete(updates, OpenAI429ModeGenerationKey)
+	modeReconfigure := false
+	if _, exists := updates[OpenAI429ModeEnabledKey]; exists {
+		a, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		requested, _ := updates[OpenAI429ModeEnabledKey].(bool)
+		modeReconfigure = requested != OpenAI429ModeEnabled(a) || (requested && a.GetExtraString(OpenAI429ModeGenerationKey) == "")
+		updates, err = normalizeOpenAI429ModeExtra(a, updates)
+		if err != nil {
+			return err
+		}
+		// JSONB merge keeps the authoritative runtime in place. The repository
+		// clears it only when the stored switch actually changes.
+		delete(updates, OpenAI429ModeStateKey)
+		updates[OpenAI429ModeGenerationKey] = newOpenAI429Generation()
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -950,12 +1003,27 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	if len(updates) == 0 {
 		return nil
 	}
-	return s.accountRepo.UpdateExtra(ctx, id, updates)
+	if err := s.accountRepo.UpdateExtra(ctx, id, updates); err != nil {
+		return err
+	}
+	if modeReconfigure {
+		s.openAI429Mode.reconfigure(ctx, id)
+	}
+	return nil
 }
 
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+	input.Extra = cloneOpenAIAutoResetExtra(input.Extra)
+	delete(input.Extra, OpenAI429ModeStateKey)
+	delete(input.Extra, OpenAI429ModeGenerationKey)
+	_, changes429Mode := input.Extra[OpenAI429ModeEnabledKey]
+	if changes429Mode {
+		if _, ok := input.Extra[OpenAI429ModeEnabledKey].(bool); !ok {
+			return nil, infraerrors.BadRequest("OPENAI_429_MODE_BOOLEAN_REQUIRED", "openai_429_mode_enabled must be a boolean")
+		}
+	}
 	if err := ValidateModelMappingPercentCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
@@ -1003,7 +1071,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil || changes429Mode {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1017,6 +1085,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 	}
 	if openAISettings.any() {
+		// OpenAI-specific settings are validated below before any write.
 		inheritedCount, err := validateBulkOpenAISettingsTargets(input, openAISettings, targetsByID)
 		if err != nil {
 			return nil, err
@@ -1033,6 +1102,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, ErrUpstreamBillingProbeAccountInvalid
 			}
 		}
+	}
+	if changes429Mode {
+		for _, id := range input.AccountIDs {
+			a, ok := targetsByID[id]
+			if !ok {
+				return nil, infraerrors.BadRequest("OPENAI_429_MODE_ACCOUNT_NOT_FOUND", fmt.Sprintf("account %d not found", id))
+			}
+			if _, err := normalizeOpenAI429ModeExtra(a, input.Extra); err != nil {
+				return nil, err
+			}
+		}
+		input.Extra[OpenAI429ModeGenerationKey] = newOpenAI429Generation()
 	}
 	// 影子账号绝不持有凭据:批量更新携带凭据时,目标中不得含影子(外审 G5,与单账号
 	// UpdateAccount 守卫对齐)。覆盖显式 IDs 与 filter 解析出的 IDs(此处 AccountIDs 已解析完成)。
@@ -1169,6 +1250,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Run bulk update for column/jsonb fields first.
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
+	}
+	if changes429Mode {
+		for _, id := range input.AccountIDs {
+			s.openAI429Mode.reconfigure(ctx, id)
+		}
 	}
 
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号

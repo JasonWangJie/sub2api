@@ -338,6 +338,35 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it.each(['oauth', 'setup-token'])('卡 429 %s 保存、回显和显式关闭保留其他配置', async (type) => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.type = type
+    account.extra = { openai_429_mode_enabled: true, openai_429_mode_state: { phase: 'stopped' }, custom_preserved: 'yes' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('#openai-429-mode-enabled').element.checked).toBe(true)
+    await wrapper.get('#openai-429-mode-enabled').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra.openai_429_mode_enabled).toBe(false)
+    expect(extra.custom_preserved).toBe('yes')
+    expect(extra).not.toHaveProperty('openai_429_mode_state')
+    wrapper.unmount()
+  })
+
+  it('卡 429 默认关闭，API Key 和 Spark 不显示开关', () => {
+    const supported = mountModal(buildOpenAIOAuthParentAccount())
+    expect(supported.get<HTMLInputElement>('#openai-429-mode-enabled').element.checked).toBe(false)
+    supported.unmount()
+    for (const account of [buildAccount(), buildOpenAISparkShadowAccount(), { ...buildOpenAIOAuthParentAccount(), quota_dimension: 'images' }]) {
+      const wrapper = mountModal(account)
+      expect(wrapper.find('#openai-429-mode-enabled').exists()).toBe(false)
+      wrapper.unmount()
+    }
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })
