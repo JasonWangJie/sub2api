@@ -21,6 +21,18 @@
       </span>
     </button>
     <button
+      data-testid="monitor-reset"
+      :title="resetting ? t('admin.channelMonitor.resetting') : t('admin.channelMonitor.reset')"
+      :disabled="resetting"
+      @click="$emit('reset', row)"
+      class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-amber-900/20 dark:hover:text-amber-400"
+    >
+      <Icon name="refresh" size="sm" :class="resetting ? 'animate-spin' : ''" />
+      <span class="text-xs">
+        {{ resetting ? t('admin.channelMonitor.resetting') : t('admin.channelMonitor.reset') }}
+      </span>
+    </button>
+    <button
       @click="$emit('edit', row)"
       class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
     >
@@ -47,11 +59,13 @@ const props = defineProps<{
   row: ChannelMonitor
   running: boolean
   duplicating: boolean
+  resetting: boolean
 }>()
 
 defineEmits<{
   (e: 'run', row: ChannelMonitor): void
   (e: 'duplicate', row: ChannelMonitor): void
+  (e: 'reset', row: ChannelMonitor): void
   (e: 'edit', row: ChannelMonitor): void
   (e: 'delete', row: ChannelMonitor): void
 }>()

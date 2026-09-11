@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	securitySecretKeyJWT        = "jwt_secret"
-	securitySecretReadRetryMax  = 5
-	securitySecretReadRetryWait = 10 * time.Millisecond
+	securitySecretKeyJWT            = "jwt_secret"
+	securitySecretKeyTOTPEncryption = "totp_encryption_key"
+	securitySecretReadRetryMax      = 5
+	securitySecretReadRetryWait     = 10 * time.Millisecond
 )
 
 var readRandomBytes = rand.Read
@@ -42,17 +43,68 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 			log.Println("Warning: configured JWT secret mismatches persisted value; using persisted secret for cross-instance consistency.")
 		}
 		cfg.JWT.Secret = storedSecret
-		return nil
+	} else {
+		secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyJWT, 32)
+		if err != nil {
+			return fmt.Errorf("ensure jwt secret: %w", err)
+		}
+		cfg.JWT.Secret = secret
+
+		if created {
+			log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+		}
 	}
 
-	secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyJWT, 32)
+	if err := ensureTOTPEncryptionKey(ctx, client, cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureTOTPEncryptionKey makes the AES key durable even for setup-wizard
+// installations whose config.yaml predates the totp.encryption_key field.
+// The first instance persists its bootstrap candidate; concurrent instances
+// converge on the value already stored in security_secrets.
+func ensureTOTPEncryptionKey(ctx context.Context, client *ent.Client, cfg *config.Config) error {
+	candidate := strings.TrimSpace(cfg.Totp.EncryptionKey)
+	var (
+		stored  string
+		created bool
+		err     error
+	)
+	if candidate == "" {
+		stored, created, err = getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyTOTPEncryption, 32)
+	} else {
+		if err := validateTOTPEncryptionKey(candidate); err != nil {
+			return err
+		}
+		stored, err = createSecuritySecretIfAbsent(ctx, client, securitySecretKeyTOTPEncryption, candidate)
+		created = stored == candidate
+	}
 	if err != nil {
-		return fmt.Errorf("ensure jwt secret: %w", err)
+		return fmt.Errorf("ensure totp encryption key: %w", err)
 	}
-	cfg.JWT.Secret = secret
+	if err := validateTOTPEncryptionKey(stored); err != nil {
+		return err
+	}
+	if candidate != "" && stored != candidate {
+		log.Println("Warning: configured TOTP encryption key mismatches persisted value; using persisted secret to keep encrypted credentials readable.")
+	}
+	if created && !cfg.Totp.EncryptionKeyConfigured {
+		log.Println("Warning: TOTP encryption key auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+	}
+	cfg.Totp.EncryptionKey = stored
+	cfg.Totp.EncryptionKeyConfigured = true
+	return nil
+}
 
-	if created {
-		log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+func validateTOTPEncryptionKey(key string) error {
+	decoded, err := hex.DecodeString(strings.TrimSpace(key))
+	if err != nil {
+		return fmt.Errorf("invalid totp encryption key: %w", err)
+	}
+	if len(decoded) != 32 {
+		return fmt.Errorf("totp encryption key must be 32 bytes (64 hex chars), got %d bytes", len(decoded))
 	}
 	return nil
 }

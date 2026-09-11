@@ -8,9 +8,9 @@ vi.mock('@/api/client', () => ({
   apiClient: { post },
 }))
 
-import { duplicate } from '@/api/admin/channelMonitor'
+import { duplicate, reset } from '@/api/admin/channelMonitor'
 
-describe('admin channel monitor duplicate API', () => {
+describe('admin channel monitor action APIs', () => {
   beforeEach(() => {
     localStorage.clear()
     sessionStorage.clear()
@@ -99,5 +99,13 @@ describe('admin channel monitor duplicate API', () => {
 
     expect(post.mock.calls[1][2].headers).not.toEqual(firstHeaders)
     expect(sessionStorage.length).toBe(0)
+  })
+
+  it('posts to the monitor reset endpoint', async () => {
+    post.mockResolvedValueOnce({ data: null })
+
+    await reset(42)
+
+    expect(post).toHaveBeenCalledWith('/admin/channel-monitors/42/reset')
   })
 })

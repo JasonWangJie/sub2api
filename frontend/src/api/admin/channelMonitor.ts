@@ -322,6 +322,14 @@ export async function del(id: number): Promise<void> {
 }
 
 /**
+ * Clear all recorded history and rollups while keeping the monitor config,
+ * stored API key, enabled state, and scheduler intact.
+ */
+export async function reset(id: number): Promise<void> {
+  await apiClient.post(`/admin/channel-monitors/${id}/reset`)
+}
+
+/**
  * Trigger an immediate manual check for a channel monitor.
  * Returns the latest check results for primary + extra models.
  */
@@ -351,6 +359,7 @@ export const channelMonitorAPI = {
   duplicate,
   update,
   del,
+  reset,
   runNow,
   listHistory,
 }

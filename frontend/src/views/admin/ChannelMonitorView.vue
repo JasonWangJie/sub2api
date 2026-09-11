@@ -105,8 +105,10 @@
               :row="row"
               :running="runningId === row.id"
               :duplicating="duplicatingIds.has(row.id)"
+              :resetting="resettingId === row.id"
               @run="handleRunNow"
               @duplicate="handleDuplicate"
+              @reset="handleReset"
               @edit="openEditDialog"
               @delete="handleDelete"
             />
@@ -153,6 +155,17 @@
       :show="showRunResult"
       :results="runResults"
       @close="showRunResult = false"
+    />
+
+    <ConfirmDialog
+      :show="showResetDialog"
+      :title="t('admin.channelMonitor.reset')"
+      :message="resetConfirmMessage"
+      :confirm-text="t('admin.channelMonitor.reset')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmReset"
+      @cancel="closeResetDialog"
     />
 
     <ConfirmDialog
@@ -227,6 +240,9 @@ const showTemplateManager = ref(false)
 const editing = ref<ChannelMonitor | null>(null)
 const showDeleteDialog = ref(false)
 const deleting = ref<ChannelMonitor | null>(null)
+const showResetDialog = ref(false)
+const resetting = ref<ChannelMonitor | null>(null)
+const resettingId = ref<number | null>(null)
 const showRunResult = ref(false)
 const runResults = ref<CheckResult[]>([])
 const duplicatingIds = reactive(new Set<number>())
@@ -247,6 +263,11 @@ const columns = computed<Column[]>(() => [
 const deleteConfirmMessage = computed(() => {
   const name = deleting.value?.name || ''
   return t('admin.channelMonitor.deleteConfirm', { name })
+})
+
+const resetConfirmMessage = computed(() => {
+  const name = resetting.value?.name || ''
+  return t('admin.channelMonitor.resetConfirm', { name })
 })
 
 async function reload() {
@@ -361,6 +382,36 @@ async function handleDuplicate(row: ChannelMonitor) {
     appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.duplicateFailed')))
   } finally {
     duplicatingIds.delete(row.id)
+  }
+}
+
+function handleReset(row: ChannelMonitor) {
+  if (resettingId.value != null) return
+  resetting.value = row
+  showResetDialog.value = true
+}
+
+function closeResetDialog() {
+  if (resettingId.value != null) return
+  showResetDialog.value = false
+  resetting.value = null
+}
+
+async function confirmReset() {
+  const target = resetting.value
+  if (!target || resettingId.value != null) return
+
+  resettingId.value = target.id
+  try {
+    await adminAPI.channelMonitor.reset(target.id)
+    appStore.showSuccess(t('admin.channelMonitor.resetSuccess'))
+    showResetDialog.value = false
+    resetting.value = null
+    void reload()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.resetFailed')))
+  } finally {
+    resettingId.value = null
   }
 }
 

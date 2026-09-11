@@ -9,11 +9,13 @@ import ChannelMonitorView from '@/views/admin/ChannelMonitorView.vue'
 const {
   listMonitors,
   duplicateMonitor,
+  resetMonitor,
   showSuccess,
   showError,
 } = vi.hoisted(() => ({
   listMonitors: vi.fn(),
   duplicateMonitor: vi.fn(),
+  resetMonitor: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
 }))
@@ -34,6 +36,7 @@ vi.mock('@/api/admin', () => ({
     channelMonitor: {
       list: listMonitors,
       duplicate: duplicateMonitor,
+      reset: resetMonitor,
       update: vi.fn(),
       runNow: vi.fn(),
       del: vi.fn(),
@@ -126,10 +129,10 @@ function mountView() {
   })
 }
 
-describe('ChannelMonitorView duplicate action', () => {
+describe('ChannelMonitorView monitor actions', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listMonitors, duplicateMonitor, showSuccess, showError]) fn.mockReset()
+    for (const fn of [listMonitors, duplicateMonitor, resetMonitor, showSuccess, showError]) fn.mockReset()
     listMonitors.mockResolvedValue({
       items: [monitor],
       total: 1,
@@ -138,6 +141,7 @@ describe('ChannelMonitorView duplicate action', () => {
       pages: 1,
     })
     duplicateMonitor.mockResolvedValue(makeMonitor({ id: 43, name: 'primary (Copy)', enabled: false }))
+    resetMonitor.mockResolvedValue(undefined)
   })
 
   it('duplicates the selected monitor, reports success, and refreshes the list', async () => {
@@ -225,6 +229,26 @@ describe('ChannelMonitorView duplicate action', () => {
 
     expect(duplicateMonitor).not.toHaveBeenCalled()
     expect(showError).toHaveBeenCalledWith('admin.channelMonitor.duplicateKeyUnavailable')
+    wrapper.unmount()
+  })
+
+  it('confirms reset, clears the selected monitor data, and refreshes the list', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent(MonitorActionsCell).vm.$emit('reset', monitor)
+    await wrapper.vm.$nextTick()
+
+    const resetDialog = wrapper.findAllComponents({ name: 'ConfirmDialog' })[0]
+    expect(resetDialog.props('show')).toBe(true)
+    resetDialog.vm.$emit('confirm')
+    await flushPromises()
+
+    expect(resetMonitor).toHaveBeenCalledTimes(1)
+    expect(resetMonitor).toHaveBeenCalledWith(42)
+    expect(showSuccess).toHaveBeenCalledWith('admin.channelMonitor.resetSuccess')
+    expect(listMonitors.mock.calls.length).toBeGreaterThan(1)
+    expect(resetDialog.props('show')).toBe(false)
     wrapper.unmount()
   })
 })

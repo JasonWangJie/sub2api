@@ -471,6 +471,19 @@ func (h *ChannelMonitorHandler) Delete(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// Reset POST /api/v1/admin/channel-monitors/:id/reset
+func (h *ChannelMonitorHandler) Reset(c *gin.Context) {
+	id, ok := ParseChannelMonitorID(c)
+	if !ok {
+		return
+	}
+	if err := h.monitorService.ResetData(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, nil)
+}
+
 // Run POST /api/v1/admin/channel-monitors/:id/run
 func (h *ChannelMonitorHandler) Run(c *gin.Context) {
 	id, ok := ParseChannelMonitorID(c)

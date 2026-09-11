@@ -40,11 +40,11 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
   }
 }
 
-describe('MonitorActionsCell duplicate action', () => {
+describe('MonitorActionsCell monitor actions', () => {
   it('emits the selected monitor when duplicate is clicked', async () => {
     const row = makeMonitor()
     const wrapper = mount(MonitorActionsCell, {
-      props: { row, running: false, duplicating: false },
+      props: { row, running: false, duplicating: false, resetting: false },
     })
 
     await wrapper.get('[data-testid="monitor-duplicate"]').trigger('click')
@@ -54,7 +54,7 @@ describe('MonitorActionsCell duplicate action', () => {
 
   it('disables the action while the same monitor is being duplicated', () => {
     const wrapper = mount(MonitorActionsCell, {
-      props: { row: makeMonitor(), running: false, duplicating: true },
+      props: { row: makeMonitor(), running: false, duplicating: true, resetting: false },
     })
     const button = wrapper.get('[data-testid="monitor-duplicate"]')
 
@@ -69,11 +69,34 @@ describe('MonitorActionsCell duplicate action', () => {
         row: makeMonitor({ api_key_decrypt_failed: true }),
         running: false,
         duplicating: false,
+        resetting: false,
       },
     })
     const button = wrapper.get('[data-testid="monitor-duplicate"]')
 
     expect(button.attributes('disabled')).toBeDefined()
     expect(button.attributes('title')).toBe('admin.channelMonitor.duplicateKeyUnavailable')
+  })
+
+  it('emits the selected monitor when reset is clicked', async () => {
+    const row = makeMonitor()
+    const wrapper = mount(MonitorActionsCell, {
+      props: { row, running: false, duplicating: false, resetting: false },
+    })
+
+    await wrapper.get('[data-testid="monitor-reset"]').trigger('click')
+
+    expect(wrapper.emitted('reset')).toEqual([[row]])
+  })
+
+  it('disables the reset action while the same monitor is being reset', () => {
+    const wrapper = mount(MonitorActionsCell, {
+      props: { row: makeMonitor(), running: false, duplicating: false, resetting: true },
+    })
+    const button = wrapper.get('[data-testid="monitor-reset"]')
+
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toBe('admin.channelMonitor.resetting')
+    expect(button.text()).toContain('admin.channelMonitor.resetting')
   })
 })

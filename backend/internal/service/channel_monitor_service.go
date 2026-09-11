@@ -24,6 +24,7 @@ type ChannelMonitorRepository interface {
 	GetByID(ctx context.Context, id int64) (*ChannelMonitor, error)
 	Update(ctx context.Context, m *ChannelMonitor) error
 	Delete(ctx context.Context, id int64) error
+	ResetData(ctx context.Context, id int64) error
 	List(ctx context.Context, params ChannelMonitorListParams) ([]*ChannelMonitor, int64, error)
 	FindByDuplicateOperationID(ctx context.Context, operationID string) (*ChannelMonitor, error)
 
@@ -570,6 +571,16 @@ func (s *ChannelMonitorService) Delete(ctx context.Context, id int64) error {
 	}
 	if s.scheduler != nil {
 		s.scheduler.Unschedule(id)
+	}
+	return nil
+}
+
+// ResetData 清空监控的历史与日聚合，并把 last_checked_at 恢复为未检测状态。
+// 监控配置、API Key、启用状态与现有调度任务均保持不变；启用中的监控会在
+// 后续正常调度时重新产生数据。
+func (s *ChannelMonitorService) ResetData(ctx context.Context, id int64) error {
+	if err := s.repo.ResetData(ctx, id); err != nil {
+		return fmt.Errorf("reset channel monitor data: %w", err)
 	}
 	return nil
 }

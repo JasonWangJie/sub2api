@@ -62,6 +62,45 @@ func TestEnsureBootstrapSecretsGenerateAndPersistJWTSecret(t *testing.T) {
 	stored, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ(securitySecretKeyJWT)).Only(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, cfg.JWT.Secret, stored.Value)
+
+	storedTOTP, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ(securitySecretKeyTOTPEncryption)).Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, cfg.Totp.EncryptionKey, storedTOTP.Value)
+	require.True(t, cfg.Totp.EncryptionKeyConfigured)
+	decodedTOTP, err := hex.DecodeString(cfg.Totp.EncryptionKey)
+	require.NoError(t, err)
+	require.Len(t, decodedTOTP, 32)
+}
+
+func TestEnsureBootstrapSecretsKeepsTOTPEncryptionKeyAcrossRestarts(t *testing.T) {
+	client := newSecuritySecretTestClient(t)
+	firstKey := strings.Repeat("11", 32)
+	secondBootstrapCandidate := strings.Repeat("22", 32)
+	jwtSecret := "configured-jwt-secret-32bytes-long!!"
+
+	first := &config.Config{
+		JWT:  config.JWTConfig{Secret: jwtSecret},
+		Totp: config.TotpConfig{EncryptionKey: firstKey},
+	}
+	require.NoError(t, ensureBootstrapSecrets(context.Background(), client, first))
+	firstEncryptor, err := NewAESEncryptor(first)
+	require.NoError(t, err)
+	ciphertext, err := firstEncryptor.Encrypt("sk-monitor-secret")
+	require.NoError(t, err)
+
+	second := &config.Config{
+		JWT:  config.JWTConfig{Secret: jwtSecret},
+		Totp: config.TotpConfig{EncryptionKey: secondBootstrapCandidate},
+	}
+	require.NoError(t, ensureBootstrapSecrets(context.Background(), client, second))
+	require.Equal(t, firstKey, second.Totp.EncryptionKey)
+	require.True(t, second.Totp.EncryptionKeyConfigured)
+
+	secondEncryptor, err := NewAESEncryptor(second)
+	require.NoError(t, err)
+	plaintext, err := secondEncryptor.Decrypt(ciphertext)
+	require.NoError(t, err)
+	require.Equal(t, "sk-monitor-secret", plaintext)
 }
 
 func TestEnsureBootstrapSecretsLoadExistingJWTSecret(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -154,6 +155,46 @@ func (r *channelMonitorRepository) Delete(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	if err := client.ChannelMonitor.DeleteOneID(id).Exec(ctx); err != nil {
 		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+	}
+	return nil
+}
+
+// ResetData 原子清空指定监控的全部历史、日聚合与最近检测时间。
+// 先更新主记录以校验 monitor 存在并锁定该行，再删除关联数据；这样任一步失败
+// 都会回滚，避免列表汇总与历史详情出现半重置状态。
+func (r *channelMonitorRepository) ResetData(ctx context.Context, id int64) error {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return resetChannelMonitorDataWithClient(ctx, tx.Client(), id)
+	}
+
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin reset channel monitor data transaction: %w", err)
+	}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := resetChannelMonitorDataWithClient(txCtx, tx.Client(), id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit reset channel monitor data transaction: %w", err)
+	}
+	return nil
+}
+
+func resetChannelMonitorDataWithClient(ctx context.Context, client *dbent.Client, id int64) error {
+	if err := client.ChannelMonitor.UpdateOneID(id).ClearLastCheckedAt().Exec(ctx); err != nil {
+		return translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
+	}
+	if _, err := client.ChannelMonitorHistory.Delete().
+		Where(channelmonitorhistory.MonitorIDEQ(id)).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("delete channel monitor history: %w", err)
+	}
+	if _, err := client.ChannelMonitorDailyRollup.Delete().
+		Where(channelmonitordailyrollup.MonitorIDEQ(id)).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("delete channel monitor rollups: %w", err)
 	}
 	return nil
 }

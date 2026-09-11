@@ -1730,8 +1730,9 @@ type TotpConfig struct {
 	// EncryptionKey 用于加密 TOTP 密钥的 AES-256 密钥（32 字节 hex 编码）
 	// 如果为空，将自动生成一个随机密钥（仅适用于开发环境）
 	EncryptionKey string `mapstructure:"encryption_key"`
-	// EncryptionKeyConfigured 标记加密密钥是否为手动配置（非自动生成）
-	// 只有手动配置了密钥才允许在管理后台启用 TOTP 功能
+	// EncryptionKeyConfigured 标记加密密钥是否具备跨重启持久性。
+	// 配置文件/环境变量显式提供，或启动时持久化到 security_secrets 后均为 true。
+	// 只有持久密钥才允许在管理后台启用 TOTP 或保存其它加密凭据。
 	EncryptionKeyConfigured bool `mapstructure:"-"`
 }
 
@@ -2014,7 +2015,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		}
 		cfg.Totp.EncryptionKey = key
 		cfg.Totp.EncryptionKeyConfigured = false
-		slog.Warn("TOTP encryption key auto-generated. Consider setting a fixed key for production.")
+		slog.Warn("TOTP encryption key auto-generated for bootstrap; database initialization will persist it for future restarts.")
 	} else {
 		cfg.Totp.EncryptionKeyConfigured = true
 	}
