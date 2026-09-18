@@ -283,10 +283,12 @@ import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { useUsdtRechargeLabel } from '@/composables/useUsdtRechargeLabel'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
+const { label: usdtRechargeLabel, ensureLoaded: ensureUsdtBonusRate } = useUsdtRechargeLabel()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const adminSettingsStore = useAdminSettingsStore()
@@ -340,6 +342,9 @@ const pageTitle = computed(() => {
     const menuItem = publicItems.find((item) => item.id === id)
       ?? (authStore.isAdmin ? adminSettingsStore.customMenuItems.find((item) => item.id === id) : undefined)
     if (menuItem?.label) return menuItem.label
+  }
+  if (route.path === '/usdt-recharge' || route.meta.titleKey === 'nav.usdtRecharge') {
+    return usdtRechargeLabel.value
   }
   const titleKey = route.meta.titleKey as string
   if (titleKey) {
@@ -398,6 +403,7 @@ function handleClickOutside(event: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  void ensureUsdtBonusRate()
 })
 
 onBeforeUnmount(() => {

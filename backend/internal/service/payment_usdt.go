@@ -103,18 +103,21 @@ func (s *PaymentConfigService) GetUSDTCheckoutInfo(ctx context.Context) (*USDTCh
 	if configCurrency != "" {
 		result.Currency, result.BonusRate = configCurrency, configBonus
 	}
+	// Exchange rate is required to actually check out, but menu clients only need
+	// bonus_rate / networks. Soft-fail the rate so a Coinbase outage does not
+	// hide the configured gift percentage from the sidebar label.
 	if len(result.Networks) > 0 {
-		rate, rateErr := s.usdtExchangeRate(ctx)
-		if rateErr != nil {
-			return nil, infraerrors.ServiceUnavailable("USDT_RATE_UNAVAILABLE", "USDT exchange rate is unavailable").WithCause(rateErr)
+			rate, rateErr := s.usdtExchangeRate(ctx)
+			if rateErr != nil {
+				return result, nil
+			}
+			result.ExchangeRate = rate.Rate
+			result.ExchangeRateSource = rate.Source
+			result.ExchangeRateAt = rate.At.UTC().Format(time.RFC3339)
+			result.ExchangeRateStale = rate.Stale
+			result.Enabled = true
 		}
-		result.ExchangeRate = rate.Rate
-		result.ExchangeRateSource = rate.Source
-		result.ExchangeRateAt = rate.At.UTC().Format(time.RFC3339)
-		result.ExchangeRateStale = rate.Stale
-	}
-	result.Enabled = len(result.Networks) > 0
-	if len(matching) > 0 {
+		if len(matching) > 0 {
 		limits := pcAggregateMethodLimits(payment.TypeUSDT, matching)
 		if limits.SingleMin > result.MinAmount {
 			result.MinAmount = limits.SingleMin

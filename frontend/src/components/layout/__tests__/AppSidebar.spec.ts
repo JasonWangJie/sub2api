@@ -69,7 +69,13 @@ describe('AppSidebar recharge center emphasis', () => {
     expect(componentSource.match(/'font-bold text-red-600 dark:text-red-400': item\.path === '\/purchase'/g)).toHaveLength(2)
   })
 
-  it('uses bold sky-blue text for USDT recharge in every menu renderer', () => {
+	it('uses bold sky-blue text for USDT recharge in every menu renderer', () => {
     expect(componentSource.match(/'font-bold text-sky-600 dark:text-sky-400': item\.path === '\/usdt-recharge'/g)).toHaveLength(3)
+  })
+
+  it('uses the dynamic USDT bonus label instead of a hardcoded gift percent', () => {
+    expect(componentSource).toContain('useUsdtRechargeLabel')
+    expect(componentSource).toContain('label: usdtRechargeLabel.value')
+    expect(componentSource).not.toContain("label: t('nav.usdtRecharge')")
   })
 })

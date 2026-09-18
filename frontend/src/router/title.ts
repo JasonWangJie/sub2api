@@ -1,6 +1,7 @@
 import { i18n } from '@/i18n'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import type { CustomMenuItem } from '@/types'
+import { resolveUsdtRechargeNavLabel } from '@/composables/useUsdtRechargeLabel'
 
 /**
  * 统一生成页面标题，避免多处写入 document.title 产生覆盖冲突。
@@ -10,7 +11,10 @@ export function resolveDocumentTitle(routeTitle: unknown, siteName?: string, tit
   const normalizedSiteName = typeof siteName === 'string' && siteName.trim() ? siteName.trim() : 'Sub2API'
 
   if (typeof titleKey === 'string' && titleKey.trim()) {
-    const translated = i18n.global.t(titleKey)
+    const translated =
+      titleKey === 'nav.usdtRecharge'
+        ? resolveUsdtRechargeNavLabel((key, values) => String(i18n.global.t(key, values ?? {})))
+        : i18n.global.t(titleKey)
     if (translated && translated !== titleKey) {
       return `${translated} - ${normalizedSiteName}`
     }

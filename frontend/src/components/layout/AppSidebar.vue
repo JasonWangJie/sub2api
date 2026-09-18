@@ -299,6 +299,7 @@ import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { useUsdtRechargeLabel } from '@/composables/useUsdtRechargeLabel'
 
 interface NavItem {
   path: string
@@ -337,6 +338,7 @@ function applyFeatureFlags(items: NavItem[]): NavItem[] {
 }
 
 const { t } = useI18n()
+const { label: usdtRechargeLabel, ensureLoaded: ensureUsdtBonusRate } = useUsdtRechargeLabel()
 
 const route = useRoute()
 const router = useRouter()
@@ -882,7 +884,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/purchase', label: t('nav.rechargeCenter'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
-    { path: '/usdt-recharge', label: t('nav.usdtRecharge'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
+    { path: '/usdt-recharge', label: usdtRechargeLabel.value, icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/invoices', label: t('nav.invoices'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagEnterpriseInvoice },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
@@ -1126,6 +1128,7 @@ watch(
 
 onMounted(() => {
   void refreshBatchImageAccess()
+  void ensureUsdtBonusRate()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
   }
