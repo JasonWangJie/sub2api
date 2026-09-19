@@ -157,7 +157,7 @@ International payment platform supporting multiple payment methods and currencie
 
 ### Epusdt USDT
 
-USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. An Epusdt instance can use `USDT` or `CNY` pricing; new instances default to `USDT`, while legacy instances without a currency remain compatible as `CNY`. USDT mode accepts USDT and converts it with the Coinbase USDT/CNY spot rate; CNY mode accepts CNY. Both modes support a per-instance recharge bonus. The account balance remains credited in the existing USD unit.
+USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. An Epusdt instance can use `USDT` or `CNY` pricing; new instances default to `USDT`, while legacy instances without a currency remain compatible as `CNY`. USDT mode accepts USDT and converts it with the OKX C2C buy price (merchant sell ads) for USDT/CNY; CNY mode accepts CNY. Both modes support a per-instance recharge bonus. The account balance remains credited in the existing USD unit.
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
@@ -168,7 +168,7 @@ USDT uses the dedicated **USDT Recharge** page and creates balance-only orders. 
 | **Recharge bonus** | `0-100%`, at most two decimals | No |
 | **Network list** | Comma-separated codes with optional `code=display alias`, such as `tron=TRC20,ethereum=ERC20,bsc`; plain codes remain supported | Yes |
 
-The webhook must be reachable over public HTTPS: `https://your-domain.com/api/v1/payment/webhook/epusdt`. GMPay JSON callbacks are verified for PID, signature, successful status, currency, and amount. The server obtains the USDT/CNY rate from Coinbase, refreshes it every 60 seconds, and may use a cache up to 10 minutes old during a transient network failure; recharge is paused when no usable rate exists. Epusdt v1 has no refund or upstream cancellation capability, so refunds are disabled for this provider; user cancellation only closes the local pending order.
+The webhook must be reachable over public HTTPS: `https://your-domain.com/api/v1/payment/webhook/epusdt`. GMPay JSON callbacks are verified for PID, signature, successful status, currency, and amount. The server obtains the USDT/CNY rate from OKX C2C buy quotes, refreshes it every 60 seconds, and may use a cache up to 10 minutes old during a transient network failure. Non-finite quotes, quotes outside `4-12 CNY/USDT`, and jumps greater than `5%` from a recent usable quote are rejected; recharge is paused when no usable rate exists. Epusdt v1 has no refund or upstream cancellation capability, so refunds are disabled for this provider; user cancellation only closes the local pending order.
 
 When multiple Epusdt instances are enabled, they must use the same pricing currency and `bonusRate`; their network codes and aliases are merged for display. The server re-quotes at order creation and stores the rate, bonus, and CNY/USD breakdown in the provider snapshot, so later rate changes do not affect an existing order. CNY values on the page are previews; the account balance remains recorded in USD.
 

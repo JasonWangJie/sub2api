@@ -104,7 +104,7 @@ func (s *PaymentConfigService) GetUSDTCheckoutInfo(ctx context.Context) (*USDTCh
 		result.Currency, result.BonusRate = configCurrency, configBonus
 	}
 	// Exchange rate is required to actually check out, but menu clients only need
-	// bonus_rate / networks. Soft-fail the rate so a Coinbase outage does not
+	// bonus_rate / networks. Soft-fail the rate so an OKX C2C outage does not
 	// hide the configured gift percentage from the sidebar label.
 	if len(result.Networks) > 0 {
 			rate, rateErr := s.usdtExchangeRate(ctx)

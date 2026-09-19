@@ -71,7 +71,7 @@
             <div class="mt-2 flex justify-between text-sm text-gray-500 dark:text-gray-400"><span>{{ t('payment.usdtExpectedCNY') }}</span><span>¥{{ creditedCNY.toFixed(2) }}</span></div>
             <div v-if="feeAmount > 0" class="mt-2 flex justify-between text-sm text-gray-500 dark:text-gray-400"><span>{{ t('payment.fee') }} ({{ checkout.fee_rate }}%)</span><span>{{ inputSymbol }}{{ feeAmount.toFixed(2) }}</span></div>
             <div class="mt-2 flex justify-between border-t border-gray-100 pt-3 text-base dark:border-dark-700"><span class="font-semibold text-gray-700 dark:text-gray-200">{{ t('payment.usdtExpectedBalance') }}</span><span class="font-bold text-emerald-600 dark:text-emerald-400">${{ creditedAmount.toFixed(2) }}</span></div>
-            <p v-if="checkout.exchange_rate_at" class="mt-3 text-right text-xs text-gray-400 dark:text-gray-500">{{ checkout.exchange_rate_source || 'Coinbase' }} USDT/CNY · {{ formatQuoteTime(checkout.exchange_rate_at) }}<span v-if="checkout.exchange_rate_stale"> · {{ t('payment.usdtRateStale') }}</span></p>
+            <p v-if="checkout.exchange_rate_at" class="mt-3 text-right text-xs text-gray-400 dark:text-gray-500">{{ checkout.exchange_rate_source || 'OKX C2C' }} USDT/CNY · {{ formatQuoteTime(checkout.exchange_rate_at) }}<span v-if="checkout.exchange_rate_stale"> · {{ t('payment.usdtRateStale') }}</span></p>
           </section>
 
           <p v-if="errorMessage" class="text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
@@ -107,7 +107,7 @@ const amount = ref<number | null>(null)
 const selectedNetwork = ref('')
 const paymentPhase = ref<'select' | 'paying'>('select')
 const paymentState = ref<PaymentRecoverySnapshot>(emptyState())
-const checkout = ref<USDTCheckoutInfo>({ enabled: false, currency: 'USDT', min_amount: 0, max_amount: 0, daily_limit: 0, fee_rate: 0, balance_recharge_multiplier: 1, bonus_rate: 0, exchange_rate: 0, exchange_rate_source: 'Coinbase', exchange_rate_at: '', exchange_rate_stale: false, networks: [] })
+const checkout = ref<USDTCheckoutInfo>({ enabled: false, currency: 'USDT', min_amount: 0, max_amount: 0, daily_limit: 0, fee_rate: 0, balance_recharge_multiplier: 1, bonus_rate: 0, exchange_rate: 0, exchange_rate_source: 'OKX C2C', exchange_rate_at: '', exchange_rate_stale: false, networks: [] })
 const usdtQuote = ref<USDTOrderQuote | null>(null)
 const quickAmounts = [50, 100, 200, 500, 1000]
 
