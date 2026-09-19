@@ -201,6 +201,8 @@ export default {
     github: 'GitHub',
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
+    recharge: 'Recharge',
+    subscribe: 'Subscription',
     rechargeCenter: 'Recharge Center',
     usdtRecharge: 'USDT Recharge',
     usdtRechargeWithBonus: 'USDT Recharge (+{rate}%)',

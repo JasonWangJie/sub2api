@@ -124,7 +124,7 @@ func TestHandleNativeNonStreamingResponseReturnsActualImageAccounting(t *testing
 	body := `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"` + encoded + `"}}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":4}}`
 	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 
-	result, err := (&GeminiMessagesCompatService{}).handleNativeNonStreamingResponse(c, resp, false)
+	result, err := (&GeminiMessagesCompatService{}).handleNativeNonStreamingResponse(c, resp, false, nil, "")
 	require.NoError(t, err)
 	require.Equal(t, 1, result.imageCounter.Count())
 	require.Equal(t, []string{"1536x1024"}, result.imageCounter.Sizes())

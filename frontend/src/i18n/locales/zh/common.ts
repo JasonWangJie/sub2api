@@ -201,6 +201,8 @@ export default {
     github: 'GitHub',
     mySubscriptions: '我的订阅',
     buySubscription: '充值/订阅',
+    recharge: '充值',
+    subscribe: '订阅',
     rechargeCenter: '充值中心',
     usdtRecharge: 'USDT充值',
     usdtRechargeWithBonus: 'USDT充值（加赠{rate}%）',
