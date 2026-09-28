@@ -72,15 +72,14 @@ export function resolveRouteDocumentTitle(
   route: Pick<RouteLocationNormalizedLoaded, 'name' | 'params' | 'meta'>,
   siteName: string | undefined,
   customMenuItems: CustomMenuItem[] = [],
-  optionsOrHomeSEOTitle: RouteTitleOptions | string = {},
+  homeSEOTitleOrOptions?: string | RouteTitleOptions,
+  options: RouteTitleOptions = {},
 ): string {
-  // 兼容本地旧调用（第 4 个参数直接传 SEO 标题）与上游新调用（传计费模式 options）。
-  const options: RouteTitleOptions = typeof optionsOrHomeSEOTitle === 'string'
-    ? { homeSEOTitle: optionsOrHomeSEOTitle }
-    : optionsOrHomeSEOTitle
+  const homeSEOTitle = typeof homeSEOTitleOrOptions === 'string' ? homeSEOTitleOrOptions : undefined
+  if (typeof homeSEOTitleOrOptions === 'object') options = homeSEOTitleOrOptions
 
   if (route.name === 'Home') {
-    const configuredTitle = options.homeSEOTitle?.trim()
+    const configuredTitle = (homeSEOTitle ?? options.homeSEOTitle)?.trim()
     if (configuredTitle) return configuredTitle
     const normalizedSiteName = siteName?.trim() || 'Sub2API'
     return `${normalizedSiteName} - AI API Gateway`

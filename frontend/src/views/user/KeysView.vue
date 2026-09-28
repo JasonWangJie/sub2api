@@ -1251,6 +1251,7 @@ import {
   withGroupSectionHeaders
 } from '@/utils/groupSectionOptions'
 import {
+  CC_SWITCH_USAGE_SCRIPT,
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
@@ -1533,8 +1534,7 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 
 // Convert groups to Select options format with rate multiplier and subscription type,
 // partitioned by section (大分组) with disabled headers.
-const buildGroupOptions = (sourceGroups: Group[]): GroupOption[] => {
-  const items: GroupOption[] = sourceGroups.map((group) => ({
+const groupOptionItems = computed(() => groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
@@ -1547,16 +1547,11 @@ const buildGroupOptions = (sourceGroups: Group[]): GroupOption[] => {
     peakRateMultiplier: group.peak_rate_multiplier,
     subscriptionType: group.subscription_type,
     platform: group.platform
-  }))
-
-  // A lone "uncategorized" heading adds no value. Only render section
-  // headings when the administrator has actually configured a section.
-  if (!items.some((item) => item.section)) return items
-
-  return withGroupSectionHeaders(items, t('keys.uncategorizedSection')) as GroupOption[]
-}
-
-const groupOptions = computed(() => buildGroupOptions(groups.value))
+})))
+const groupOptions = computed(() => withGroupSectionHeaders(
+  groupOptionItems.value,
+  t('keys.uncategorizedSection'),
+) as GroupOption[])
 
 const createProvider = ref<KeyGroupProvider>('anthropic')
 const createProviderOptions = computed(() => KEY_GROUP_PROVIDERS.map((value) => ({
@@ -1567,7 +1562,10 @@ const createProviderOptions = computed(() => KEY_GROUP_PROVIDERS.map((value) => 
 
 const formGroupOptions = computed(() => showEditModal.value
   ? groupOptions.value
-  : buildGroupOptions(groups.value.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value))
+  : withGroupSectionHeaders(
+    groupOptionItems.value.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value),
+    t('keys.uncategorizedSection'),
+  ) as GroupOption[]
 )
 
 const selectCreateProvider = (provider: KeyGroupProvider) => {
@@ -2055,22 +2053,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
 
-  const usageScript = `({
-    request: {
-      url: "{{baseUrl}}/v1/usage",
-      method: "GET",
-      headers: { "Authorization": "Bearer {{apiKey}}" }
-    },
-    extractor: function(response) {
-      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
-      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
-      return {
-        isValid: response?.is_active ?? response?.isValid ?? true,
-        remaining,
-        unit
-      };
-    }
-  })`
+  const usageScript = CC_SWITCH_USAGE_SCRIPT
   const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,

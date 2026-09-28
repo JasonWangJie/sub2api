@@ -558,7 +558,9 @@ describe('user KeysView column settings', () => {
       subscription_type: 'standard',
     }))
     const groupSelect = (wrapper: VueWrapper) => wrapper.findComponent('[data-tour="key-form-group"]')
-    const optionIds = (wrapper: VueWrapper) => groupSelect(wrapper).props('options').map((option: { value: number }) => option.value)
+    const optionIds = (wrapper: VueWrapper) => groupSelect(wrapper).props('options')
+      .filter((option: { disabled?: boolean }) => !option.disabled)
+      .map((option: { value: number }) => option.value)
     const chooseProvider = (wrapper: VueWrapper, value: string) => wrapper.get(`input[name="key-provider"][value="${value}"]`).setValue()
     const openCreate = async () => {
       const wrapper = await mountView()
@@ -574,6 +576,7 @@ describe('user KeysView column settings', () => {
       const wrapper = await openCreate()
       expect(wrapper.findAll('input[name="key-provider"]')).toHaveLength(4)
       expect(optionIds(wrapper)).toEqual([1])
+      expect(groupSelect(wrapper).props('options').some((option: { kind?: string; disabled?: boolean }) => option.kind === 'group' && option.disabled)).toBe(true)
       await chooseProvider(wrapper, 'openai')
       expect(optionIds(wrapper)).toEqual([2])
       await chooseProvider(wrapper, 'domestic')

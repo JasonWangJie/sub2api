@@ -93,7 +93,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 			return nil, parseErr
 		}
 		model = info.Model
-		upstreamModel = account.GetMappedModel(model)
+		upstreamModel = account.GetMappedModelForRequest(ctx, model)
 		body, err = sjson.SetBytes(body, "model", upstreamModel)
 		if err != nil {
 			return nil, err

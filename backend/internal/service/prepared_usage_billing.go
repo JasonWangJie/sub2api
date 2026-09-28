@@ -14,13 +14,14 @@ type usageBillingPreparationContextKey struct{}
 // operation without resolving prices, peak multipliers, or group overrides a
 // second time.
 type PreparedUsageBilling struct {
-	Command               UsageBillingCommand `json:"command"`
-	UsageLog              UsageLog            `json:"usage_log"`
-	Cost                  CostBreakdown       `json:"cost"`
-	IsSubscriptionBilling bool                `json:"is_subscription_billing"`
-	AccountRateMultiplier float64             `json:"account_rate_multiplier"`
-	Platform              string              `json:"platform"`
-	NotBillable           bool                `json:"not_billable,omitempty"`
+	Command                    UsageBillingCommand `json:"command"`
+	UsageLog                   UsageLog            `json:"usage_log"`
+	Cost                       CostBreakdown       `json:"cost"`
+	IsSubscriptionBilling      bool                `json:"is_subscription_billing"`
+	AccountRateMultiplier      float64             `json:"account_rate_multiplier"`
+	Platform                   string              `json:"platform"`
+	NotBillable                bool                `json:"not_billable,omitempty"`
+	SimpleModeKeyRateLimitOnly bool                `json:"simple_mode_key_rate_limit_only,omitempty"`
 }
 
 func (p *PreparedUsageBilling) ActualCost() float64 {
@@ -112,13 +113,14 @@ func capturePreparedUsageBillingMode(ctx context.Context, command *UsageBillingC
 	usageLogCopy := *usageLog
 	costCopy := *p.Cost
 	sink.set(&PreparedUsageBilling{
-		Command:               commandCopy,
-		UsageLog:              usageLogCopy,
-		Cost:                  costCopy,
-		IsSubscriptionBilling: p.IsSubscriptionBill,
-		AccountRateMultiplier: p.AccountRateMultiplier,
-		Platform:              p.Platform,
-		NotBillable:           notBillable,
+		Command:                    commandCopy,
+		UsageLog:                   usageLogCopy,
+		Cost:                       costCopy,
+		IsSubscriptionBilling:      p.IsSubscriptionBill,
+		AccountRateMultiplier:      p.AccountRateMultiplier,
+		Platform:                   p.Platform,
+		NotBillable:                notBillable,
+		SimpleModeKeyRateLimitOnly: p.SimpleModeKeyRateLimitOnly,
 	})
 	return true
 }
@@ -211,16 +213,17 @@ func (s *GatewayService) ApplyPreparedRecordUsage(ctx context.Context, prepared 
 		return errors.New("gateway prepared usage input is incomplete")
 	}
 	p := &postUsageBillingParams{
-		Cost:                  &prepared.Cost,
-		User:                  input.User,
-		APIKey:                input.APIKey,
-		Account:               input.Account,
-		Subscription:          input.Subscription,
-		RequestPayloadHash:    prepared.Command.RequestPayloadHash,
-		IsSubscriptionBill:    prepared.IsSubscriptionBilling,
-		AccountRateMultiplier: prepared.AccountRateMultiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              prepared.Platform,
+		Cost:                       &prepared.Cost,
+		User:                       input.User,
+		APIKey:                     input.APIKey,
+		Account:                    input.Account,
+		Subscription:               input.Subscription,
+		RequestPayloadHash:         prepared.Command.RequestPayloadHash,
+		IsSubscriptionBill:         prepared.IsSubscriptionBilling,
+		AccountRateMultiplier:      prepared.AccountRateMultiplier,
+		APIKeyService:              input.APIKeyService,
+		Platform:                   prepared.Platform,
+		SimpleModeKeyRateLimitOnly: prepared.SimpleModeKeyRateLimitOnly,
 	}
 	return applyPreparedUsageBilling(ctx, prepared, p, s.billingDeps(), s.usageBillingRepo, s.usageLogRepo, "service.gateway.async_image")
 }
@@ -230,16 +233,17 @@ func (s *OpenAIGatewayService) ApplyPreparedRecordUsage(ctx context.Context, pre
 		return errors.New("OpenAI prepared usage input is incomplete")
 	}
 	p := &postUsageBillingParams{
-		Cost:                  &prepared.Cost,
-		User:                  input.User,
-		APIKey:                input.APIKey,
-		Account:               input.Account,
-		Subscription:          input.Subscription,
-		RequestPayloadHash:    prepared.Command.RequestPayloadHash,
-		IsSubscriptionBill:    prepared.IsSubscriptionBilling,
-		AccountRateMultiplier: prepared.AccountRateMultiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              prepared.Platform,
+		Cost:                       &prepared.Cost,
+		User:                       input.User,
+		APIKey:                     input.APIKey,
+		Account:                    input.Account,
+		Subscription:               input.Subscription,
+		RequestPayloadHash:         prepared.Command.RequestPayloadHash,
+		IsSubscriptionBill:         prepared.IsSubscriptionBilling,
+		AccountRateMultiplier:      prepared.AccountRateMultiplier,
+		APIKeyService:              input.APIKeyService,
+		Platform:                   prepared.Platform,
+		SimpleModeKeyRateLimitOnly: prepared.SimpleModeKeyRateLimitOnly,
 	}
 	return applyPreparedUsageBilling(ctx, prepared, p, s.billingDeps(), s.usageBillingRepo, s.usageLogRepo, "service.openai_gateway.async_image")
 }

@@ -450,7 +450,7 @@ func TestOpenAI429ModeSetupTokenQuotaQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":0,"limit_window_seconds":18000}}}`))
 	}))
 	t.Cleanup(server.Close)
-	quota := NewOpenAIQuotaService(repo, nil, nil, newQuotaRedirectingFactory(server))
+	quota := NewOpenAIQuotaService(repo, nil, nil, newQuotaRedirectingFactory(server), nil)
 	usage, err := quota.QueryUsage(context.Background(), 1)
 	require.NoError(t, err)
 	require.True(t, usage.RateLimit.Allowed)

@@ -44,6 +44,7 @@
 
 <script lang="ts">
 let dialogIdCounter = 0
+const openDialogs = new Set<string>()
 </script>
 
 <script setup lang="ts">
@@ -53,7 +54,6 @@ import Icon from '@/components/icons/Icon.vue'
 
 // 生成唯一ID以避免多个对话框时ID冲突
 const dialogId = `modal-title-${++dialogIdCounter}`
-let openDialogCount = 0
 
 const { t } = useI18n()
 
@@ -133,15 +133,13 @@ function focusableElements(): HTMLElement[] {
 function holdBodyLock() {
   if (bodyLockHeld) return
   bodyLockHeld = true
-  openDialogCount += 1
-  document.body.classList.add('modal-open')
+  updateScrollLock(true)
 }
 
 function releaseBodyLock() {
   if (!bodyLockHeld) return
   bodyLockHeld = false
-  openDialogCount = Math.max(0, openDialogCount - 1)
-  if (openDialogCount === 0) document.body.classList.remove('modal-open')
+  updateScrollLock(false)
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
@@ -169,6 +167,12 @@ const handleKeydown = (event: KeyboardEvent) => {
     event.preventDefault()
     first.focus()
   }
+}
+
+const updateScrollLock = (isOpen: boolean) => {
+  if (isOpen) openDialogs.add(dialogId)
+  else openDialogs.delete(dialogId)
+  document.body.classList.toggle('modal-open', openDialogs.size > 0)
 }
 
 // Prevent body scroll when modal is open and manage focus

@@ -107,17 +107,17 @@ func (s *PaymentConfigService) GetUSDTCheckoutInfo(ctx context.Context) (*USDTCh
 	// bonus_rate / networks. Soft-fail the rate so an OKX C2C outage does not
 	// hide the configured gift percentage from the sidebar label.
 	if len(result.Networks) > 0 {
-			rate, rateErr := s.usdtExchangeRate(ctx)
-			if rateErr != nil {
-				return result, nil
-			}
-			result.ExchangeRate = rate.Rate
-			result.ExchangeRateSource = rate.Source
-			result.ExchangeRateAt = rate.At.UTC().Format(time.RFC3339)
-			result.ExchangeRateStale = rate.Stale
-			result.Enabled = true
+		rate, rateErr := s.usdtExchangeRate(ctx)
+		if rateErr != nil {
+			return result, nil
 		}
-		if len(matching) > 0 {
+		result.ExchangeRate = rate.Rate
+		result.ExchangeRateSource = rate.Source
+		result.ExchangeRateAt = rate.At.UTC().Format(time.RFC3339)
+		result.ExchangeRateStale = rate.Stale
+		result.Enabled = true
+	}
+	if len(matching) > 0 {
 		limits := pcAggregateMethodLimits(payment.TypeUSDT, matching)
 		if limits.SingleMin > result.MinAmount {
 			result.MinAmount = limits.SingleMin

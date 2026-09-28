@@ -358,7 +358,7 @@ const pageTitle = computed(() => {
   if (route.path === '/usdt-recharge' || route.meta.titleKey === 'nav.usdtRecharge') {
     return usdtRechargeLabel.value
   }
-  const titleKey = route.meta.titleKey as string
+  const titleKey = routeMetaKeys.value.titleKey
   if (titleKey) {
     return t(titleKey)
   }

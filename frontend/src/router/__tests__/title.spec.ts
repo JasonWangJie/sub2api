@@ -64,6 +64,14 @@ describe('resolveRouteDocumentTitle', () => {
     expect(resolveRouteDocumentTitle(route, '', [], '   ')).toBe('Sub2API - AI API Gateway')
   })
 
+  it('首页的 options 调用保留本地 SEO 标题', () => {
+    const route = { name: 'Home', params: {}, meta: { title: 'Home' } }
+    expect(resolveRouteDocumentTitle(route, 'Custom Site Name', [], {
+      homeSEOTitle: '  自定义首页标题  ',
+      billingMode: 'recharge_only',
+    })).toBe('自定义首页标题')
+  })
+
   it('自定义页面菜单加载后，使用菜单名称作为标题', () => {
     const route = {
       name: 'CustomPage',
@@ -137,6 +145,12 @@ describe('resolveRouteDocumentTitle 站点类型', () => {
   it('仅充值时 document.title 不再带「订阅」', () => {
     const title = resolveRouteDocumentTitle(purchaseRoute, 'EzouAPI', [], { billingMode: 'recharge_only' })
     expect(title).toBe('充值 - EzouAPI')
+  })
+
+  it('旧的 SEO 参数和第五个计费参数仍能共存', () => {
+    expect(resolveRouteDocumentTitle(purchaseRoute, 'EzouAPI', [], '首页标题', {
+      billingMode: 'recharge_only',
+    })).toBe('充值 - EzouAPI')
   })
 
   it('仅订阅时 document.title 只剩「订阅」', () => {

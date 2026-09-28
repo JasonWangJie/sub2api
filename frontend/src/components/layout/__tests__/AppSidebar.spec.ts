@@ -65,12 +65,30 @@ describe('AppSidebar header styles', () => {
 
 describe('AppSidebar recharge center emphasis', () => {
   it('uses the dedicated label and bold red text in both personal menu renderers', () => {
-    expect(componentSource).toContain("label: t('nav.rechargeCenter')")
+    expect(componentSource).toContain("return t('nav.rechargeCenter')")
     expect(componentSource.match(/'font-bold text-red-600 dark:text-red-400': item\.path === '\/purchase'/g)).toHaveLength(2)
   })
 
 	it('uses bold sky-blue text for USDT recharge in every menu renderer', () => {
     expect(componentSource.match(/'font-bold text-sky-600 dark:text-sky-400': item\.path === '\/usdt-recharge'/g)).toHaveLength(3)
+  })
+})
+
+describe('AppSidebar subscription feature flag', () => {
+  it('gates the My Subscriptions entry behind the subscription public-settings flag', () => {
+    expect(componentSource).toContain('const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)')
+    expect(componentSource).toMatch(/path: '\/subscriptions'[^\n]*featureFlag: flagSubscription/)
+  })
+
+  it('also hides the admin Subscription Management entry on recharge-only sites', () => {
+    expect(componentSource).toMatch(/path: '\/admin\/subscriptions'[^\n]*featureFlag: flagSubscription/)
+  })
+
+  it('derives the purchase entry label from the site billing mode', () => {
+    expect(componentSource).toContain("import { resolveSiteBillingMode } from '@/utils/siteBillingMode'")
+    expect(componentSource).toMatch(/case 'recharge_only':\s*return t\('nav\.recharge'\)/)
+    expect(componentSource).toMatch(/case 'subscription_only':\s*return t\('nav\.subscribe'\)/)
+    expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 
   it('uses the dynamic USDT bonus label instead of a hardcoded gift percent', () => {
