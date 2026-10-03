@@ -119,22 +119,26 @@ func TestUsageLogStaticInsertShape_PlaceholdersMatchArgTypes(t *testing.T) {
 // session_id 之前，与参数类型表保持同位；缺失时落 NULL 而不是空串。
 func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	upstreamRequestID := "req_upstream_123"
+	sessionID := "sess_wiring_123"
 	prepared := prepareUsageLogInsert(&service.UsageLog{
 		UserID:            1,
 		APIKeyID:          2,
 		RequestID:         "client:wiring",
 		Model:             "gpt-5",
 		UpstreamRequestID: &upstreamRequestID,
+		SessionID:         &sessionID,
 		CreatedAt:         time.Now().UTC(),
 	})
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 
-	idx := len(prepared.args) - 4
+	idx := len(prepared.args) - 5
 	arg, ok := prepared.args[idx].(sql.NullString)
 	require.True(t, ok, "upstream_request_id arg should be sql.NullString, got %T", prepared.args[idx])
 	require.True(t, arg.Valid)
 	require.Equal(t, upstreamRequestID, arg.String)
 	require.Equal(t, "text", usageLogInsertArgTypes[idx])
+	require.Equal(t, sql.NullString{String: sessionID, Valid: true}, prepared.args[idx+1],
+		"session_id must immediately follow upstream_request_id")
 
 	absent := prepareUsageLogInsert(&service.UsageLog{UserID: 1, APIKeyID: 2, RequestID: "client:absent", Model: "gpt-5", CreatedAt: time.Now().UTC()})
 	nullArg, ok := absent.args[idx].(sql.NullString)

@@ -33,7 +33,7 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // billing_charge_multiplier and native_compaction_v2 follow session_id, and
 // created_at is always last.
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 62, "arg-type table must include usage-log snapshots")
+	require.Len(t, usageLogInsertArgTypes, 63, "arg-type table must include usage-log snapshots")
 
 	sessionID := "sess-persisted-123"
 	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))

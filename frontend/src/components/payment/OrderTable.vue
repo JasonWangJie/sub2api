@@ -32,8 +32,11 @@
             {{ t('payment.orders.creditedAmount') }}: ${{ row.usdt_quote.credited_usd.toFixed(2) }}
           </div>
         </template>
-        <div v-else-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
+        <div v-else-if="row.amount !== row.pay_amount || (row.bonus_amount ?? 0) > 0" class="text-xs text-gray-500">
           {{ t('payment.orders.creditedAmount') }}: {{ creditedAmountSymbol }}{{ row.amount.toFixed(2) }}
+          <span v-if="(row.bonus_amount ?? 0) > 0" class="ml-1 text-amber-600 dark:text-amber-400">
+            ({{ t('payment.orders.bonusIncluded', { amount: creditedAmountSymbol + (row.bonus_amount ?? 0).toFixed(2) }) }})
+          </span>
         </div>
       </div>
     </template>

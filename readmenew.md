@@ -17,7 +17,23 @@ codegraph init
 
 `wiki-new/` 下所有 Markdown 文件统一使用简体中文语义文件名。后续新增文档不得恢复英文 slug、拼音或英文编号前缀；文件重命名后必须同步更新全仓链接并检查断链。
 
-## 当前版本快照
+## 2026-10-03 上游合并快照
+
+- 本地合并基线：`50a14c8ff63eeabf320b1e5707109d974c12e3c3`，合并前 `main` 工作区干净。
+- 已获取并合入原作者 `upstream/main = b8dece9000c68815a5b867ca5a1e6f236e173905`（`v0.2.13`，95 个新增提交）；`backend/cmd/server/VERSION = 0.2.13`。
+- 恢复分支：`codex/pre-upstream-merge-20261003-50a14c8ff`。本次仅提交本地合并，未推送、打发行标签或运行远端 CI。
+- 16 个冲突按本地逻辑优先解决：保留 USDT 独立汇率、赠款及零手续费、发票、429 模式、Claude Code mimic、模型映射比例和图片工作流；兼容上游 TypeSafe、充值阶梯、并发余额预留、Claude 5.5 和账号路由限制。
+- 兼容修复：Bedrock 转换与提前校验统一使用请求级模型映射；文本余额预留计入本地系统倍率，媒体及映射后的生图别名保持媒体计费口径。验证期间修复本地已有的两处用量日志 INSERT 缺少第 63 个占位符，以及相关快照断言错位。
+- Fork 发布身份检查通过：安装、升级、systemd、Release CI、GoReleaser、Docker 来源及 Fork 约定共 12 个文件与本地基线一致；安装脚本 `CONFIG_DIR=/etc/sub2api` 与现有运行目录配置均保留。
+- 本地后端验证通过：`service` 的网关、计费、映射、调度、429、TypeSafe、Claude、支付、发票、认证、API Key 限制等聚焦单测；`handler`、`handler/admin`、`handler/dto`、`server/...`、`repository`、`payment/...`、协议兼容包、`model`、`securityaudit`、`migrations`、`domain`、`web`、`cmd/server` 单测；`go build ./cmd/server`。
+- 完整配置单测在 C 盘隔离目录通过（111 个顶层测试、298 个案例），避免测试清空 `DATA_DIR` 后读取宿主 `D:\app\data\config.yaml`；未改动宿主配置。数据库层测试通过临时加入已有 Git Bash 的 PATH 运行。
+- Ent 在隔离目录重新生成后原子安装，Wire 通过 `go generate ./cmd/server` 重新生成。前端 frozen-lockfile 安装、类型检查、28 个测试文件共 509 个测试及生产构建通过；使用临时 pnpm 9.15.9 与独立构建输出目录，未改写依赖锁文件或覆盖现有产物。
+- `git ls-files -u`、冲突标记扫描、`git diff --check` 与 Fork 身份检查通过。未进行真实上游账号、真实支付、生产 Redis/PostgreSQL、OSS、浏览器或远端 CI 验收。
+- 本地既有问题另行记录：Free Fast 按标准价重算 `ActualCost` 会覆盖先前的系统倍率；`openai_gateway_usage.go` 与合并前 HEAD 相同，本轮未调整该逻辑。
+
+最终合并 SHA、`git describe` 与工作区状态以实际 Git 输出为准。下面保留早期功能交接快照。
+
+## 2026-08-30 历史版本快照
 
 记录日期：`2026-08-30`（续更：企业开票及拒绝后重新申请；图片工作流历史状态仍按各专题记录）。
 

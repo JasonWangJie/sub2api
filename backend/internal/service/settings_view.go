@@ -181,6 +181,7 @@ type SystemSettings struct {
 	BillingChargeMultiplierGroupIDs  []int64
 	RiskControlEnabled               bool
 	CyberSessionBlockEnabled         bool
+	CyberPolicyUserAllowlist         string
 	CyberSessionBlockTTLSeconds      int
 	AffiliateEnabled                 bool
 	EnterpriseInvoiceEnabled         bool

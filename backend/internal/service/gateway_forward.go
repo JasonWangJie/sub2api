@@ -95,11 +95,24 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	}
 	// API-key mappings and OAuth native IDs are resolved before mimicry.
 	validationModel := parsed.Model
-	if account != nil && account.Type == AccountTypeAPIKey {
-		validationModel = account.GetMappedModelForRequest(ctx, validationModel)
+	if account != nil {
+		if account.IsBedrock() {
+			if resolved, ok := ResolveBedrockModelIDForRequest(ctx, account, validationModel); ok {
+				validationModel = resolved
+			}
+		} else if account.Type == AccountTypeAPIKey {
+			validationModel = account.GetMappedModelForRequest(ctx, validationModel)
+		} else if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
+			// Vertex mappings must select the same rollout branch as forwarding.
+			if mapped, matched := account.ResolveMappedModelForRequest(ctx, validationModel); matched {
+				validationModel = mapped
+			} else {
+				validationModel = normalizeVertexAnthropicModelID(claude.NormalizeModelID(validationModel))
+			}
+		}
 	}
-	if account != nil && account.Platform == PlatformAnthropic && !account.IsBedrock() && account.Type != AccountTypeServiceAccount {
-		if err := validateClaudeOpus55Request(parsed.Body.Bytes(), validationModel); err != nil {
+	if account != nil && account.Platform == PlatformAnthropic {
+		if err := validateClaude55Request(parsed.Body.Bytes(), validationModel); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
 			return nil, err
 		}

@@ -25,6 +25,9 @@ func (s *GatewayService) ApplyBedrockCCCompat(c *gin.Context, body []byte, model
 	if !s.isBedrockCCCompatEnabled(c.Request.Context(), account, groupID) {
 		return body
 	}
+	if resolved, ok := ResolveBedrockModelIDForRequest(c.Request.Context(), account, model); ok {
+		model = resolved
+	}
 	body = sanitizeBedrockCCFields(body)
 	body = sanitizeBedrockThinking(body, model)
 	body = sanitizeBedrockToolUseIDs(body)

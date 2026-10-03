@@ -511,6 +511,28 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).toContain(formatPaymentAmount(103, 'HKD'))
   })
 
+  it('renders the included bonus for a balance order even when credited and paid totals match', async () => {
+    routeState.query = { resume_token: 'resume-bonus' }
+    resolveOrderPublicByResumeToken.mockResolvedValue({
+      data: {
+        ...orderFactory('COMPLETED'),
+        amount: 88,
+        pay_amount: 88,
+        bonus_amount: 8,
+      },
+    })
+
+    const wrapper = mount(PaymentResultView, {
+      global: { stubs: { OrderStatusBadge: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('payment.orders.bonusAmount')
+    expect(wrapper.text()).toContain('+$8.00')
+    expect(wrapper.text()).toContain('payment.orders.creditedAmount')
+    expect(wrapper.text()).toContain('$88.00')
+  })
+
   it('renders the USDT recharge, bonus, and credited USD breakdown', async () => {
     routeState.query = { resume_token: 'resume-usdt' }
     resolveOrderPublicByResumeToken.mockResolvedValue({
@@ -520,6 +542,7 @@ describe('PaymentResultView', () => {
         currency: 'USDT',
         amount: 13.58,
         pay_amount: 20,
+        bonus_amount: 0.14,
         usdt_quote: {
           currency: 'USDT',
           exchange_rate: 6.720838,
@@ -543,6 +566,8 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).toContain('+¥1.34')
     expect(wrapper.text()).toContain('¥135.76')
     expect(wrapper.text()).toContain('$13.58')
+    expect(wrapper.text()).not.toContain('payment.orders.bonusAmount')
+    expect(wrapper.text()).not.toContain('+$0.14')
   })
 
   it('normalizes aliased payment methods before rendering the label', async () => {
