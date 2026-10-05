@@ -51,3 +51,40 @@ func TestAdminUserList_ParsesAPIKeyGroupID(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminUserList_ParsesHasExclusiveGroups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cases := []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{"enabled", "?has_exclusive_groups=true", true},
+		{"numeric enabled", "?has_exclusive_groups=1", true},
+		{"disabled", "?has_exclusive_groups=false", false},
+		{"missing", "", false},
+		{"invalid ignored", "?has_exclusive_groups=invalid", false},
+		{"combined filters", "?has_exclusive_groups=true&status=active&group_name=VIP&api_key_group_id=42", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &listUsersFilterStub{AdminService: newStubAdminService()}
+			r := gin.New()
+			h := NewUserHandler(stub, nil, nil, nil, nil, nil, nil)
+			r.GET("/admin/users", h.List)
+
+			w := httptest.NewRecorder()
+			req, err := http.NewRequest(http.MethodGet, "/admin/users"+tc.query, nil)
+			require.NoError(t, err)
+			r.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.want, stub.captured.HasExclusiveGroups)
+			if tc.name == "combined filters" {
+				require.Equal(t, service.StatusActive, stub.captured.Status)
+				require.Equal(t, "VIP", stub.captured.GroupName)
+				require.Equal(t, int64(42), stub.captured.APIKeyGroupID)
+			}
+		})
+	}
+}

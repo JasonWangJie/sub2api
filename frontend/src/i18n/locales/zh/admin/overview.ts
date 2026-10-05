@@ -591,6 +591,8 @@ export default {
       apiKeyGroupSubscription: '订阅分组',
       apiKeyGroupDisabled: '已禁用分组',
       authorizedGroupFilter: '授权分组',
+      exclusiveGroupsOnly: '已分配专属分组',
+      exclusiveGroupsOnlyHint: '仅显示已分配活跃标准专属分组的用户',
       allAuthorizedGroups: '全部授权分组',
       searchAuthorizedGroups: '搜索授权分组...',
       allApiKeyGroups: '全部 API Key 分组',

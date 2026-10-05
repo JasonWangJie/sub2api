@@ -22,6 +22,19 @@
               />
             </div>
 
+            <button
+              type="button"
+              data-test="exclusive-groups-filter"
+              class="btn shrink-0 whitespace-nowrap"
+              :class="filters.hasExclusiveGroups ? 'btn-primary' : 'btn-secondary'"
+              :aria-pressed="filters.hasExclusiveGroups"
+              :title="t('admin.users.exclusiveGroupsOnlyHint')"
+              @click="toggleExclusiveGroupsFilter"
+            >
+              <Icon name="lock" size="sm" class="mr-1.5" />
+              {{ t('admin.users.exclusiveGroupsOnly') }}
+            </button>
+
             <!-- Role Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('role')" class="w-full sm:w-32">
               <Select
@@ -1138,6 +1151,7 @@ const filters = reactive({
   role: '',
   status: '',
   group: '',  // group name for fuzzy match, '' = all
+  hasExclusiveGroups: false,
   apiKeyGroup: null as number | null  // group id bound to the user's API keys, null = all
 })
 const activeAttributeFilters = reactive<Record<number, string>>({})
@@ -1187,6 +1201,7 @@ const loadSavedFilters = () => {
       if (parsed.role) filters.role = parsed.role
       if (parsed.status) filters.status = parsed.status
       if (parsed.group) filters.group = parsed.group
+      filters.hasExclusiveGroups = parsed.hasExclusiveGroups === true
       if (typeof parsed.apiKeyGroup === 'number') filters.apiKeyGroup = parsed.apiKeyGroup
       if (parsed.attributes) {
         Object.assign(activeAttributeFilters, parsed.attributes)
@@ -1207,6 +1222,7 @@ const saveFiltersToStorage = () => {
       role: filters.role,
       status: filters.status,
       group: filters.group,
+      hasExclusiveGroups: filters.hasExclusiveGroups,
       apiKeyGroup: filters.apiKeyGroup,
       attributes: activeAttributeFilters
     }
@@ -1613,6 +1629,7 @@ const loadUsers = async () => {
         status: filters.status as any,
         search: searchQuery.value || undefined,
         group_name: filters.group || undefined,
+        has_exclusive_groups: filters.hasExclusiveGroups || undefined,
         api_key_group_id: filters.apiKeyGroup ?? undefined,
         attributes: Object.keys(attrFilters).length > 0 ? attrFilters : undefined,
         // 始终请求 subscriptions：列隐藏时仍需用于 UserPlatformQuotaModal 的 active-subscription 警示 banner
@@ -1739,6 +1756,12 @@ const updateAttributeFilter = (attrId: number, value: string) => {
 const applyFilter = () => {
   saveFiltersToStorage()
   loadUsers()
+}
+
+const toggleExclusiveGroupsFilter = () => {
+  filters.hasExclusiveGroups = !filters.hasExclusiveGroups
+  pagination.page = 1
+  applyFilter()
 }
 
 const handleEdit = (user: AdminUser) => {

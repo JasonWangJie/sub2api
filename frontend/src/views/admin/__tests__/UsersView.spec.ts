@@ -210,6 +210,60 @@ describe('admin UsersView', () => {
     vi.useRealTimers()
   })
 
+  it('toggles the exclusive group filter from any page and restores it on remount', async () => {
+    listUsers.mockImplementation(async (page: number) => ({
+      items: [createAdminUser()],
+      total: 40, page, page_size: 20, pages: 2
+    }))
+    let wrapper = mountBulkDeleteView()
+    await flushPromises()
+    expect(wrapper.get('[data-test="exclusive-groups-filter"]').attributes('aria-pressed')).toBe('false')
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    expect(listUsers.mock.lastCall?.[0]).toBe(2)
+    await wrapper.get('[data-test="exclusive-groups-filter"]').trigger('click')
+    await flushPromises()
+    expect(listUsers.mock.lastCall?.[0]).toBe(1)
+    expect(listUsers.mock.lastCall?.[2].has_exclusive_groups).toBe(true)
+    expect(wrapper.get('[data-test="exclusive-groups-filter"]').attributes('aria-pressed')).toBe('true')
+    expect(JSON.parse(localStorage.getItem('user-filter-values')!).hasExclusiveGroups).toBe(true)
+
+    wrapper.unmount()
+    wrapper = mountBulkDeleteView()
+    await flushPromises()
+    expect(listUsers.mock.lastCall?.[2].has_exclusive_groups).toBe(true)
+    expect(wrapper.get('[data-test="exclusive-groups-filter"]').attributes('aria-pressed')).toBe('true')
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="exclusive-groups-filter"]').trigger('click')
+    await flushPromises()
+    expect(listUsers.mock.lastCall?.[0]).toBe(1)
+    expect(listUsers.mock.lastCall?.[2].has_exclusive_groups).toBeUndefined()
+    expect(wrapper.get('[data-test="exclusive-groups-filter"]').attributes('aria-pressed')).toBe('false')
+    expect(JSON.parse(localStorage.getItem('user-filter-values')!).hasExclusiveGroups).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('combines exclusive groups with the existing user filters and search', async () => {
+    localStorage.setItem('user-filter-values', JSON.stringify({
+      role: 'user', status: 'active', group: 'VIP', apiKeyGroup: 7,
+      attributes: { 3: 'partner' }
+    }))
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await wrapper.get('input[type="text"]').setValue('scoped')
+    await wrapper.get('[data-test="exclusive-groups-filter"]').trigger('click')
+    await flushPromises()
+
+    expect(listUsers.mock.lastCall?.[2]).toEqual(expect.objectContaining({
+      role: 'user', status: 'active', group_name: 'VIP', api_key_group_id: 7,
+      attributes: { 3: 'partner' }, search: 'scoped', has_exclusive_groups: true
+    }))
+    wrapper.unmount()
+  })
+
   it('cancels bulk deletion without deleting or clearing selected users', async () => {
     const wrapper = mountBulkDeleteView()
     await flushPromises()

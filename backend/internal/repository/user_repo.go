@@ -578,6 +578,17 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		))
 	}
 
+	if filters.HasExclusiveGroups {
+		// Match the admin users page's exclusive-group count. Edge subqueries
+		// need an explicit soft-delete predicate for the related groups.
+		q = q.Where(dbuser.HasAllowedGroupsWith(
+			dbgroup.IsExclusiveEQ(true),
+			dbgroup.StatusEQ(service.StatusActive),
+			dbgroup.SubscriptionTypeEQ(service.SubscriptionTypeStandard),
+			dbgroup.DeletedAtIsNil(),
+		))
+	}
+
 	if filters.APIKeyGroupID > 0 {
 		// 按"API Key 实际绑定的分组"过滤：用户只要有任意一个未软删除的 API Key
 		// 绑定到该分组即命中（EXISTS 语义）。

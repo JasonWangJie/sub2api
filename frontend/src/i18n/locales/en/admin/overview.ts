@@ -591,6 +591,8 @@ export default {
       apiKeyGroupSubscription: 'Subscription Groups',
       apiKeyGroupDisabled: 'Disabled Groups',
       authorizedGroupFilter: 'Authorized Group',
+      exclusiveGroupsOnly: 'Assigned Exclusive Groups',
+      exclusiveGroupsOnlyHint: 'Show only users assigned to active standard exclusive groups',
       allAuthorizedGroups: 'All Authorized Groups',
       searchAuthorizedGroups: 'Search authorized groups...',
       allApiKeyGroups: 'All API Key Groups',

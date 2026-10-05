@@ -69,6 +69,8 @@ type UserListFilters struct {
 	Role      string // User role filter
 	Search    string // Search in email, username
 	GroupName string // Filter by allowed group name (fuzzy match)
+	// HasExclusiveGroups limits results to users assigned to active standard exclusive groups.
+	HasExclusiveGroups bool
 	// APIKeyGroupID filters users who own at least one non-soft-deleted API key
 	// bound to this group (api_keys.group_id). 0 = no filter. Covers all three
 	// group types since it matches the key's group directly, not allowed_groups.
