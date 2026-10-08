@@ -539,9 +539,18 @@ const checkout = ref<CheckoutInfoResponse>({
   recharge_bonus_tiers: [], recharge_bonus_mode: 'bonus', recharge_bonus_notice: '',
 })
 
-const renderedHelpText = computed(() => DOMPurify.sanitize(
-  marked.parse(checkout.value.help_text || '', { async: false, gfm: true, breaks: false }),
-))
+const renderedHelpText = computed(() => {
+  const content = document.createElement('div')
+  content.appendChild(DOMPurify.sanitize(
+    marked.parse(checkout.value.help_text || '', { async: false, gfm: true, breaks: false }),
+    { RETURN_DOM_FRAGMENT: true },
+  ))
+  content.querySelectorAll('a[href]').forEach((link) => {
+    link.setAttribute('target', '_blank')
+    link.setAttribute('rel', 'noopener noreferrer')
+  })
+  return content.innerHTML
+})
 
 // 充值赠送活动文案：后台 Markdown 配置，空字符串时金额卡顶部不渲染
 const renderedBonusNotice = computed(() => {
