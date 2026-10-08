@@ -753,9 +753,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if startsClientOutput && !openAIStreamEventTypeIsTerminal(eventType) {
 				responsesSemanticOutputSeen = true
 			}
-			// Empty successful completions from OpenAI are silent refusals. Keep
+			// Empty successful completions from OpenAI/Grok are silent refusals. Keep
 			// them eligible for account failover until meaningful output is seen.
-			if account != nil && account.Platform == PlatformOpenAI &&
+			if account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok) &&
 				(eventType == "response.completed" || eventType == "response.done") &&
 				!sawFailedEvent && !responsesSemanticOutputSeen && !clientOutputStarted &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {

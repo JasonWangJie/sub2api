@@ -122,7 +122,7 @@ vi.mock('vue-i18n', async () => {
 const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
 const usageTableStub = {
-  props: ['latencyDivisor'],
+  props: ['latencyDivisor', 'columns'],
   template: '<div data-testid="usage-table-divisor">{{ latencyDivisor }}</div>',
 }
 
@@ -232,6 +232,7 @@ describe('user UsageView', () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
+    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toContain('latency')
     expect(query).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
     expect(getDashboardModels).toHaveBeenCalled()
