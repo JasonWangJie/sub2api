@@ -40,10 +40,15 @@
           <!-- Top-up Tab -->
           <template v-else-if="activeTab === 'recharge'">
             <!-- Recharge Account Card -->
-            <div class="card p-5">
-              <p class="text-xs font-medium text-gray-400 dark:text-gray-500">{{ t('payment.rechargeAccount') }}</p>
-              <p class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ user?.username || '' }}</p>
-              <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ user?.balance?.toFixed(2) || '0.00' }}</p>
+            <div class="card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0 sm:shrink-0">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500">{{ t('payment.rechargeAccount') }}</p>
+                <p class="mt-1 text-base font-semibold text-gray-900 dark:text-white">{{ user?.username || '' }}</p>
+                <p class="mt-0.5 text-sm font-medium text-green-600 dark:text-green-400">{{ t('payment.currentBalance') }}: {{ user?.balance?.toFixed(2) || '0.00' }}</p>
+              </div>
+              <div v-if="checkout.help_text"
+                class="markdown-body min-w-0 overflow-x-auto break-words sm:ml-auto sm:flex-1 sm:text-right [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+                v-html="renderedHelpText"></div>
             </div>
             <div v-if="enabledMethods.length === 0" class="card py-16 text-center">
               <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
@@ -240,12 +245,12 @@
             </template>
           </template>
         </template>
-        <div v-if="(checkout.help_text || checkout.help_image_url) && paymentPhase === 'select' && !selectedPlan" class="card p-4">
+        <div v-if="(checkout.help_image_url || (checkout.help_text && (tabs.length === 0 || activeTab !== 'recharge'))) && paymentPhase === 'select' && !selectedPlan" class="card p-4">
           <div class="flex flex-col items-center gap-3">
             <img v-if="checkout.help_image_url" :src="checkout.help_image_url" alt=""
               class="h-40 max-w-full cursor-pointer rounded-lg object-contain transition-opacity hover:opacity-80"
               @click="previewImage = checkout.help_image_url" />
-            <div v-if="checkout.help_text" class="markdown-body w-full overflow-x-auto break-words" v-html="renderedHelpText"></div>
+            <div v-if="checkout.help_text && (tabs.length === 0 || activeTab !== 'recharge')" class="markdown-body w-full overflow-x-auto break-words" v-html="renderedHelpText"></div>
           </div>
         </div>
       </template>
