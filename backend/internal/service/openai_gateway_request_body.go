@@ -53,11 +53,11 @@ func buildOpenAIResponsesURL(base string) string {
 }
 
 // buildOpenAIResponsesURLForPlatform 组装 Responses 端点（平台感知）。
-// DeepSeek 官方 Responses 端点为 /responses（无 /v1 前缀，适配 Codex）；
-// 其余平台维持 /v1/responses。
+// 供应商 profile 声明了 ResponsesPath 时按其拼接（如 DeepSeek 为无 /v1 前缀的
+// /responses）；其余平台维持 /v1/responses。
 func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
-	if platform == PlatformDeepseek {
-		return buildOpenAIEndpointURL(base, "/responses")
+	if profile := LookupProviderProfile(platform); profile != nil && profile.ResponsesPath != "" {
+		return buildOpenAIEndpointURL(base, profile.ResponsesPath)
 	}
 	return buildOpenAIResponsesURL(base)
 }
@@ -1435,13 +1435,28 @@ func normalizeOpenAIResponseFormatSchemasBody(body []byte) ([]byte, bool, error)
 }
 
 func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
-	upstreamModel := gjson.GetBytes(body, "model").String()
-	return normalizeOpenAIResponsesWebSocketCompatibilityBodyForUpstreamModel(body, account, responsesLite, &upstreamModel)
+	return normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{ResponsesLite: responsesLite})
 }
 
 // upstreamModel 由转发链路确定；nil 表示模型尚未解析，延后 reasoning.mode 处理。
-// 不在兼容层再次做账号映射，避免绕过映射比例、透传和会话继承模型的规则。
+// 不在兼容层再次做账号映射，保留本地映射比例、透传和会话继承模型的规则。
 func normalizeOpenAIResponsesWebSocketCompatibilityBodyForUpstreamModel(body []byte, account *Account, responsesLite bool, upstreamModel *string) ([]byte, bool, error) {
+	return normalizeOpenAIResponsesCompatibilityBodyForUpstreamModelWithOptions(body, account, openAIResponsesCompatibilityOptions{ResponsesLite: responsesLite}, upstreamModel)
+}
+
+type openAIResponsesCompatibilityOptions struct {
+	ResponsesLite bool
+	// Compact 保留 /responses/compact 的 wire shape，不改写 web_search 历史。
+	Compact bool
+}
+
+func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *Account, opts openAIResponsesCompatibilityOptions) ([]byte, bool, error) {
+	upstreamModel := gjson.GetBytes(body, "model").String()
+	return normalizeOpenAIResponsesCompatibilityBodyForUpstreamModelWithOptions(body, account, opts, &upstreamModel)
+}
+
+func normalizeOpenAIResponsesCompatibilityBodyForUpstreamModelWithOptions(body []byte, account *Account, opts openAIResponsesCompatibilityOptions, upstreamModel *string) ([]byte, bool, error) {
+	responsesLite := opts.ResponsesLite
 	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
@@ -1505,6 +1520,14 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBodyForUpstreamModel(body []b
 			}
 			normalized = next
 			changed = true
+		}
+		if !opts.Compact {
+			webSearchBody, webSearchChanged, err := ensureOpenAIOAuthWebSearchToolForHistoryBody(normalized, responsesLite)
+			if err != nil {
+				return body, false, fmt.Errorf("normalize websocket body: %w", err)
+			}
+			normalized = webSearchBody
+			changed = changed || webSearchChanged
 		}
 	}
 	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() &&
