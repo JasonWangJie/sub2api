@@ -8,7 +8,7 @@
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.profileSaved') }}</p>
           </div>
           <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-200">
-            {{ t('invoice.excludedGrant') }}；{{ t('invoice.excludedAffiliate') }}
+            {{ t('invoice.adminRechargeHint') }}；{{ t('invoice.excludedAffiliate') }}
           </div>
         </div>
         <div class="mt-4 grid gap-4 md:grid-cols-3">
@@ -64,7 +64,7 @@
               <tr v-else-if="records.length === 0"><td colspan="6" class="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.noRecords') }}</td></tr>
               <tr v-for="record in records" v-else :key="recordKey(record)" :class="record.selectable ? 'hover:bg-gray-50 dark:hover:bg-dark-800' : 'bg-gray-50/60 dark:bg-dark-800/40'">
                 <td class="px-4 py-3 text-center">
-                  <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-40" :checked="isSelected(record)" :disabled="!record.selectable" :title="record.ineligible_reason || ''" @change="toggleRecord(record, ($event.target as HTMLInputElement).checked)" />
+                  <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-40" :checked="isSelected(record)" :disabled="!record.selectable" :title="reasonLabel(record.ineligible_reason || '')" @change="toggleRecord(record, ($event.target as HTMLInputElement).checked)" />
                 </td>
                 <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                   <div class="font-medium">{{ sourceLabel(record.source_type) }}</div>
@@ -75,7 +75,7 @@
                 <td class="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">{{ formatDate(record.occurred_at) }}</td>
                 <td class="px-4 py-3 text-right text-sm">
                   <span v-if="record.selectable" class="text-emerald-600 dark:text-emerald-400">{{ t('invoice.selectable') }}</span>
-                  <span v-else class="text-gray-500 dark:text-gray-400" :title="record.ineligible_reason || ''">
+                  <span v-else class="text-gray-500 dark:text-gray-400" :title="reasonLabel(record.ineligible_reason || '')">
                     <span>{{ record.application_status ? statusLabel(record.application_status) : t('invoice.excluded') }}</span>
                     <span v-if="record.ineligible_reason" class="mt-0.5 block text-xs text-amber-600 dark:text-amber-400">{{ reasonLabel(record.ineligible_reason) }}</span>
                   </span>
@@ -169,7 +169,7 @@ function toggleAll(checked: boolean) {
 function sourceLabel(type: string) { return t(`invoice.source${type === 'payment_order' ? 'Payment' : type === 'redeem_code' ? 'Redeem' : type === 'admin_grant' ? 'Grant' : 'Affiliate'}`) }
 function statusLabel(status: string) { return status === 'PENDING' ? t('invoice.pending') : status === 'COMPLETED' ? t('invoice.completed') : status === 'REJECTED' ? t('invoice.rejected') : status === 'HISTORICAL_COMPLETED' ? t('invoice.historicalCompleted') : status }
 function statusClass(status: string) { return status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : status === 'HISTORICAL_COMPLETED' ? 'text-sky-600 dark:text-sky-400' : status === 'REJECTED' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400' }
-function reasonLabel(reason: string) { return reason === 'ADMIN_GRANT_EXCLUDED' ? t('invoice.excludedGrant') : reason === 'AFFILIATE_TRANSFER_EXCLUDED' ? t('invoice.excludedAffiliate') : reason === 'HISTORICAL_INVOICE_COMPLETED' ? '' : reason }
+function reasonLabel(reason: string) { return reason === 'ADMIN_RECHARGE_MINIMUM_NOT_MET' ? t('invoice.adminRechargeMinimum') : reason === 'AFFILIATE_TRANSFER_EXCLUDED' ? t('invoice.excludedAffiliate') : reason === 'HISTORICAL_INVOICE_COMPLETED' ? '' : reason }
 function formatDate(value: string) { return value ? new Date(value).toLocaleString() : '-' }
 
 async function loadRecords() {
@@ -181,6 +181,7 @@ async function loadRecords() {
     for (const record of records.value) {
       const key = recordKey(record)
       if (!record.selectable) { delete selectedRecordMap[key]; selectedKeys.value = selectedKeys.value.filter((selectedKey) => selectedKey !== key) }
+      else if (selectedRecordMap[key]) selectedRecordMap[key] = record
     }
   }
   catch (error: unknown) { appStore.showError(extractI18nErrorMessage(error, t, 'invoice.errors', t('invoice.errors.load'))) }

@@ -250,7 +250,8 @@ export default {
     status: '状态',
     selectable: '可开票',
     excluded: '不可开票',
-    excludedGrant: '赠款不计入开票范围',
+    adminRechargeHint: '管理员充值单笔达到 100.00 可开票',
+    adminRechargeMinimum: '管理员充值单笔不足 100.00，不可开票',
     excludedAffiliate: '返利不计入开票范围',
     applied: '已申请',
     totalSelected: '已勾选合计',
@@ -273,7 +274,7 @@ export default {
     confirmReject: '请输入拒绝原因',
     sourcePayment: '在线充值',
     sourceRedeem: '余额卡充值',
-    sourceGrant: '管理员赠款',
+    sourceGrant: '管理员充值',
     sourceAffiliate: '返利转入',
     adminViews: '企业开票管理视图',
     historicalRecords: '历史开票补录',
@@ -296,6 +297,7 @@ export default {
       submit: '提交开票申请失败',
       minimum: '所选金额不足 1,000.00',
       historicalMark: '历史开票补录失败',
+      ADMIN_RECHARGE_MINIMUM_NOT_MET: '管理员充值单笔不足 100.00，不可开票',
     }
   },
 

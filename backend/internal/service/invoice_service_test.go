@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -46,18 +49,23 @@ func TestNormalizeInvoiceSourceRefs(t *testing.T) {
 	refs, err := normalizeInvoiceSourceRefs([]InvoiceSourceRef{
 		{SourceType: " payment_order ", SourceID: 42},
 		{SourceType: InvoiceSourceRedeemCode, SourceID: 7},
+		{SourceType: " admin_grant ", SourceID: 8},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []InvoiceSourceRef{
 		{SourceType: InvoiceSourcePaymentOrder, SourceID: 42},
 		{SourceType: InvoiceSourceRedeemCode, SourceID: 7},
+		{SourceType: InvoiceSourceAdminGrant, SourceID: 8},
 	}, refs)
 
 	_, err = normalizeInvoiceSourceRefs([]InvoiceSourceRef{{SourceType: InvoiceSourcePaymentOrder, SourceID: 42}, {SourceType: InvoiceSourcePaymentOrder, SourceID: 42}})
 	require.Equal(t, "DUPLICATE_INVOICE_SOURCE", infraErrorReason(err))
 
-	_, err = normalizeInvoiceSourceRefs([]InvoiceSourceRef{{SourceType: InvoiceSourceAdminGrant, SourceID: 1}})
+	_, err = normalizeInvoiceSourceRefs([]InvoiceSourceRef{{SourceType: InvoiceSourceAffiliateTransfer, SourceID: 1}})
 	require.Equal(t, "INVALID_INVOICE_SOURCE", infraErrorReason(err))
+
+	_, err = normalizeInvoiceSourceRefs([]InvoiceSourceRef{{SourceType: InvoiceSourceAdminGrant, SourceID: 1}, {SourceType: InvoiceSourceAdminGrant, SourceID: 1}})
+	require.Equal(t, "DUPLICATE_INVOICE_SOURCE", infraErrorReason(err))
 }
 
 func TestIncludeAdminInvoiceRecord(t *testing.T) {
@@ -78,6 +86,29 @@ func TestIncludeAdminInvoiceRecord(t *testing.T) {
 	require.False(t, includeAdminInvoiceRecord(rejected, "applied", ""))
 	require.True(t, includeAdminInvoiceRecord(historical, "historical_completed", "acme"))
 	require.False(t, includeAdminInvoiceRecord(historical, "available", ""))
+	belowMinimum := InvoiceRecord{SourceType: InvoiceSourceAdminGrant, Amount: 99.99, Selectable: false, IneligibleReason: "ADMIN_RECHARGE_MINIMUM_NOT_MET"}
+	require.True(t, includeAdminInvoiceRecord(belowMinimum, "all", ""))
+	require.False(t, includeAdminInvoiceRecord(belowMinimum, "available", ""))
+}
+
+func TestInvoiceRecordFromAdminRechargeUsesUnroundedAmount(t *testing.T) {
+	for _, amount := range []float64{-100, 0, 50, 99.99, 99.99999999, 100, 100.01} {
+		t.Run(fmt.Sprintf("%.8f", amount), func(t *testing.T) {
+			code := &dbent.RedeemCode{ID: 7, Type: domain.AdjustmentTypeAdminBalance, Value: amount, Code: "ADMIN-7", CreatedAt: time.Now()}
+			record := invoiceRecordFromRedeemCode(code)
+			require.Equal(t, InvoiceSourceAdminGrant, record.SourceType)
+			require.Equal(t, amount, record.Amount)
+			require.Equal(t, amount >= 100, record.Selectable)
+			if amount < 100 {
+				require.Equal(t, "ADMIN_RECHARGE_MINIMUM_NOT_MET", record.IneligibleReason)
+			} else {
+				require.Empty(t, record.IneligibleReason)
+			}
+		})
+	}
+	card := invoiceRecordFromRedeemCode(&dbent.RedeemCode{Type: domain.RedeemTypeBalance, Value: 50})
+	require.Equal(t, InvoiceSourceRedeemCode, card.SourceType)
+	require.True(t, card.Selectable, "the per-record minimum applies only to admin recharges")
 }
 
 func TestApplyHistoricalSourceBinding(t *testing.T) {

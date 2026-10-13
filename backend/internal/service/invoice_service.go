@@ -35,7 +35,8 @@ const (
 	InvoiceSourceAdminGrant        = "admin_grant"
 	InvoiceSourceAffiliateTransfer = "affiliate_transfer"
 
-	invoiceMinimumAmount = 1000
+	invoiceMinimumAmount              = 1000
+	invoiceAdminRechargeMinimumAmount = 100
 )
 
 // InvoiceProfileData is the latest invoice information saved for a user.
@@ -221,26 +222,8 @@ func (s *InvoiceService) ListUserRecords(ctx context.Context, userID int64, page
 			if _, linked := linkedRechargeCodes[code.Code]; linked {
 				continue
 			}
-			records = append(records, s.applySourceBinding(InvoiceRecord{
-				SourceType:      InvoiceSourceRedeemCode,
-				SourceID:        code.ID,
-				SourceReference: code.Code,
-				Amount:          code.Value,
-				OccurredAt:      invoiceRedeemOccurredAt(code),
-				Selectable:      true,
-			}, bindingBySource))
-			continue
 		}
-
-		records = append(records, InvoiceRecord{
-			SourceType:       InvoiceSourceAdminGrant,
-			SourceID:         code.ID,
-			SourceReference:  code.Code,
-			Amount:           code.Value,
-			OccurredAt:       invoiceRedeemOccurredAt(code),
-			Selectable:       false,
-			IneligibleReason: "ADMIN_GRANT_EXCLUDED",
-		})
+		records = append(records, s.applySourceBinding(invoiceRecordFromRedeemCode(code), bindingBySource))
 	}
 
 	affiliateRecords, err := s.listAffiliateTransferRecords(ctx, userID)
@@ -351,7 +334,7 @@ func (s *InvoiceService) CreateApplication(ctx context.Context, userID int64, in
 }
 
 // ListHistoricalRecords returns all user recharge records that an administrator
-// may audit for pre-launch invoicing. Grants, affiliate transfers, subscriptions,
+// may audit for pre-launch invoicing. Affiliate transfers, subscriptions,
 // incomplete orders, and payment-linked redeem codes are deliberately omitted.
 func (s *InvoiceService) ListHistoricalRecords(ctx context.Context, params InvoiceRecordListParams) ([]InvoiceRecord, int64, error) {
 	if err := s.ensureInvoiceEnabled(ctx); err != nil {
@@ -379,7 +362,7 @@ func (s *InvoiceService) ListHistoricalRecords(ctx context.Context, params Invoi
 	codePredicates := []predicate.RedeemCode{
 		redeemcode.UsedByNotNil(),
 		redeemcode.ValueGT(0),
-		redeemcode.TypeEQ(domain.RedeemTypeBalance),
+		redeemcode.TypeIn(domain.RedeemTypeBalance, domain.AdjustmentTypeAdminBalance),
 	}
 	if params.UserID > 0 {
 		codePredicates = append(codePredicates, redeemcode.UsedByEQ(params.UserID))
@@ -390,7 +373,9 @@ func (s *InvoiceService) ListHistoricalRecords(ctx context.Context, params Invoi
 	}
 	codeValues := make([]string, 0, len(codes))
 	for _, code := range codes {
-		codeValues = append(codeValues, code.Code)
+		if code.Type == domain.RedeemTypeBalance {
+			codeValues = append(codeValues, code.Code)
+		}
 	}
 	linkedRechargeCodes, err := s.linkedPaymentRechargeCodes(ctx, codeValues)
 	if err != nil {
@@ -474,10 +459,8 @@ func (s *InvoiceService) ListHistoricalRecords(ctx context.Context, params Invoi
 		if linkedRechargeCodes[code.Code] || code.UsedBy == nil {
 			continue
 		}
-		item := InvoiceRecord{
-			UserID: *code.UsedBy, SourceType: InvoiceSourceRedeemCode, SourceID: code.ID,
-			SourceReference: code.Code, Amount: code.Value, OccurredAt: invoiceRedeemOccurredAt(code), Selectable: true,
-		}
+		item := invoiceRecordFromRedeemCode(code)
+		item.UserID = *code.UsedBy
 		if account := usersByID[*code.UsedBy]; account != nil {
 			item.UserEmail, item.UserName = account.Email, account.Username
 		}
@@ -558,6 +541,9 @@ func includeAdminInvoiceRecord(record InvoiceRecord, status, keyword string) boo
 		recordStatus = "applied"
 	}
 	if status != "all" && status != recordStatus {
+		return false
+	}
+	if status == "available" && !record.Selectable {
 		return false
 	}
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
@@ -721,12 +707,15 @@ func (s *InvoiceService) resolveHistoricalInvoiceSources(ctx context.Context, cl
 func (s *InvoiceService) resolveEligibleInvoiceSources(ctx context.Context, client *dbent.Client, userID *int64, refs []InvoiceSourceRef) ([]resolvedInvoiceSource, decimal.Decimal, error) {
 	paymentIDs := make([]int64, 0, len(refs))
 	redeemIDs := make([]int64, 0, len(refs))
+	adminGrantIDs := make([]int64, 0, len(refs))
 	for _, ref := range refs {
 		switch ref.SourceType {
 		case InvoiceSourcePaymentOrder:
 			paymentIDs = append(paymentIDs, ref.SourceID)
 		case InvoiceSourceRedeemCode:
 			redeemIDs = append(redeemIDs, ref.SourceID)
+		case InvoiceSourceAdminGrant:
+			adminGrantIDs = append(adminGrantIDs, ref.SourceID)
 		default:
 			return nil, decimal.Zero, infraerrors.BadRequest("INVALID_INVOICE_SOURCE", "selected record is not eligible for invoice")
 		}
@@ -749,8 +738,15 @@ func (s *InvoiceService) resolveEligibleInvoiceSources(ctx context.Context, clie
 			}
 		}
 	}
-	if len(redeemIDs) > 0 {
-		predicates := []predicate.RedeemCode{redeemcode.IDIn(redeemIDs...), redeemcode.TypeEQ(domain.RedeemTypeBalance), redeemcode.ValueGT(0), redeemcode.UsedByNotNil()}
+	if len(redeemIDs)+len(adminGrantIDs) > 0 {
+		sourcePredicates := make([]predicate.RedeemCode, 0, 2)
+		if len(redeemIDs) > 0 {
+			sourcePredicates = append(sourcePredicates, redeemcode.And(redeemcode.IDIn(redeemIDs...), redeemcode.TypeEQ(domain.RedeemTypeBalance)))
+		}
+		if len(adminGrantIDs) > 0 {
+			sourcePredicates = append(sourcePredicates, redeemcode.And(redeemcode.IDIn(adminGrantIDs...), redeemcode.TypeEQ(domain.AdjustmentTypeAdminBalance)))
+		}
+		predicates := []predicate.RedeemCode{redeemcode.Or(sourcePredicates...), redeemcode.ValueGT(0), redeemcode.UsedByNotNil()}
 		if userID != nil {
 			predicates = append(predicates, redeemcode.UsedByEQ(*userID))
 		}
@@ -760,7 +756,9 @@ func (s *InvoiceService) resolveEligibleInvoiceSources(ctx context.Context, clie
 		}
 		codesByValue := make([]string, 0, len(codes))
 		for _, code := range codes {
-			codesByValue = append(codesByValue, code.Code)
+			if code.Type == domain.RedeemTypeBalance {
+				codesByValue = append(codesByValue, code.Code)
+			}
 		}
 		linkedCodes, err := s.linkedPaymentRechargeCodesWithClient(ctx, client, codesByValue)
 		if err != nil {
@@ -770,9 +768,14 @@ func (s *InvoiceService) resolveEligibleInvoiceSources(ctx context.Context, clie
 			if linkedCodes[code.Code] || code.UsedBy == nil {
 				continue
 			}
-			resolvedByKey[invoiceSourceKey(InvoiceSourceRedeemCode, code.ID)] = resolvedInvoiceSource{
+			record := invoiceRecordFromRedeemCode(code)
+			if !record.Selectable {
+				return nil, decimal.Zero, infraerrors.BadRequest(record.IneligibleReason, "admin recharge amount must be at least 100.00").
+					WithMetadata(map[string]string{"minimum_amount": decimal.NewFromInt(invoiceAdminRechargeMinimumAmount).StringFixed(2)})
+			}
+			resolvedByKey[invoiceSourceKey(record.SourceType, code.ID)] = resolvedInvoiceSource{
 				UserID: *code.UsedBy,
-				Item:   InvoiceApplicationItem{SourceType: InvoiceSourceRedeemCode, SourceID: code.ID, SourceReference: code.Code, Amount: code.Value},
+				Item:   InvoiceApplicationItem{SourceType: record.SourceType, SourceID: code.ID, SourceReference: code.Code, Amount: code.Value},
 			}
 		}
 	}
@@ -1022,7 +1025,7 @@ func normalizeInvoiceSourceRefs(refs []InvoiceSourceRef) ([]InvoiceSourceRef, er
 	out := make([]InvoiceSourceRef, 0, len(refs))
 	for _, ref := range refs {
 		ref.SourceType = strings.TrimSpace(ref.SourceType)
-		if ref.SourceID <= 0 || (ref.SourceType != InvoiceSourcePaymentOrder && ref.SourceType != InvoiceSourceRedeemCode) {
+		if ref.SourceID <= 0 || (ref.SourceType != InvoiceSourcePaymentOrder && ref.SourceType != InvoiceSourceRedeemCode && ref.SourceType != InvoiceSourceAdminGrant) {
 			return nil, infraerrors.BadRequest("INVALID_INVOICE_SOURCE", "selected record is not eligible for invoice")
 		}
 		key := invoiceSourceKey(ref.SourceType, ref.SourceID)
@@ -1074,6 +1077,25 @@ func invoicePaymentReference(order *dbent.PaymentOrder) string {
 		return order.OutTradeNo
 	}
 	return fmt.Sprintf("PAY-%d", order.ID)
+}
+
+func invoiceRecordFromRedeemCode(code *dbent.RedeemCode) InvoiceRecord {
+	record := InvoiceRecord{
+		SourceType:      InvoiceSourceRedeemCode,
+		SourceID:        code.ID,
+		SourceReference: code.Code,
+		Amount:          code.Value,
+		OccurredAt:      invoiceRedeemOccurredAt(code),
+		Selectable:      true,
+	}
+	if code.Type == domain.AdjustmentTypeAdminBalance {
+		record.SourceType = InvoiceSourceAdminGrant
+		record.Selectable = code.Value >= invoiceAdminRechargeMinimumAmount
+		if !record.Selectable {
+			record.IneligibleReason = "ADMIN_RECHARGE_MINIMUM_NOT_MET"
+		}
+	}
+	return record
 }
 
 func invoiceRedeemOccurredAt(code *dbent.RedeemCode) time.Time {
