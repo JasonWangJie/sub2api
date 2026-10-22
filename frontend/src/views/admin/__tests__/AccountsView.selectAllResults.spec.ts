@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+
+enableAutoUnmount(afterEach)
 
 const {
   listAccounts,
@@ -142,6 +144,7 @@ const mountView = () => mount(AccountsView, {
 
 describe('admin AccountsView select all filtered results', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     localStorage.clear()
     listAccounts.mockReset()
     listWithEtag.mockReset()
@@ -164,6 +167,8 @@ describe('admin AccountsView select all filtered results', () => {
   })
 
   afterEach(() => {
+    vi.clearAllTimers()
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -192,7 +197,6 @@ describe('admin AccountsView select all filtered results', () => {
       await flushPromises()
       expect(batchRefresh).toHaveBeenLastCalledWith(expectedIds)
     }
-    wrapper.unmount()
   })
 
   it('selects all matching IDs in one commit and clears the selection when filters change', async () => {
@@ -234,6 +238,13 @@ describe('admin AccountsView select all filtered results', () => {
 
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')
+
+    // Let this view's filter reload finish before the next test resets the API mock.
+    expect(listAccounts).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(listAccounts).toHaveBeenCalledTimes(3)
+    expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
   })
 
   it('keeps the original page selection when loading all results fails', async () => {

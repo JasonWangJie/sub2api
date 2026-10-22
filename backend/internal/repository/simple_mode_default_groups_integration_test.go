@@ -34,11 +34,59 @@ func TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults(t *testing.T) {
 	assertGroupExists(service.PlatformAntigravity + "-default-1")
 	assertGroupExists(service.PlatformAntigravity + "-default-2")
 
-	grokDefault, err := client.Group.Query().
-		Where(group.NameEQ(service.PlatformGrok+"-default"), group.DeletedAtIsNil()).
-		Only(seedCtx)
-	require.NoError(t, err)
-	require.True(t, grokDefault.AllowImageGeneration)
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: service.PlatformGrok + "-default", enabled: true},
+		{name: service.PlatformGemini + "-default"},
+		{name: service.PlatformAntigravity + "-default-1"},
+		{name: service.PlatformAntigravity + "-default-2"},
+	} {
+		imageDefault, err := client.Group.Query().
+			Where(group.NameEQ(tc.name), group.DeletedAtIsNil()).
+			Only(seedCtx)
+		require.NoError(t, err)
+		require.Equal(t, tc.enabled, imageDefault.AllowImageGeneration, "unexpected image permission for %s", tc.name)
+	}
+}
+
+func TestEnsureSimpleModeDefaultGroups_PreservesDisabledGeminiFamilyImageGeneration(t *testing.T) {
+	for _, platform := range []string{service.PlatformGemini, service.PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			client := testEntTx(t).Client()
+			var existingIDs []int64
+			for _, description := range []string{simpleModeDefaultGroupDescription, "Operator-managed group"} {
+				name := platform + "-default"
+				if description != simpleModeDefaultGroupDescription {
+					name = platform + "-operator"
+				} else if platform == service.PlatformAntigravity {
+					name += "-1"
+				}
+				created, err := client.Group.Create().
+					SetName(name).
+					SetDescription(description).
+					SetPlatform(platform).
+					SetStatus(service.StatusActive).
+					SetSubscriptionType(service.SubscriptionTypeStandard).
+					SetRateMultiplier(1.0).
+					SetIsExclusive(false).
+					SetAllowImageGeneration(false).
+					Save(ctx)
+				require.NoError(t, err)
+				existingIDs = append(existingIDs, created.ID)
+			}
+			require.NoError(t, ensureSimpleModeDefaultGroups(ctx, client))
+			groups, err := client.Group.Query().Where(group.IDIn(existingIDs...), group.DeletedAtIsNil()).All(ctx)
+			require.NoError(t, err)
+			require.Len(t, groups, len(existingIDs))
+			for _, existing := range groups {
+				require.False(t, existing.AllowImageGeneration, "existing group %s must remain disabled", existing.Name)
+			}
+		})
+	}
 }
 
 func TestEnsureSimpleModeDefaultGroups_BackfillsOnlyAutoCreatedGrokDefault(t *testing.T) {

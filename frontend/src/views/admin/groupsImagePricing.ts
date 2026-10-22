@@ -9,6 +9,10 @@ export const imagePricingPlatforms = new Set([
 export const supportsImagePricingPlatform = (platform: string): boolean =>
   imagePricingPlatforms.has(platform);
 
+// 保留 Fork 权限策略并与后端一致：仅 Grok 默认开启，其它平台由管理员显式开启。
+export const defaultAllowImageGenerationForPlatform = (platform: string): boolean =>
+  platform === "grok";
+
 export const supportsVideoPricingPlatform = (platform: string): boolean =>
   platform === "grok";
 

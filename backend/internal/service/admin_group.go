@@ -311,9 +311,10 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	}
 }
 
-func defaultAllowImageGenerationForPlatform(platform string) bool {
-	// Grok image and video generation routes share the legacy image-generation gate.
-	// Older clients send the false zero value, so Grok groups must default enabled.
+// DefaultAllowImageGenerationForPlatform preserves the fork's opt-in image policy.
+// Only Grok defaults enabled because its image and video routes share this legacy gate.
+// Gemini and Antigravity require an explicit administrator opt-in.
+func DefaultAllowImageGenerationForPlatform(platform string) bool {
 	return platform == PlatformGrok
 }
 
@@ -525,7 +526,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		mcpXMLInject = *input.MCPXMLInject
 	}
 
-	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
+	allowImageGeneration := input.AllowImageGeneration || DefaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
 	allowAsyncImageGeneration := input.AllowAsyncImageGeneration && allowImageGeneration && (platform == PlatformGemini || platform == PlatformOpenAI)
 

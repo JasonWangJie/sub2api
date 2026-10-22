@@ -593,45 +593,89 @@ func TestAdminService_CreateGroup_DefaultsGrokMediaGenerationEnabled(t *testing.
 	require.True(t, group.AllowImageGeneration)
 }
 
-func TestAdminService_CreateGroup_PreservesNonGrokImageGenerationDisabled(t *testing.T) {
-	repo := &groupRepoStubForAdmin{}
-	svc := &adminServiceImpl{groupRepo: repo}
+func TestAdminService_CreateGroup_DefaultsGeminiFamilyImageGenerationDisabled(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			repo := &groupRepoStubForAdmin{}
+			svc := &adminServiceImpl{groupRepo: repo}
 
-	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
-		Name:                      "anthropic-text",
-		Description:               "Anthropic text group",
-		Platform:                  PlatformAnthropic,
-		RateMultiplier:            1.0,
-		AllowAsyncImageGeneration: true,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, group)
-	require.NotNil(t, repo.created)
-	require.False(t, repo.created.AllowImageGeneration)
-	require.False(t, repo.created.AllowAsyncImageGeneration)
-	require.False(t, group.AllowImageGeneration)
+			group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+				Name:           platform + "-images",
+				Description:    "Gemini family group",
+				Platform:       platform,
+				RateMultiplier: 1.0,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, group)
+			require.NotNil(t, repo.created)
+			require.False(t, repo.created.AllowImageGeneration)
+			require.False(t, group.AllowImageGeneration)
+			require.False(t, repo.created.AllowBatchImageGeneration)
+			require.False(t, repo.created.AllowAsyncImageGeneration)
+		})
+	}
 }
 
-func TestAdminService_CreateGroup_DisablesBatchImageWhenImageGenerationDisabled(t *testing.T) {
-	repo := &groupRepoStubForAdmin{}
-	svc := &adminServiceImpl{groupRepo: repo}
+func TestAdminService_CreateGroup_PreservesImageGenerationDisabledWithoutPlatformDefault(t *testing.T) {
+	for _, platform := range []string{PlatformAnthropic, PlatformComposite, PlatformOpenAI, PlatformGemini, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			repo := &groupRepoStubForAdmin{}
+			svc := &adminServiceImpl{groupRepo: repo}
 
-	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
-		Name:                      "gemini-no-image",
-		Description:               "Gemini group without image generation",
-		Platform:                  PlatformGemini,
-		RateMultiplier:            1.0,
-		AllowImageGeneration:      false,
-		AllowBatchImageGeneration: true,
-		AllowAsyncImageGeneration: true,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, group)
-	require.NotNil(t, repo.created)
-	require.False(t, repo.created.AllowImageGeneration)
-	require.False(t, repo.created.AllowBatchImageGeneration)
-	require.False(t, repo.created.AllowAsyncImageGeneration)
-	require.False(t, group.AllowBatchImageGeneration)
+			group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+				Name:                      platform + "-text",
+				Description:               "Group without image default",
+				Platform:                  platform,
+				RateMultiplier:            1.0,
+				AllowBatchImageGeneration: true,
+				AllowAsyncImageGeneration: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, group)
+			require.NotNil(t, repo.created)
+			require.False(t, repo.created.AllowImageGeneration)
+			require.False(t, repo.created.AllowBatchImageGeneration)
+			require.False(t, repo.created.AllowAsyncImageGeneration)
+			require.False(t, group.AllowImageGeneration)
+			require.False(t, group.AllowBatchImageGeneration)
+			require.False(t, group.AllowAsyncImageGeneration)
+		})
+	}
+}
+
+func TestAdminService_CreateGroup_ExplicitImageGenerationPreservesPlatformGates(t *testing.T) {
+	for _, tc := range []struct {
+		platform string
+		batch    bool
+		async    bool
+	}{
+		{platform: PlatformGemini, batch: true, async: true},
+		{platform: PlatformAntigravity},
+		{platform: PlatformOpenAI, async: true},
+		{platform: PlatformComposite},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			repo := &groupRepoStubForAdmin{}
+			svc := &adminServiceImpl{groupRepo: repo}
+			group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+				Name:                      tc.platform + "-images-opt-in",
+				Platform:                  tc.platform,
+				RateMultiplier:            1.0,
+				AllowImageGeneration:      true,
+				AllowBatchImageGeneration: true,
+				AllowAsyncImageGeneration: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, group)
+			require.NotNil(t, repo.created)
+			require.True(t, group.AllowImageGeneration)
+			require.True(t, repo.created.AllowImageGeneration)
+			require.Equal(t, tc.batch, group.AllowBatchImageGeneration)
+			require.Equal(t, tc.batch, repo.created.AllowBatchImageGeneration)
+			require.Equal(t, tc.async, group.AllowAsyncImageGeneration)
+			require.Equal(t, tc.async, repo.created.AllowAsyncImageGeneration)
+		})
+	}
 }
 
 func TestAdminService_CreateGroup_DisablesBatchImageForNonGeminiPlatform(t *testing.T) {
@@ -758,6 +802,25 @@ func TestAdminService_UpdateGroup_PartialImagePricing(t *testing.T) {
 	require.NotNil(t, repo.updated.ImagePrice2K)
 	require.InDelta(t, 0.15, *repo.updated.ImagePrice2K, 0.0001) // 原值保持
 	require.Nil(t, repo.updated.ImagePrice4K)
+}
+
+func TestAdminService_UpdateGroup_PreservesDisabledGeminiFamilyImageGenerationWhenOmitted(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			existing := &Group{ID: 1, Name: platform + "-text", Platform: platform, Status: StatusActive}
+			repo := &groupRepoStubForAdmin{getByID: existing}
+			svc := &adminServiceImpl{groupRepo: repo}
+			description := "updated"
+			group, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{Description: &description})
+			require.NoError(t, err)
+			require.NotNil(t, group)
+			require.NotNil(t, repo.updated)
+			require.False(t, group.AllowImageGeneration)
+			require.False(t, repo.updated.AllowImageGeneration)
+			require.False(t, group.AllowBatchImageGeneration)
+			require.False(t, group.AllowAsyncImageGeneration)
+		})
+	}
 }
 
 func TestAdminService_UpdateGroup_PreservesImageGenerationControlsWhenOmitted(t *testing.T) {

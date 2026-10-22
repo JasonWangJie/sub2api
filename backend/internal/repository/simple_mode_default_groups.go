@@ -66,6 +66,7 @@ func createGroupIfNotExists(ctx context.Context, client *dbent.Client, name, pla
 		return fmt.Errorf("check group exists %s: %w", name, err)
 	}
 	if exists {
+		// Existing image-generation permissions remain administrator policy.
 		return nil
 	}
 
@@ -77,7 +78,7 @@ func createGroupIfNotExists(ctx context.Context, client *dbent.Client, name, pla
 		SetSubscriptionType(service.SubscriptionTypeStandard).
 		SetRateMultiplier(1.0).
 		SetIsExclusive(false).
-		SetAllowImageGeneration(platform == service.PlatformGrok).
+		SetAllowImageGeneration(service.DefaultAllowImageGenerationForPlatform(platform)).
 		Save(ctx)
 	if err != nil {
 		if dbent.IsConstraintError(err) {
