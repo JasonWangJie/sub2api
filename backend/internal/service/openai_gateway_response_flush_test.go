@@ -314,13 +314,13 @@ func TestOpenAIResponseFlush_PreambleWithoutTerminalRemainsBufferedForFailover(t
 
 func TestOpenAIResponseFlush_EarlyCreatedFlushesBeforeSemanticOutputInOrder(t *testing.T) {
 	created := "event: response.created\n" +
-		`data: {"type":"response.created","response":{"id":"resp_early"}}` + "\n\n"
+		`data: {"type":"response.created","response":{"id":"resp_early","created_at":1700000000}}` + "\n\n"
 	inProgress := "event: response.in_progress\n" +
-		`data: {"type":"response.in_progress","response":{"id":"resp_early"}}` + "\n\n"
+		`data: {"type":"response.in_progress","response":{"id":"resp_early","created_at":1700000000}}` + "\n\n"
 	semantic := "event: response.output_text.delta\n" +
 		`data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
 	terminal := "event: response.completed\n" +
-		`data: {"type":"response.completed","response":{"id":"resp_early","usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ready"}]}]}}` + "\n\n"
+		`data: {"type":"response.completed","response":{"id":"resp_early","created_at":1700000000,"usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ready"}]}]}}` + "\n\n"
 	allowCreatedBoundary := make(chan struct{})
 	allowRest := make(chan struct{})
 	createdBoundaryWaiting := make(chan struct{})
@@ -372,7 +372,7 @@ func TestOpenAIResponseFlush_EarlyCreatedFlushesBeforeSemanticOutputInOrder(t *t
 
 func TestOpenAIResponseFlush_EarlyCreatedDoesNotSetFirstToken(t *testing.T) {
 	created := "event: response.created\n" +
-		`data: {"type":"response.created","response":{"id":"resp_created_only"}}` + "\n\n"
+		`data: {"type":"response.created","response":{"id":"resp_created_only","created_at":1700000000}}` + "\n\n"
 	recorder := newOpenAIResponseFlushRecorder()
 
 	result, err := runOpenAIResponseFlushTest(
@@ -416,9 +416,9 @@ func TestOpenAIResponseFlush_EarlyCreatedWithoutBoundaryStaysPrivate(t *testing.
 
 func TestOpenAIResponseFlush_FailedAfterEarlyCreatedDoesNotFailOver(t *testing.T) {
 	created := "event: response.created\n" +
-		`data: {"type":"response.created","response":{"id":"resp_early_failed"}}` + "\n\n"
+		`data: {"type":"response.created","response":{"id":"resp_early_failed","created_at":1700000000}}` + "\n\n"
 	failed := "event: response.failed\n" +
-		`data: {"type":"response.failed","response":{"id":"resp_early_failed","status":"failed","error":{"code":"server_error","message":"upstream failed"}}}` + "\n\n"
+		`data: {"type":"response.failed","response":{"id":"resp_early_failed","created_at":1700000000,"status":"failed","error":{"code":"server_error","message":"upstream failed"}}}` + "\n\n"
 	recorder := newOpenAIResponseFlushRecorder()
 
 	result, err := runOpenAIResponseFlushTest(
@@ -441,7 +441,7 @@ func TestOpenAIResponseFlush_FailedAfterEarlyCreatedDoesNotFailOver(t *testing.T
 
 func TestOpenAIResponseFlush_GroupScopedFirstVisibleTextFlush(t *testing.T) {
 	groupID := int64(19)
-	created := `data: {"type":"response.created","response":{"id":"resp_visible"}}` + "\n\n"
+	created := `data: {"type":"response.created","response":{"id":"resp_visible","created_at":1700000000}}` + "\n\n"
 	outputItem := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
 	blankText := `data: {"type":"response.output_text.delta","delta":"   "}` + "\n\n"
 	firstText := `data: {"type":"response.output_text.delta","delta":"first"}` + "\n\n"
@@ -568,13 +568,16 @@ func TestOpenAIResponseFlush_FirstVisibleTextWaitsForBlankBoundary(t *testing.T)
 
 func TestOpenAIResponseFlush_NewAPIFirstDataHTTPSmoke(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupID := int64(41)
-	created := `data: {"type":"response.created","response":{"id":"resp_newapi_smoke"}}` + "\n\n"
+	created := `data: {"type":"response.created","response":{"id":"resp_newapi_smoke","created_at":1700000000}}` + "\n\n"
 	semantic := `data: {"type":"response.output_item.added","item":{"type":"message"}}` + "\n\n"
 	textDelta := `data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
 	terminal := "data: [DONE]\n\n"
 	upstreamReader, upstreamWriter := io.Pipe()
 	releaseSemantic := make(chan struct{})
+	var releaseSemanticOnce sync.Once
+	allowSemantic := func() { releaseSemanticOnce.Do(func() { close(releaseSemantic) }) }
 	upstreamDone := make(chan error, 1)
 	go func() {
 		if _, err := io.WriteString(upstreamWriter, created); err != nil {
@@ -609,9 +612,17 @@ func TestOpenAIResponseFlush_NewAPIFirstDataHTTPSmoke(t *testing.T) {
 		)
 	})
 	server := httptest.NewServer(router)
-	defer server.Close()
+	t.Cleanup(func() {
+		// A first-data assertion can fail while both the writer gate and handler
+		// read are blocked. Release them before waiting for the server to stop.
+		cancel()
+		allowSemantic()
+		_ = upstreamReader.Close()
+		_ = upstreamWriter.Close()
+		server.Close()
+	})
 
-	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/responses", strings.NewReader(`{"stream":true}`))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/responses", strings.NewReader(`{"stream":true}`))
 	require.NoError(t, err)
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
@@ -625,7 +636,7 @@ func TestOpenAIResponseFlush_NewAPIFirstDataHTTPSmoke(t *testing.T) {
 	require.True(t, scanner.Scan())
 	firstData := scanner.Text()
 	require.Equal(t, strings.TrimSuffix(created, "\n\n"), firstData)
-	close(releaseSemantic)
+	allowSemantic()
 
 	var remainingLines []string
 	for scanner.Scan() {
