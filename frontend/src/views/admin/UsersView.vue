@@ -147,6 +147,19 @@
             </div>
             <!-- Mobile: Secondary buttons (icon only) -->
             <div class="flex items-center gap-2 md:contents">
+              <button
+                type="button"
+                data-test="export-users"
+                @click="handleExportUsers"
+                :disabled="exporting"
+                :aria-busy="exporting"
+                :aria-label="t('admin.users.exportUsers')"
+                :title="t('admin.users.exportUsersHint')"
+                class="btn btn-secondary px-2 md:px-3"
+              >
+                <Icon :name="exporting ? 'refresh' : 'download'" size="sm" :class="['md:mr-1.5', { 'animate-spin': exporting }]" />
+                <span class="hidden md:inline">{{ t(exporting ? 'admin.users.exporting' : 'admin.users.exportUsers') }}</span>
+              </button>
               <!-- Refresh Button -->
               <button
                 @click="loadUsers"
@@ -814,6 +827,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { saveAs } from 'file-saver'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -824,7 +838,7 @@ const { t } = useI18n()
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, AdminGroup, UserAttributeDefinition } from '@/types'
 import type { BatchUserUsageStats } from '@/api/admin/dashboard'
-import type { PlatformQuotaItem } from '@/api/admin/users'
+import type { AdminUsersListFilters, PlatformQuotaItem } from '@/api/admin/users'
 import type { Column } from '@/components/common/types'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -1062,6 +1076,8 @@ const columns = computed<Column[]>(() =>
 const users = ref<AdminUser[]>([])
 const totalBalance = ref<number | null>(null)
 const loading = ref(false)
+const exporting = ref(false)
+let exportAbortController: AbortController | null = null
 const searchQuery = ref('')
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
 const loadInitialSortState = (): { sort_by: string; sort_order: 'asc' | 'desc' } => {
@@ -1606,6 +1622,49 @@ const handleAttributesModalClose = async () => {
   loadUsers()
 }
 
+// Keep listing and exporting in sync, including filters on custom attributes.
+const buildUserListFilters = (): AdminUsersListFilters => {
+  const attrFilters: Record<number, string> = {}
+  for (const [attrId, value] of Object.entries(activeAttributeFilters)) {
+    if (value) {
+      attrFilters[Number(attrId)] = value
+    }
+  }
+  return {
+    role: (filters.role || undefined) as AdminUsersListFilters['role'],
+    status: (filters.status || undefined) as AdminUsersListFilters['status'],
+    search: searchQuery.value || undefined,
+    group_name: filters.group || undefined,
+    has_exclusive_groups: filters.hasExclusiveGroups || undefined,
+    api_key_group_id: filters.apiKeyGroup ?? undefined,
+    attributes: Object.keys(attrFilters).length > 0 ? attrFilters : undefined,
+    // Hidden subscriptions still support the active-subscription warning in the quota modal.
+    include_subscriptions: true,
+    sort_by: sortState.sort_by,
+    sort_order: sortState.sort_order
+  }
+}
+
+const handleExportUsers = async () => {
+  if (exporting.value) return
+  exporting.value = true
+  const controller = new AbortController()
+  exportAbortController = controller
+  try {
+    const blob = await adminAPI.users.exportUsers(buildUserListFilters(), { signal: controller.signal })
+    if (controller.signal.aborted) return
+    saveAs(blob, `users-${new Date().toISOString().split('T')[0]}.csv`)
+    appStore.showSuccess(t('admin.users.usersExported'))
+  } catch {
+    if (!controller.signal.aborted) {
+      appStore.showError(t('admin.users.failedToExport'))
+    }
+  } finally {
+    exporting.value = false
+    exportAbortController = null
+  }
+}
+
 const loadUsers = async () => {
   abortController?.abort()
   const currentAbortController = new AbortController()
@@ -1613,30 +1672,10 @@ const loadUsers = async () => {
   const { signal } = currentAbortController
   loading.value = true
   try {
-    // Build attribute filters from active filters
-    const attrFilters: Record<number, string> = {}
-    for (const [attrId, value] of Object.entries(activeAttributeFilters)) {
-      if (value) {
-        attrFilters[Number(attrId)] = value
-      }
-    }
-
     const response = await adminAPI.users.list(
       pagination.page,
       pagination.page_size,
-      {
-        role: filters.role as any,
-        status: filters.status as any,
-        search: searchQuery.value || undefined,
-        group_name: filters.group || undefined,
-        has_exclusive_groups: filters.hasExclusiveGroups || undefined,
-        api_key_group_id: filters.apiKeyGroup ?? undefined,
-        attributes: Object.keys(attrFilters).length > 0 ? attrFilters : undefined,
-        // 始终请求 subscriptions：列隐藏时仍需用于 UserPlatformQuotaModal 的 active-subscription 警示 banner
-        include_subscriptions: true,
-        sort_by: sortState.sort_by,
-        sort_order: sortState.sort_order
-      },
+      buildUserListFilters(),
       { signal }
     )
     if (signal.aborted) {
@@ -1940,5 +1979,6 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   clearTimeout(searchTimeout)
   abortController?.abort()
+  exportAbortController?.abort()
 })
 </script>

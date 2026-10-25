@@ -62,6 +62,28 @@ func (r *auditCaptureRepository) DeleteBefore(context.Context, time.Time, int) (
 	return 0, nil
 }
 
+func TestUserExportReadIsAudited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.GET("/api/v1/admin/users/export", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/csv", []byte("用户ID,账号\n"))
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/export?status=active", nil))
+	auditService.Stop()
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, 1)
+	require.Equal(t, "admin.users.export", repository.logs[0].Action)
+	require.Equal(t, "status=active", repository.logs[0].Extra["query"])
+}
+
 func TestPromptAuditAdminOperationsUseOmittedBodiesAndAllowlistedDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := &auditCaptureRepository{}

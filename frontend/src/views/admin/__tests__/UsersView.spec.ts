@@ -6,6 +6,8 @@ import UsersView from '../UsersView.vue'
 
 const {
   listUsers,
+  exportUsers,
+  saveAs,
   toggleStatus,
   deleteUser,
   showError,
@@ -16,6 +18,8 @@ const {
   getBatchUserAttributes
 } = vi.hoisted(() => ({
   listUsers: vi.fn(),
+  exportUsers: vi.fn(),
+  saveAs: vi.fn(),
   toggleStatus: vi.fn(),
   deleteUser: vi.fn(),
   showError: vi.fn(),
@@ -30,6 +34,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     users: {
       list: listUsers,
+      exportUsers,
       toggleStatus,
       delete: deleteUser
     },
@@ -45,6 +50,8 @@ vi.mock('@/api/admin', () => ({
     }
   }
 }))
+
+vi.mock('file-saver', () => ({ saveAs }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -183,6 +190,8 @@ describe('admin UsersView', () => {
     localStorage.clear()
 
     listUsers.mockReset()
+    exportUsers.mockReset()
+    saveAs.mockReset()
     toggleStatus.mockReset()
     deleteUser.mockReset()
     showError.mockReset()
@@ -204,10 +213,105 @@ describe('admin UsersView', () => {
     getBatchUsersUsage.mockResolvedValue({ stats: {} })
     listEnabledDefinitions.mockResolvedValue([])
     getBatchUserAttributes.mockResolvedValue({ values: {} })
+    exportUsers.mockResolvedValue(new Blob(['id,email,balance\n42,scoped@example.com,12.5']))
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('exports all matching users with the current filters and sort from a later page', async () => {
+    localStorage.setItem('user-filter-values', JSON.stringify({
+      role: 'user', status: 'active', group: 'VIP', apiKeyGroup: 7,
+      hasExclusiveGroups: true, attributes: { 3: 'partner' }
+    }))
+    listUsers.mockImplementation(async (page: number) => ({
+      items: [createAdminUser()], total: 40, page, page_size: 20, pages: 2
+    }))
+    const blob = new Blob(['id,email,balance\n42,scoped@example.com,12.5'])
+    exportUsers.mockResolvedValue(blob)
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await wrapper.get('input[type="text"]').setValue('scoped')
+    await wrapper.get('[data-test="sort-last-used"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="select-42"]').trigger('click')
+
+    expect(listUsers.mock.lastCall?.[0]).toBe(2)
+    const currentFilters = listUsers.mock.lastCall?.[2]
+    await wrapper.get('[data-test="export-users"]').trigger('click')
+    await flushPromises()
+
+    expect(exportUsers).toHaveBeenCalledOnce()
+    expect(exportUsers.mock.lastCall?.[0]).toEqual(currentFilters)
+    expect(exportUsers.mock.lastCall?.[0]).toEqual(expect.objectContaining({
+      role: 'user', status: 'active', group_name: 'VIP', api_key_group_id: 7,
+      attributes: { 3: 'partner' }, search: 'scoped', has_exclusive_groups: true,
+      sort_by: 'last_used_at', sort_order: 'desc'
+    }))
+    expect(exportUsers.mock.lastCall?.[0]).not.toHaveProperty('page')
+    expect(exportUsers.mock.lastCall?.[0]).not.toHaveProperty('page_size')
+    expect(exportUsers.mock.lastCall?.[0]).not.toHaveProperty('user_ids')
+    expect(saveAs).toHaveBeenCalledWith(blob, expect.stringMatching(/^users-.*\.csv$/))
+    expect(showSuccess).toHaveBeenCalledWith('admin.users.usersExported')
+    wrapper.unmount()
+  })
+
+  it('prevents duplicate exports while downloading and enables export after completion', async () => {
+    let finishExport!: (blob: Blob) => void
+    exportUsers.mockImplementation(() => new Promise<Blob>(resolve => { finishExport = resolve }))
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    const button = wrapper.get('[data-test="export-users"]')
+    await button.trigger('click')
+
+    expect(button.attributes('disabled')).toBeDefined()
+    await button.trigger('click')
+    expect(exportUsers).toHaveBeenCalledOnce()
+    expect(saveAs).not.toHaveBeenCalled()
+
+    finishExport(new Blob(['id,email,balance']))
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(saveAs).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('shows an export error and allows retrying without saving a file', async () => {
+    exportUsers.mockRejectedValue(new Error('Export unavailable'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await wrapper.get('[data-test="export-users"]').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.users.failedToExport')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(saveAs).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="export-users"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+    errorSpy.mockRestore()
+  })
+
+  it('cancels an export on navigation and ignores a late response', async () => {
+    let finishExport!: (blob: Blob) => void
+    exportUsers.mockImplementation(() => new Promise<Blob>(resolve => { finishExport = resolve }))
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await wrapper.get('[data-test="export-users"]').trigger('click')
+    const signal = exportUsers.mock.lastCall?.[1].signal as AbortSignal
+    expect(signal.aborted).toBe(false)
+
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    finishExport(new Blob(['id,email,balance']))
+    await flushPromises()
+
+    expect(saveAs).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+    expect(showSuccess).not.toHaveBeenCalled()
   })
 
   it('toggles the exclusive group filter from any page and restores it on remount', async () => {

@@ -548,6 +548,11 @@ export default {
       description: 'Manage users and their permissions',
       totalUserBalance: 'Total user balance',
       createUser: 'Create User',
+      exportUsers: 'Export Users',
+      exportUsersHint: 'Export all users matching the current filters to CSV',
+      exporting: 'Exporting...',
+      usersExported: 'User information exported',
+      failedToExport: 'Failed to export user information. Please try again.',
       bulkDelete: {
         action: 'Delete selected ({count})',
         title: 'Delete selected users',

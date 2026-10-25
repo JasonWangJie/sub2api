@@ -11,6 +11,30 @@ export interface AdminUsersListResponse extends PaginatedResponse<AdminUser> {
   total_balance: number
 }
 
+export interface AdminUsersListFilters {
+  status?: 'active' | 'disabled'
+  role?: 'admin' | 'user'
+  search?: string
+  group_name?: string
+  has_exclusive_groups?: boolean
+  api_key_group_id?: number
+  attributes?: Record<number, string>
+  include_subscriptions?: boolean
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}
+
+function buildUserQueryParams(filters?: AdminUsersListFilters): Record<string, unknown> {
+  const { attributes, ...params } = filters ?? {}
+  const result: Record<string, unknown> = { ...params }
+  if (attributes) {
+    for (const [attrId, value] of Object.entries(attributes)) {
+      if (value) result[`attr[${attrId}]`] = value
+    }
+  }
+  return result
+}
+
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
   channel_app_id: string
@@ -71,47 +95,28 @@ export interface BatchUpdateUserLimitsResponse {
 export async function list(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    status?: 'active' | 'disabled'
-    role?: 'admin' | 'user'
-    search?: string
-    group_name?: string         // fuzzy filter by allowed group name
-    has_exclusive_groups?: boolean // only users assigned to active standard exclusive groups
-    api_key_group_id?: number   // filter users by the group their API keys are bound to
-    attributes?: Record<number, string>  // attributeId -> value
-    include_subscriptions?: boolean
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AdminUsersListFilters,
   options?: {
     signal?: AbortSignal
   }
 ): Promise<AdminUsersListResponse> {
-  // Build params with attribute filters in attr[id]=value format
-  const params: Record<string, any> = {
-    page,
-    page_size: pageSize,
-    status: filters?.status,
-    role: filters?.role,
-    search: filters?.search,
-    group_name: filters?.group_name,
-    has_exclusive_groups: filters?.has_exclusive_groups,
-    api_key_group_id: filters?.api_key_group_id,
-    include_subscriptions: filters?.include_subscriptions,
-    sort_by: filters?.sort_by,
-    sort_order: filters?.sort_order
-  }
-
-  // Add attribute filters as attr[id]=value
-  if (filters?.attributes) {
-    for (const [attrId, value] of Object.entries(filters.attributes)) {
-      if (value) {
-        params[`attr[${attrId}]`] = value
-      }
-    }
-  }
   const { data } = await apiClient.get<AdminUsersListResponse>('/admin/users', {
-    params,
+    params: { ...buildUserQueryParams(filters), page, page_size: pageSize },
+    signal: options?.signal
+  })
+  return data
+}
+
+/** Export every user matching the list filters, regardless of pagination. */
+export async function exportUsers(
+  filters?: AdminUsersListFilters,
+  options?: { signal?: AbortSignal }
+): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>('/admin/users/export', {
+    params: buildUserQueryParams(filters),
+    responseType: 'blob',
+    // Large exports can take longer than the default request timeout.
+    timeout: 0,
     signal: options?.signal
   })
   return data
@@ -412,6 +417,7 @@ export async function resetPlatformQuotaWindow(
 
 export const usersAPI = {
   list,
+  exportUsers,
   getById,
   create,
   update,

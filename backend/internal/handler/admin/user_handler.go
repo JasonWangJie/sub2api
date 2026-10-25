@@ -43,6 +43,7 @@ type UserHandler struct {
 	totpService           *service.TotpService                // 角色提升为管理员的 step-up 门控
 	userService           *service.UserService
 	settingService        *service.SettingService // step-up 功能开关
+	exportAttributes      userExportAttributeReader
 }
 
 // NewUserHandler creates a new admin user handler
@@ -134,33 +135,7 @@ type BindUserAuthIdentityChannelRequest struct {
 //   - api_key_group_id: filter by the exact group bound to the user's API keys
 func (h *UserHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
-
-	search := c.Query("search")
-	// 标准化和验证 search 参数
-	search = strings.TrimSpace(search)
-	if runes := []rune(search); len(runes) > 100 {
-		search = string(runes[:100])
-	}
-
-	filters := service.UserListFilters{
-		Status:             c.Query("status"),
-		Role:               c.Query("role"),
-		Search:             search,
-		GroupName:          strings.TrimSpace(c.Query("group_name")),
-		HasExclusiveGroups: parseBoolQueryWithDefault(c.Query("has_exclusive_groups"), false),
-		Attributes:         parseAttributeFilters(c),
-	}
-	if raw := strings.TrimSpace(c.Query("api_key_group_id")); raw != "" {
-		if id, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && id > 0 {
-			filters.APIKeyGroupID = id
-		}
-	}
-	sortBy := c.DefaultQuery("sort_by", "created_at")
-	sortOrder := c.DefaultQuery("sort_order", "desc")
-	if raw, ok := c.GetQuery("include_subscriptions"); ok {
-		includeSubscriptions := parseBoolQueryWithDefault(raw, true)
-		filters.IncludeSubscriptions = &includeSubscriptions
-	}
+	filters, sortBy, sortOrder := parseUserListQuery(c)
 
 	users, total, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, filters, sortBy, sortOrder)
 	if err != nil {
@@ -211,6 +186,38 @@ func (h *UserHandler) List(c *gin.Context) {
 		Items: out, Total: total, Page: page, PageSize: pageSize, Pages: pages,
 		TotalBalance: totalBalance,
 	})
+}
+
+// parseUserListQuery is shared by the paginated list and the full CSV export.
+func parseUserListQuery(c *gin.Context) (service.UserListFilters, string, string) {
+	search := c.Query("search")
+	// 标准化和验证 search 参数
+	search = strings.TrimSpace(search)
+	if runes := []rune(search); len(runes) > 100 {
+		search = string(runes[:100])
+	}
+
+	filters := service.UserListFilters{
+		Status:             c.Query("status"),
+		Role:               c.Query("role"),
+		Search:             search,
+		GroupName:          strings.TrimSpace(c.Query("group_name")),
+		HasExclusiveGroups: parseBoolQueryWithDefault(c.Query("has_exclusive_groups"), false),
+		Attributes:         parseAttributeFilters(c),
+	}
+	if raw := strings.TrimSpace(c.Query("api_key_group_id")); raw != "" {
+		if id, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && id > 0 {
+			filters.APIKeyGroupID = id
+		}
+	}
+	sortBy := c.DefaultQuery("sort_by", "created_at")
+	sortOrder := c.DefaultQuery("sort_order", "desc")
+	if raw, ok := c.GetQuery("include_subscriptions"); ok {
+		includeSubscriptions := parseBoolQueryWithDefault(raw, true)
+		filters.IncludeSubscriptions = &includeSubscriptions
+	}
+
+	return filters, sortBy, sortOrder
 }
 
 // parseAttributeFilters extracts attribute filters from query params

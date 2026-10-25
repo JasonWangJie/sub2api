@@ -548,6 +548,11 @@ export default {
       description: '管理用户账户和权限',
       totalUserBalance: '普通用户总余额',
       createUser: '创建用户',
+      exportUsers: '导出用户',
+      exportUsersHint: '按当前筛选条件导出全部用户信息（CSV）',
+      exporting: '导出中...',
+      usersExported: '用户信息已导出',
+      failedToExport: '导出用户信息失败，请重试',
       bulkDelete: {
         action: '批量删除（{count}）',
         title: '删除已选用户',
