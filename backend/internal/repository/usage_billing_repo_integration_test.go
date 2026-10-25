@@ -164,7 +164,7 @@ func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 	require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
 }
 
-func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T) {
+func TestUsageBillingRepositoryApply_SoftDeletedAPIKeyStillSettlesAcceptedUsage(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	repo := NewUsageBillingRepository(client, integrationDB)
@@ -190,7 +190,9 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 	require.NoError(t, err)
 
 	requestID := uuid.NewString()
-	result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+	// 持久化异步任务在入队后可能删除 Key；软删除只阻止新请求，
+	// 已接受任务仍须完整记录余额、Key 额度及限速用量，且重放不能重复结算。
+	command := &service.UsageBillingCommand{
 		RequestID:           requestID,
 		APIKeyID:            apiKey.ID,
 		UserID:              user.ID,
@@ -199,20 +201,32 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 		BalanceCost:         1.25,
 		APIKeyQuotaCost:     1.25,
 		APIKeyRateLimitCost: 1.25,
-	})
+	}
+	result, err := repo.Apply(ctx, command)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.Applied)
 	require.False(t, result.APIKeyQuotaExhausted)
 
-	var balance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
-	require.InDelta(t, 98.75, balance, 0.000001)
+	assertFullySettled := func() {
+		t.Helper()
+		var balance float64
+		require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
+		require.InDelta(t, 98.75, balance, 0.000001)
 
-	var quotaUsed, usage5h float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used, usage_5h FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed, &usage5h))
-	require.InDelta(t, 0, quotaUsed, 0.000001)
-	require.InDelta(t, 0, usage5h, 0.000001)
+		var quotaUsed, usage5h float64
+		var deleted bool
+		require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used, usage_5h, deleted_at IS NOT NULL FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed, &usage5h, &deleted))
+		require.InDelta(t, 1.25, quotaUsed, 0.000001)
+		require.InDelta(t, 1.25, usage5h, 0.000001)
+		require.True(t, deleted, "settlement must not restore the deleted Key")
+	}
+	assertFullySettled()
+
+	replayed, err := repo.Apply(ctx, command)
+	require.NoError(t, err)
+	require.False(t, replayed.Applied)
+	assertFullySettled()
 
 	var dedupCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&dedupCount))
