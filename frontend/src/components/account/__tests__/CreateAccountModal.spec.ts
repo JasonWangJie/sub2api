@@ -1004,7 +1004,7 @@ describe('CreateAccountModal Vertex API key auth', () => {
       tier_id: 'vertex'
     })
     expect(payload?.credentials).not.toHaveProperty('project_id')
-    expect(payload?.credentials.model_mapping).toHaveProperty('gemini-2.5-pro', 'gemini-2.5-pro')
+    expect(payload?.credentials.model_mapping).toHaveProperty('gemini-3.1-pro-preview', 'gemini-3.1-pro-preview')
   })
 
   it('sends the project id when an API key account targets a project endpoint', async () => {
