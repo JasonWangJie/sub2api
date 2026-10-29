@@ -94,7 +94,11 @@ func TestImageWorkbenchCapabilitiesExpandAccountModelWildcard(t *testing.T) {
 	got, err := svc.GetCapabilities(context.Background(), 7, 10)
 	require.NoError(t, err)
 	require.True(t, got.Available)
-	require.Equal(t, []ImageWorkbenchModel{{ID: "gemini-3.1-flash-image", Label: "Gemini 3.1 Flash Image"}}, got.Models)
+	require.Equal(t, []ImageWorkbenchModel{
+		{ID: "gemini-3.1-flash-image", Label: "Gemini 3.1 Flash Image"},
+		{ID: "gemini-3.1-flash-image-preview", Label: "Gemini 3.1 Flash Image Preview"},
+		{ID: "gemini-3.1-flash-lite-image", Label: "Gemini 3.1 Flash Lite Image"},
+	}, got.Models)
 }
 
 func TestImageWorkbenchCapabilitiesGrokIsAlwaysRealtimeAndDoesNotAdvertiseSize(t *testing.T) {

@@ -1138,6 +1138,7 @@ export default {
         allowAsyncImageGeneration: '开启下游异步生图接口',
         asyncImageGenerationHint: '仅新增异步接口使用该开关，上游调度与生图计费完全沿用当前分组规则。',
         allowBatchImageGeneration: '允许当前分组批量生图',
+        perImageBilling: '按张计费',
         independentMultiplier: '生图倍率独立',
         imageMultiplier: '生图独立倍率',
         batchDiscountMultiplier: '批量生图折扣倍率',

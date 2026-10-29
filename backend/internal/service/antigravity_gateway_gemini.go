@@ -470,6 +470,7 @@ handleSuccess:
 		ImageInputSize:                imageInputSize,
 	}
 	applyGeminiImageOutputAccounting(forwardResult, imageCounter)
+	forwardResult.ImageEndpoint = forwardResult.ImageCount > 0
 	return forwardResult, nil
 }
 

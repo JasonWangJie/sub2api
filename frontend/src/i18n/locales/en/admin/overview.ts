@@ -1141,6 +1141,7 @@ export default {
         allowAsyncImageGeneration: 'Enable downstream async image API',
         asyncImageGenerationHint: 'Requests submitted through the new async endpoints use this group\'s existing upstream routing and image billing rules.',
         allowBatchImageGeneration: 'Allow batch image generation for this group',
+        perImageBilling: 'Bill per generated image',
         independentMultiplier: 'Use independent image multiplier',
         imageMultiplier: 'Image multiplier',
         batchDiscountMultiplier: 'Batch image discount',
