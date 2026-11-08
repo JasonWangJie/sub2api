@@ -141,11 +141,12 @@ func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlat
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		status := http.StatusBadRequest
-		if _, ok := extractMaxBytesError(err); ok {
-			status = http.StatusRequestEntityTooLarge
+		bodyLog := requestLogger(c, "handler.durable_async_image.submit")
+		if handleRequestBodyReadError(c, bodyLog, err) {
+			return
 		}
-		h.writeProtocolError(c, protocol, status, "invalid_request", "failed to read request body")
+		status, message := requestBodyReadFailure(bodyLog, c.Request, err)
+		h.writeProtocolError(c, protocol, status, "invalid_request", message)
 		return
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
@@ -190,6 +191,15 @@ func (h *DurableAsyncImageHandler) submit(c *gin.Context, protocol, expectedPlat
 		parsed, err = h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
 		if err == nil && parsed.Stream {
 			err = errors.New("stream must be false for asynchronous image generation")
+		}
+		if err == nil {
+			// The durable worker and library validate raster images before storing
+			// and billing them. Reject unsupported native outputs before invoking
+			// upstream, while leaving the synchronous Images endpoint available.
+			format := strings.ToLower(strings.TrimSpace(parsed.OutputFormat))
+			if format == "gif" || format == "svg" || parsed.SVG != nil || parsed.FrameCount != nil || parsed.FrameDurationMS != nil {
+				err = errors.New("asynchronous image generation supports only PNG, JPEG, and WebP outputs; GIF/SVG output and frame controls require the synchronous Images endpoint")
+			}
 		}
 		if err == nil {
 			payload.Body = append([]byte(nil), body...)

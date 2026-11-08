@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"image"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -109,10 +111,25 @@ func TestCollectGeminiSSECountsImageSlotsWithoutDuplicateFinalFrame(t *testing.T
 		`data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"` + final + `"}}]}}]}`,
 		"data: [DONE]",
 	}, "\n\n")
-	_, _, counter, err := collectGeminiSSE(strings.NewReader(body), false)
+	_, _, counter, err := collectGeminiSSE(nil, strings.NewReader(body), false)
 	require.NoError(t, err)
 	require.Equal(t, 1, counter.Count())
 	require.Equal(t, []string{"2048x2048"}, counter.Sizes())
+}
+
+func TestCollectGeminiSSEImageAccountingHonorsConfiguredLineLimit(t *testing.T) {
+	encoded := encodedGeminiAccountingPNG(t, 128, 64, 1)
+	line := `data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"` + encoded + `"}}]}}]}`
+	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: len(line) + 16}}
+	_, _, counter, err := collectGeminiSSE(cfg, strings.NewReader(line+"\n\n"), false)
+	require.NoError(t, err)
+	require.Equal(t, 1, counter.Count())
+	require.Equal(t, []string{"128x64"}, counter.Sizes())
+
+	cfg.Gateway.MaxLineSize = 64
+	_, _, counter, err = collectGeminiSSE(cfg, strings.NewReader(line+"\n\n"), false)
+	require.ErrorIs(t, err, bufio.ErrTooLong)
+	require.Nil(t, counter, "a rejected partial image must not become billable output")
 }
 
 func TestHandleNativeNonStreamingResponseReturnsActualImageAccounting(t *testing.T) {

@@ -137,7 +137,7 @@ type BindUserAuthIdentityChannelRequest struct {
 func (h *UserHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
 	filters, sortBy, sortOrder := parseUserListQuery(c)
-	principal := adminaccess.FromContext(c.Request.Context())
+	principal := adminaccess.RestrictedFromContext(c.Request.Context())
 	if principal != nil {
 		includeSubscriptions := false
 		filters.IncludeSubscriptions = &includeSubscriptions
@@ -466,7 +466,7 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 		return dto.UserFromServiceAdmin(user), nil
 	}, func(data any) any {
 		// 成功确认不隐式授予用户资料或余额读取权限；缓存重放也必须经过此边界。
-		if adminaccess.FromContext(c.Request.Context()) != nil {
+		if adminaccess.RestrictedFromContext(c.Request.Context()) != nil {
 			return gin.H{"id": userID}
 		}
 		return data
