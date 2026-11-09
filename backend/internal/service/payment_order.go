@@ -121,8 +121,10 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 	}
 	if plan == nil && req.OrderType == payment.OrderTypeBalance && !allowUSDT {
 		// USDT 使用上面的独立汇率和赠送报价，不叠加普通充值优惠。
-		// 阈值按支付金额命中。赠金模式：到账 = 基数 + 赠送；折扣模式：到账 = 基数，实付基数按折扣减少。
-		quote := quoteRechargeBonus(cfg, req.Amount, methodCurrency)
+		quote, err := quoteRechargeBonus(cfg, req.Amount, methodCurrency)
+		if err != nil {
+			return nil, err
+		}
 		limitAmount = quote.PayBase
 		bonusAmount = quote.Bonus
 		orderAmount = quote.Credited

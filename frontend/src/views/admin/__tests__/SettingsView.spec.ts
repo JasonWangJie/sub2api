@@ -1390,6 +1390,93 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("switches from legacy discount to fixed bonus without discarding tiers", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_enabled: true,
+      payment_recharge_bonus_mode: "discount",
+      payment_recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+      payment_recharge_fixed_bonus: { enabled: false, threshold_amount: 50, bonus_amount: 8 },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-enabled"]').setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="recharge-bonus-config-error"]').text()).toContain("discountConflict");
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="recharge-bonus-enabled"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_bonus_enabled: false,
+        payment_recharge_bonus_mode: "discount",
+        payment_recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+        payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 8 },
+      }),
+    );
+  });
+
+  it("requires positive fixed bonus amounts with at most two decimal places when enabled", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-enabled"]').setValue(true);
+    await wrapper.get('[data-testid="recharge-fixed-bonus-threshold"]').setValue("0");
+    await wrapper.get('[data-testid="recharge-fixed-bonus-amount"]').setValue("0.29");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="recharge-bonus-config-error"]').text()).toContain("invalidFixedAmounts");
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-threshold"]').setValue("10.07");
+    await wrapper.get('[data-testid="recharge-fixed-bonus-amount"]').setValue("0.005");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="recharge-bonus-config-error"]').text()).toContain("invalidFixedAmounts");
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-amount"]').setValue("0.29");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 10.07, bonus_amount: 0.29 },
+      }),
+    );
+  });
+
+  it("pauses fixed bonus while retaining saved amounts when a draft is invalid", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 8 },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-threshold"]').setValue("");
+    await wrapper.get('[data-testid="recharge-fixed-bonus-enabled"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_fixed_bonus: { enabled: false, threshold_amount: 50, bonus_amount: 8 },
+      }),
+    );
+  });
+
   it("links payment guidance to README sections instead of removed payment docs", async () => {
     const wrapper = mountView();
 

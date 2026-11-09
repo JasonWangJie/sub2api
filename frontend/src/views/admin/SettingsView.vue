@@ -8912,8 +8912,11 @@
           <RechargeBonusTierEditor
             v-if="form.payment_enabled"
             v-model="form.payment_recharge_bonus_tiers"
+            v-model:enabled="form.payment_recharge_bonus_enabled"
             v-model:mode="form.payment_recharge_bonus_mode"
             v-model:notice="form.payment_recharge_bonus_notice"
+            v-model:fixed-bonus="form.payment_recharge_fixed_bonus"
+            :config-error="rechargeBonusConfigError"
           />
 
           <!-- Provider Management -->
@@ -9509,7 +9512,7 @@ import type {
   NotifyEmailEntry,
   Proxy,
 } from "@/types";
-import type { ProviderInstance } from "@/types/payment";
+import type { ProviderInstance, RechargeFixedBonus } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select, { type SelectOption } from "@/components/common/Select.vue";
@@ -9533,6 +9536,8 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
 import {
+  isRechargeFixedBonusAmountValid,
+  isRechargeFixedBonusEnabled,
   normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,
   sanitizeRechargeBonusTiersForSubmit,
@@ -10223,6 +10228,7 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
+  | "payment_recharge_bonus_tiers"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;
@@ -10264,9 +10270,11 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
   // 充值赠送阶梯编辑态：允许留空的行，提交时清洗为 RechargeBonusTier[]
+  payment_recharge_bonus_enabled: boolean;
   payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
   payment_recharge_bonus_mode: RechargeBonusMode;
   payment_recharge_bonus_notice: string;
+  payment_recharge_fixed_bonus: RechargeFixedBonus;
   // 系统全局平台限额 map；form 内始终归一化为全部平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
@@ -10348,9 +10356,11 @@ const form = reactive<SettingsForm>({
   payment_balance_recharge_multiplier: 1,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
+  payment_recharge_bonus_enabled: false,
   payment_recharge_bonus_tiers: [],
   payment_recharge_bonus_mode: "bonus",
   payment_recharge_bonus_notice: "",
+  payment_recharge_fixed_bonus: { enabled: false, threshold_amount: 0, bonus_amount: 0 },
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
@@ -11756,7 +11766,16 @@ async function loadSettings() {
     form.payment_recharge_bonus_mode = normalizeRechargeBonusMode(
       settings.payment_recharge_bonus_mode,
     );
+    form.payment_recharge_bonus_enabled =
+      settings.payment_recharge_bonus_enabled ?? (form.payment_recharge_bonus_tiers.length > 0);
     form.payment_recharge_bonus_notice = settings.payment_recharge_bonus_notice || "";
+    savedRechargeFixedBonus.value = settings.payment_recharge_fixed_bonus;
+    form.payment_recharge_fixed_bonus = {
+      enabled: false,
+      threshold_amount: 0,
+      bonus_amount: 0,
+      ...savedRechargeFixedBonus.value,
+    };
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       settings.account_scheduling_thresholds,
@@ -11965,9 +11984,37 @@ const siteBillingModeHint = computed(() =>
   t(`admin.settings.features.siteBillingMode.hints.${SITE_BILLING_MODE_I18N_KEYS[siteBillingMode.value]}`),
 );
 
+const savedRechargeFixedBonus = ref<RechargeFixedBonus>();
+const rechargeBonusTiersForSubmit = computed(() =>
+  sanitizeRechargeBonusTiersForSubmit(form.payment_recharge_bonus_tiers),
+);
+const rechargeBonusConfigError = computed(() => {
+  const fixed = form.payment_recharge_fixed_bonus;
+  if (!fixed.enabled) return "";
+  if (
+    form.payment_recharge_bonus_enabled &&
+    form.payment_recharge_bonus_mode === "discount" &&
+    rechargeBonusTiersForSubmit.value.length > 0
+  ) {
+    return "discountConflict";
+  }
+  if (!isRechargeFixedBonusEnabled(fixed)) {
+    return "invalidFixedAmounts";
+  }
+  return "";
+});
+
 async function saveSettings() {
   saving.value = true;
   try {
+    if (rechargeBonusConfigError.value) {
+      appStore.showError(
+        t(`admin.settings.payment.rechargeBonus.${rechargeBonusConfigError.value}`),
+      );
+      return;
+    }
+    const fixedBonus = form.payment_recharge_fixed_bonus;
+    const savedFixedBonus = savedRechargeFixedBonus.value;
     commitSEOKeywordDraft();
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
@@ -12400,11 +12447,24 @@ async function saveSettings() {
       payment_subscription_usd_to_cny_rate:
         Number(form.payment_subscription_usd_to_cny_rate) || 0,
       payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,
-      payment_recharge_bonus_tiers: sanitizeRechargeBonusTiersForSubmit(
-        form.payment_recharge_bonus_tiers,
-      ),
+      payment_recharge_bonus_enabled: form.payment_recharge_bonus_enabled,
+      payment_recharge_bonus_tiers: rechargeBonusTiersForSubmit.value,
       payment_recharge_bonus_mode: form.payment_recharge_bonus_mode,
       payment_recharge_bonus_notice: form.payment_recharge_bonus_notice,
+      // Pausing a rule can discard an invalid draft while retaining its saved amounts.
+      payment_recharge_fixed_bonus: {
+        enabled: fixedBonus.enabled,
+        threshold_amount:
+          isRechargeFixedBonusAmountValid(fixedBonus.threshold_amount) &&
+          fixedBonus.threshold_amount > 0
+            ? fixedBonus.threshold_amount
+            : savedFixedBonus?.threshold_amount ?? 0,
+        bonus_amount:
+          isRechargeFixedBonusAmountValid(fixedBonus.bonus_amount) &&
+          fixedBonus.bonus_amount > 0
+            ? fixedBonus.bonus_amount
+            : savedFixedBonus?.bonus_amount ?? 0,
+      },
       payment_enabled_types: form.payment_enabled_types,
       payment_load_balance_strategy: form.payment_load_balance_strategy,
       payment_product_name_prefix: form.payment_product_name_prefix,
@@ -12528,6 +12588,7 @@ async function saveSettings() {
     const updated = await settingsStepUp.run(() =>
       adminAPI.settings.updateSettings(payload),
     );
+    savedRechargeFixedBonus.value = updated.payment_recharge_fixed_bonus;
     for (const [key, value] of Object.entries(updated)) {
       if (key === "openai_fast_policy_settings") continue;
       if (value !== null && value !== undefined) {

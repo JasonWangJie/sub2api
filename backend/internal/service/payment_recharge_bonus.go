@@ -21,15 +21,20 @@ import (
 //   - bonus（赠金）：实付不变，在到账基数（输入 × 充值倍率）之上额外赠送 BonusPercent% 的 USD 余额；
 //   - discount（折扣）：到账不变（输入 × 倍率），实付基数按 BonusPercent% 打折。
 //
-// 两种模式落库形态相同：amount 为到账总额，bonus_amount 为其中「免费」的 USD 部分，pay_amount 为实收。
-// 订阅订单不参与。优惠在下单时按当时配置计算并落库，后续改配置不影响已建订单。
+// 固定满赠按支付金额的完整倍数计算，与百分比赠金取较高值。两者的门槛都不含手续费。
+// amount 为到账总额，bonus_amount 为其中「免费」的 USD 部分，pay_amount 为实收。
+// 订阅和专用 USDT 订单不参与。优惠在下单时计算并落库。
 const (
-	// SettingRechargeBonusTiers 存 JSON 数组（RechargeBonusTier 列表），空/缺失表示未启用优惠。
+	// SettingRechargeBonusEnabled 未设置时沿用历史行为，有阶梯即启用。
+	SettingRechargeBonusEnabled = "RECHARGE_BONUS_ENABLED"
+	// SettingRechargeBonusTiers 存 JSON 数组（RechargeBonusTier 列表）。
 	SettingRechargeBonusTiers = "RECHARGE_BONUS_TIERS"
 	// SettingRechargeBonusNotice 充值页金额卡顶部展示的 Markdown 活动文案，空表示不展示。
 	SettingRechargeBonusNotice = "RECHARGE_BONUS_NOTICE"
 	// SettingRechargeBonusMode 阶梯模式：bonus / discount；空/非法按 bonus 解析（兼容早期配置）。
 	SettingRechargeBonusMode = "RECHARGE_BONUS_MODE"
+	// SettingRechargeFixedBonus 存固定满赠规则的 JSON 对象。
+	SettingRechargeFixedBonus = "RECHARGE_FIXED_BONUS"
 )
 
 const (
@@ -42,12 +47,21 @@ const (
 	maxRechargeBonusPercent     = 1000
 	maxRechargeBonusNoticeRunes = 10000
 	rechargeBonusAmountEpsilon  = 1e-9
+	// 到账后的钱包余额使用 DECIMAL(20,8)，比订单金额字段的容量更小。
+	rechargeCreditExclusiveLimit = 1e12
 )
 
 // RechargeBonusTier 一个优惠档位：支付金额 ≥ MinAmount 时按 BonusPercent% 赠送（bonus）或打折（discount）。
 type RechargeBonusTier struct {
 	MinAmount    float64 `json:"min_amount"`
 	BonusPercent float64 `json:"bonus_percent"`
+}
+
+// RechargeFixedBonus 按支付币种配置固定满赠的门槛和每份赠送金额。
+type RechargeFixedBonus struct {
+	Enabled         bool    `json:"enabled"`
+	ThresholdAmount float64 `json:"threshold_amount"`
+	BonusAmount     float64 `json:"bonus_amount"`
 }
 
 // NormalizeRechargeBonusMode 归一化模式；空按 bonus。第二个返回值表示输入是否合法。
@@ -167,49 +181,115 @@ func validateRechargeBonusNotice(notice string) error {
 	return nil
 }
 
-// resolveRechargeBonusUpdate 校验并归一化阶梯/模式更新。任一字段缺省时读取现值做交叉校验
-// （折扣模式下所有档位百分比必须 < 100）。返回值仅在对应请求字段非 nil 时有意义。
-func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, req UpdatePaymentConfigRequest) (tiersValue string, modeValue string, err error) {
-	if req.RechargeBonusTiers == nil && req.RechargeBonusMode == nil {
-		return "", "", nil
+func rechargeFixedBonusValid(fixed RechargeFixedBonus) bool {
+	return rechargeBonusValueValid(fixed.ThresholdAmount, math.MaxFloat64) &&
+		rechargeBonusValueValid(fixed.BonusAmount, math.MaxFloat64) &&
+		(!fixed.Enabled || (fixed.ThresholdAmount > 0 && fixed.BonusAmount > 0))
+}
+
+func parseRechargeFixedBonus(raw string) RechargeFixedBonus {
+	var fixed RechargeFixedBonus
+	if strings.TrimSpace(raw) == "" {
+		return fixed
 	}
-	stored := map[string]string{}
-	if (req.RechargeBonusTiers == nil || req.RechargeBonusMode == nil) && s != nil && s.settingRepo != nil {
-		stored, err = s.settingRepo.GetMultiple(ctx, []string{SettingRechargeBonusTiers, SettingRechargeBonusMode})
+	if err := json.Unmarshal([]byte(raw), &fixed); err != nil || !rechargeFixedBonusValid(fixed) {
+		return RechargeFixedBonus{}
+	}
+	return fixed
+}
+
+func parseRechargeBonusEnabled(raw string, tiers []RechargeBonusTier) bool {
+	if raw == "" {
+		return len(tiers) > 0
+	}
+	return raw == "true"
+}
+
+func rechargeDiscountEnabled(enabled bool, mode string, tiers []RechargeBonusTier) bool {
+	return enabled && mode == RechargeBonusModeDiscount && len(tiers) > 0
+}
+
+// resolveRechargeBonusUpdate 使用更新后的完整规则校验折扣与满赠的兼容性，只返回请求修改的设置。
+func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, req UpdatePaymentConfigRequest) (map[string]string, error) {
+	updates := make(map[string]string)
+	if req.RechargeBonusTiers == nil && req.RechargeBonusMode == nil && req.RechargeBonusEnabled == nil && req.RechargeFixedBonus == nil {
+		return updates, nil
+	}
+	var stored map[string]string
+	if s.settingRepo != nil {
+		var err error
+		stored, err = s.settingRepo.GetMultiple(ctx, []string{
+			SettingRechargeBonusTiers, SettingRechargeBonusMode, SettingRechargeBonusEnabled, SettingRechargeFixedBonus,
+		})
 		if err != nil {
-			return "", "", fmt.Errorf("get recharge bonus settings: %w", err)
+			return nil, fmt.Errorf("get recharge bonus settings: %w", err)
 		}
 	}
 
 	var tiers []RechargeBonusTier
 	if req.RechargeBonusTiers != nil {
+		var err error
 		tiers, err = NormalizeRechargeBonusTiers(*req.RechargeBonusTiers)
 		if err != nil {
-			return "", "", infraerrors.BadRequest("INVALID_RECHARGE_BONUS_TIERS", err.Error())
+			return nil, infraerrors.BadRequest("INVALID_RECHARGE_BONUS_TIERS", err.Error())
 		}
+		tiersValue, err := encodeRechargeBonusTiers(tiers)
+		if err != nil {
+			return nil, err
+		}
+		updates[SettingRechargeBonusTiers] = tiersValue
 	} else {
 		tiers = parseRechargeBonusTiers(stored[SettingRechargeBonusTiers])
 	}
 
-	var mode string
+	mode, _ := NormalizeRechargeBonusMode(stored[SettingRechargeBonusMode])
 	if req.RechargeBonusMode != nil {
 		normalized, ok := NormalizeRechargeBonusMode(*req.RechargeBonusMode)
 		if !ok {
-			return "", "", infraerrors.BadRequest("INVALID_RECHARGE_BONUS_MODE", "recharge bonus mode must be bonus or discount")
+			return nil, infraerrors.BadRequest("INVALID_RECHARGE_BONUS_MODE", "recharge bonus mode must be bonus or discount")
 		}
 		mode = normalized
-	} else {
-		mode, _ = NormalizeRechargeBonusMode(stored[SettingRechargeBonusMode])
+		updates[SettingRechargeBonusMode] = mode
 	}
 
-	if err := ValidateRechargeBonusTiersForMode(mode, tiers); err != nil {
-		return "", "", infraerrors.BadRequest("INVALID_RECHARGE_BONUS_TIERS", err.Error())
+	enabled := parseRechargeBonusEnabled(stored[SettingRechargeBonusEnabled], tiers)
+	if req.RechargeBonusEnabled != nil {
+		enabled = *req.RechargeBonusEnabled
+		updates[SettingRechargeBonusEnabled] = formatBoolOrEmpty(req.RechargeBonusEnabled)
 	}
-	tiersValue, err = encodeRechargeBonusTiers(tiers)
-	if err != nil {
-		return "", "", err
+	if req.RechargeBonusTiers != nil || req.RechargeBonusMode != nil || (req.RechargeBonusEnabled != nil && enabled) {
+		if err := ValidateRechargeBonusTiersForMode(mode, tiers); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_RECHARGE_BONUS_TIERS", err.Error())
+		}
 	}
-	return tiersValue, mode, nil
+
+	fixed := parseRechargeFixedBonus(stored[SettingRechargeFixedBonus])
+	if req.RechargeFixedBonus != nil {
+		next := *req.RechargeFixedBonus
+		// 只关闭开关时保留已配置金额，新配置仍可保存 0。
+		if !next.Enabled {
+			if next.ThresholdAmount == 0 {
+				next.ThresholdAmount = fixed.ThresholdAmount
+			}
+			if next.BonusAmount == 0 {
+				next.BonusAmount = fixed.BonusAmount
+			}
+		}
+		fixed = next
+		if !rechargeFixedBonusValid(fixed) {
+			return nil, infraerrors.BadRequest("INVALID_RECHARGE_FIXED_BONUS", "fixed recharge bonus amounts must be non-negative with at most 2 decimals and greater than 0 when enabled")
+		}
+		value, err := json.Marshal(fixed)
+		if err != nil {
+			return nil, fmt.Errorf("marshal fixed recharge bonus: %w", err)
+		}
+		updates[SettingRechargeFixedBonus] = string(value)
+	}
+
+	if fixed.Enabled && rechargeDiscountEnabled(enabled, mode, tiers) {
+		return nil, infraerrors.BadRequest("RECHARGE_BONUS_MODE_CONFLICT", "recharge discount and fixed recharge bonus cannot both be enabled")
+	}
+	return updates, nil
 }
 
 // matchRechargeBonusTier 返回不超过 paymentAmount 的最大档位；tiers 需已按 MinAmount 升序。
@@ -271,50 +351,78 @@ type rechargeBonusQuote struct {
 	Percent float64
 }
 
-// quoteRechargeBonus 按配置模式报价。currency 用于折扣模式实付基数的精度。
-// 未配置阶梯、未命中、或折扣百分比 ≥ 100（非法历史数据，fail-safe）时按无优惠处理。
-func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency string) rechargeBonusQuote {
+// quoteRechargeBonus 按配置报价。currency 用于折扣模式实付基数的精度。
+func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency string) (rechargeBonusQuote, error) {
 	multiplier := defaultBalanceRechargeMultiplier
 	var tiers []RechargeBonusTier
+	var fixed RechargeFixedBonus
 	mode := RechargeBonusModeBonus
 	if cfg != nil {
 		multiplier = cfg.BalanceRechargeMultiplier
-		tiers = cfg.RechargeBonusTiers
+		if cfg.RechargeBonusEnabled {
+			tiers = cfg.RechargeBonusTiers
+		}
+		fixed = cfg.RechargeFixedBonus
 		mode, _ = NormalizeRechargeBonusMode(cfg.RechargeBonusMode)
 	}
 	base := calculateCreditedBalance(paymentAmount, multiplier)
 	quote := rechargeBonusQuote{PayBase: paymentAmount, Credited: base}
-
 	tier, ok := matchRechargeBonusTier(tiers, paymentAmount)
-	if !ok || tier.BonusPercent <= 0 {
+
+	// 历史配置若同时启用折扣与满赠，沿用折扣规则。
+	if rechargeDiscountEnabled(true, mode, tiers) {
+		return quoteRechargeDiscount(quote, tier.BonusPercent, multiplier, currency), nil
+	}
+	if fixed.Enabled && base >= rechargeCreditExclusiveLimit {
+		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
+	}
+	if ok {
+		quote.Bonus = calculateRechargeBonus(base, tier.BonusPercent)
+	}
+	if quote.Bonus > 0 {
+		quote.Percent = tier.BonusPercent
+	}
+	if fixed.Enabled && rechargeFixedBonusValid(fixed) {
+		multiples, _ := decimal.NewFromFloat(paymentAmount).QuoRem(decimal.NewFromFloat(fixed.ThresholdAmount), 0)
+		fixedCredit := multiples.
+			Mul(decimal.NewFromFloat(fixed.BonusAmount)).
+			Mul(decimal.NewFromFloat(normalizeBalanceRechargeMultiplier(multiplier))).
+			Round(2)
+		if fixedCredit.GreaterThanOrEqual(decimal.NewFromInt(rechargeCreditExclusiveLimit)) {
+			return rechargeBonusQuote{}, invalidRechargeBonusAmount()
+		}
+		bonus := fixedCredit.InexactFloat64()
+		if bonus > quote.Bonus {
+			quote.Bonus = bonus
+			quote.Percent = 0
+		}
+	}
+	if quote.Bonus > 0 {
+		quote.Credited = addRechargeBonus(base, quote.Bonus)
+	}
+	if fixed.Enabled && quote.Credited >= rechargeCreditExclusiveLimit {
+		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
+	}
+	return quote, nil
+}
+
+func invalidRechargeBonusAmount() error {
+	return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_AMOUNT", "recharge amount with bonus exceeds the supported limit")
+}
+
+func quoteRechargeDiscount(quote rechargeBonusQuote, percent, multiplier float64, currency string) rechargeBonusQuote {
+	if percent <= 0 || percent >= 100 {
 		return quote
 	}
-	switch mode {
-	case RechargeBonusModeDiscount:
-		if tier.BonusPercent >= 100 {
-			return quote
-		}
-		payBase := calculateDiscountedPayBase(paymentAmount, tier.BonusPercent, currency)
-		if payBase <= 0 || payBase >= paymentAmount {
-			return quote
-		}
-		paidCredit := calculateCreditedBalance(payBase, multiplier)
-		bonus := decimal.NewFromFloat(base).Sub(decimal.NewFromFloat(paidCredit)).Round(2).InexactFloat64()
-		if bonus < 0 {
-			bonus = 0
-		}
-		quote.PayBase = payBase
-		quote.Bonus = bonus
-		quote.Percent = tier.BonusPercent
-	default:
-		bonus := calculateRechargeBonus(base, tier.BonusPercent)
-		if bonus <= 0 {
-			return quote
-		}
-		quote.Bonus = bonus
-		quote.Credited = addRechargeBonus(base, bonus)
-		quote.Percent = tier.BonusPercent
+	payBase := calculateDiscountedPayBase(quote.PayBase, percent, currency)
+	if payBase <= 0 || payBase >= quote.PayBase {
+		return quote
 	}
+	paidCredit := calculateCreditedBalance(payBase, multiplier)
+	bonus := decimal.NewFromFloat(quote.Credited).Sub(decimal.NewFromFloat(paidCredit)).Round(2).InexactFloat64()
+	quote.PayBase = payBase
+	quote.Bonus = math.Max(0, bonus)
+	quote.Percent = percent
 	return quote
 }
 

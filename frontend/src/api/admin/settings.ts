@@ -13,6 +13,7 @@ import type {
   NotifyEmailEntry,
 } from "@/types";
 import type { RechargeBonusTier } from "@/utils/rechargeBonus";
+import type { RechargeFixedBonus } from "@/types/payment";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -689,6 +690,8 @@ export interface SystemSettings {
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_enabled?: boolean;
+  payment_recharge_fixed_bonus?: RechargeFixedBonus;
   payment_recharge_bonus_mode?: string;
   payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy: string;
@@ -1026,6 +1029,8 @@ export interface UpdateSettingsRequest {
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_enabled?: boolean;
+  payment_recharge_fixed_bonus?: RechargeFixedBonus;
   payment_recharge_bonus_mode?: string;
   payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy?: string;

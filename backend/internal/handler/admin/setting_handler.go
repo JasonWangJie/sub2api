@@ -374,6 +374,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PaymentBalanceRechargeMultiplier:                       paymentCfg.BalanceRechargeMultiplier,
 		PaymentSubscriptionUSDToCNYRate:                        paymentCfg.SubscriptionUSDToCNYRate,
 		PaymentRechargeFeeRate:                                 paymentCfg.RechargeFeeRate,
+		PaymentRechargeBonusEnabled:                            paymentCfg.RechargeBonusEnabled,
+		PaymentRechargeFixedBonus:                              dto.RechargeFixedBonus(paymentCfg.RechargeFixedBonus),
 		PaymentRechargeBonusTiers:                              rechargeBonusTiersToDTO(paymentCfg.RechargeBonusTiers),
 		PaymentRechargeBonusMode:                               rechargeBonusModeToDTO(paymentCfg.RechargeBonusMode),
 		PaymentRechargeBonusNotice:                             paymentCfg.RechargeBonusNotice,

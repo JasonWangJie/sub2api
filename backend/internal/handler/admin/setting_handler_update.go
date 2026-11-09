@@ -326,14 +326,16 @@ type UpdateSettingsRequest struct {
 	PaymentSubscriptionUSDToCNYRate  *float64 `json:"payment_subscription_usd_to_cny_rate"`
 	PaymentRechargeFeeRate           *float64 `json:"payment_recharge_fee_rate"`
 	// nil 表示不更新；空数组表示清空阶梯
-	PaymentRechargeBonusTiers  *[]dto.RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
-	PaymentRechargeBonusMode   *string                  `json:"payment_recharge_bonus_mode"`
-	PaymentRechargeBonusNotice *string                  `json:"payment_recharge_bonus_notice"`
-	PaymentLoadBalanceStrat    *string                  `json:"payment_load_balance_strategy"`
-	PaymentProductNamePrefix   *string                  `json:"payment_product_name_prefix"`
-	PaymentProductNameSuffix   *string                  `json:"payment_product_name_suffix"`
-	PaymentHelpImageURL        *string                  `json:"payment_help_image_url"`
-	PaymentHelpText            *string                  `json:"payment_help_text"`
+	PaymentRechargeBonusEnabled *bool                    `json:"payment_recharge_bonus_enabled"`
+	PaymentRechargeFixedBonus   *dto.RechargeFixedBonus  `json:"payment_recharge_fixed_bonus"`
+	PaymentRechargeBonusTiers   *[]dto.RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
+	PaymentRechargeBonusMode    *string                  `json:"payment_recharge_bonus_mode"`
+	PaymentRechargeBonusNotice  *string                  `json:"payment_recharge_bonus_notice"`
+	PaymentLoadBalanceStrat     *string                  `json:"payment_load_balance_strategy"`
+	PaymentProductNamePrefix    *string                  `json:"payment_product_name_prefix"`
+	PaymentProductNameSuffix    *string                  `json:"payment_product_name_suffix"`
+	PaymentHelpImageURL         *string                  `json:"payment_help_image_url"`
+	PaymentHelpText             *string                  `json:"payment_help_text"`
 
 	// Cancel rate limit
 	PaymentCancelRateLimitEnabled *bool   `json:"payment_cancel_rate_limit_enabled"`
@@ -2156,26 +2158,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if h.opsService != nil {
-		h.opsService.SetMonitoringEnabled(settings.OpsMonitoringEnabled)
-	}
-
-	// Update OpenAI fast policy (stored under dedicated key, only when provided).
-	if req.OpenAIFastPolicySettings != nil {
-		if err := h.settingService.SetOpenAIFastPolicySettings(c.Request.Context(), openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-	}
-
-	// Update payment configuration (integrated into system settings).
-	// Skip if no payment fields were provided (prevents accidental wipe).
-	if h.paymentConfigService != nil && hasPaymentFields(req) {
-		paymentReq := service.UpdatePaymentConfigRequest{
+	updatePayment := h.paymentConfigService != nil && hasPaymentFields(req)
+	var paymentReq service.UpdatePaymentConfigRequest
+	if updatePayment {
+		paymentReq = service.UpdatePaymentConfigRequest{
 			Enabled:                       req.PaymentEnabled,
 			MinAmount:                     req.PaymentMinAmount,
 			MaxAmount:                     req.PaymentMaxAmount,
@@ -2187,6 +2173,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			BalanceRechargeMultiplier:     req.PaymentBalanceRechargeMultiplier,
 			SubscriptionUSDToCNYRate:      req.PaymentSubscriptionUSDToCNYRate,
 			RechargeFeeRate:               req.PaymentRechargeFeeRate,
+			RechargeBonusEnabled:          req.PaymentRechargeBonusEnabled,
+			RechargeFixedBonus:            (*service.RechargeFixedBonus)(req.PaymentRechargeFixedBonus),
 			RechargeBonusTiers:            rechargeBonusTiersFromDTO(req.PaymentRechargeBonusTiers),
 			RechargeBonusMode:             req.PaymentRechargeBonusMode,
 			RechargeBonusNotice:           req.PaymentRechargeBonusNotice,
@@ -2203,6 +2191,29 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			AlipayForceQRCode:             req.PaymentAlipayForceQRCode,
 			AlipayMobilePrecreateDeepLink: req.PaymentAlipayMobilePrecreateDeepLink,
 		}
+		if err := h.paymentConfigService.ValidatePaymentConfigUpdate(c.Request.Context(), paymentReq); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+
+	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.opsService != nil {
+		h.opsService.SetMonitoringEnabled(settings.OpsMonitoringEnabled)
+	}
+
+	// Update OpenAI fast policy (stored under dedicated key, only when provided).
+	if req.OpenAIFastPolicySettings != nil {
+		if err := h.settingService.SetOpenAIFastPolicySettings(c.Request.Context(), openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+	}
+
+	if updatePayment {
 		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -2482,6 +2493,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentBalanceRechargeMultiplier:                       updatedPaymentCfg.BalanceRechargeMultiplier,
 		PaymentSubscriptionUSDToCNYRate:                        updatedPaymentCfg.SubscriptionUSDToCNYRate,
 		PaymentRechargeFeeRate:                                 updatedPaymentCfg.RechargeFeeRate,
+		PaymentRechargeBonusEnabled:                            updatedPaymentCfg.RechargeBonusEnabled,
+		PaymentRechargeFixedBonus:                              dto.RechargeFixedBonus(updatedPaymentCfg.RechargeFixedBonus),
 		PaymentRechargeBonusTiers:                              rechargeBonusTiersToDTO(updatedPaymentCfg.RechargeBonusTiers),
 		PaymentRechargeBonusMode:                               rechargeBonusModeToDTO(updatedPaymentCfg.RechargeBonusMode),
 		PaymentRechargeBonusNotice:                             updatedPaymentCfg.RechargeBonusNotice,
@@ -2561,6 +2574,7 @@ func hasPaymentFields(req UpdateSettingsRequest) bool {
 		req.PaymentEnabledTypes != nil || req.PaymentBalanceDisabled != nil ||
 		req.PaymentBalanceRechargeMultiplier != nil || req.PaymentSubscriptionUSDToCNYRate != nil ||
 		req.PaymentRechargeFeeRate != nil ||
+		req.PaymentRechargeBonusEnabled != nil || req.PaymentRechargeFixedBonus != nil ||
 		req.PaymentRechargeBonusTiers != nil || req.PaymentRechargeBonusMode != nil || req.PaymentRechargeBonusNotice != nil ||
 		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||
 		req.PaymentProductNameSuffix != nil || req.PaymentHelpImageURL != nil ||

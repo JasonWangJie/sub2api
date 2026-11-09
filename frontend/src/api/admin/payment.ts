@@ -8,6 +8,8 @@ import type {
   DashboardStats,
   PaymentOrder,
   PaymentChannel,
+  RechargeBonusTier,
+  RechargeFixedBonus,
   SubscriptionPlan,
   ProviderInstance
 } from '@/types/payment'
@@ -26,6 +28,11 @@ export interface AdminPaymentConfig {
   balance_recharge_multiplier: number
   subscription_usd_to_cny_rate: number
   recharge_fee_rate: number
+  recharge_bonus_enabled: boolean
+  recharge_bonus_tiers: RechargeBonusTier[]
+  recharge_bonus_mode: string
+  recharge_bonus_notice: string
+  recharge_fixed_bonus: RechargeFixedBonus
   load_balance_strategy: string
   product_name_prefix: string
   product_name_suffix: string
@@ -46,6 +53,11 @@ export interface UpdatePaymentConfigRequest {
   balance_recharge_multiplier?: number
   subscription_usd_to_cny_rate?: number
   recharge_fee_rate?: number
+  recharge_bonus_enabled?: boolean
+  recharge_bonus_tiers?: RechargeBonusTier[]
+  recharge_bonus_mode?: string
+  recharge_bonus_notice?: string
+  recharge_fixed_bonus?: RechargeFixedBonus
   load_balance_strategy?: string
   product_name_prefix?: string
   product_name_suffix?: string

@@ -109,6 +109,58 @@ describe('rechargeBonus helpers', () => {
     expect(quoteRechargeBonus(tiers, 50, { mode: 'discount' })).toMatchObject({ percent: 0, payBase: 50, credited: 50, bonus: 0 })
   })
 
+  it.each([
+    { amount: 49.99, bonus: 0, credited: 49.99, source: null },
+    { amount: 50, bonus: 15, credited: 65, source: 'fixed' },
+    { amount: 100, bonus: 30, credited: 130, source: 'fixed' },
+    { amount: 150, bonus: 45, credited: 195, source: 'fixed' },
+    { amount: 500, bonus: 150, credited: 650, source: 'percent' },
+    { amount: 1000, bonus: 350, credited: 1350, source: 'percent' },
+  ])('applies only the highest rounded gift for amount $amount', ({ amount, bonus, credited, source }) => {
+    const fixedBonus = { enabled: true, threshold_amount: 50, bonus_amount: 15 }
+    expect(quoteRechargeBonus(tiers, amount, { fixedBonus })).toMatchObject({
+      payBase: amount, bonus, credited, source,
+    })
+  })
+
+  it('uses complete decimal multiples and rounds the combined fixed gift once after conversion', () => {
+    const fixedBonus = { enabled: true, threshold_amount: 0.1, bonus_amount: 0.05 }
+    expect(quoteRechargeBonus([], 0.3, { fixedBonus, multiplier: 0.1 })).toMatchObject({
+      payBase: 0.3, base: 0.03, bonus: 0.02, credited: 0.05, source: 'fixed',
+    })
+  })
+
+  it('rounds the percent gift half up before comparing it to the fixed gift', () => {
+    const fixedBonus = { enabled: true, threshold_amount: 2, bonus_amount: 1.7 }
+    expect(quoteRechargeBonus([{ min_amount: 0, bonus_percent: 75 }], 2.26, { fixedBonus })).toMatchObject({
+      bonus: 1.7, credited: 3.96, source: 'percent',
+    })
+  })
+
+  it('preserves an active discount even when it has no matching tier for the amount', () => {
+    const fixedBonus = { enabled: true, threshold_amount: 50, bonus_amount: 100 }
+    expect(quoteRechargeBonus(tiers, 50, { mode: 'discount', fixedBonus })).toMatchObject({
+      mode: 'discount', payBase: 50, bonus: 0, credited: 50, source: null,
+    })
+    expect(quoteRechargeBonus(tiers, 100, { mode: 'discount', fixedBonus })).toMatchObject({
+      mode: 'discount', payBase: 80, bonus: 20, credited: 100, source: 'discount',
+    })
+    expect(quoteRechargeBonus([], 50, { mode: 'discount', fixedBonus })).toMatchObject({
+      mode: 'bonus', payBase: 50, bonus: 100, credited: 150, source: 'fixed',
+    })
+  })
+
+  it('ignores a disabled fixed rule', () => {
+    expect(quoteRechargeBonus(tiers, 100, {
+      fixedBonus: { enabled: false, threshold_amount: 50, bonus_amount: 100 },
+    })).toMatchObject({ bonus: 20, credited: 120, source: 'percent' })
+  })
+
+  it('marks a fixed quote unavailable when the credit cannot fit the balance field', () => {
+    const fixedBonus = { enabled: true, threshold_amount: 50, bonus_amount: 1e12 - 50 }
+    expect(quoteRechargeBonus([], 50, { fixedBonus })).toMatchObject({ available: false })
+  })
+
   it('normalizes mode and validates percent per mode', () => {
     expect(normalizeRechargeBonusMode('discount')).toBe('discount')
     expect(normalizeRechargeBonusMode(' Discount ')).toBe('discount')

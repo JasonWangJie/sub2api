@@ -31,6 +31,12 @@ export interface RechargeBonusTier {
   bonus_percent: number
 }
 
+export interface RechargeFixedBonus {
+  enabled: boolean
+  threshold_amount: number
+  bonus_amount: number
+}
+
 export interface PaymentConfig {
   payment_enabled: boolean
   min_amount: number
@@ -45,6 +51,8 @@ export interface PaymentConfig {
   help_image_url: string
   help_text: string
   stripe_publishable_key: string
+  recharge_bonus_enabled?: boolean
+  recharge_fixed_bonus?: RechargeFixedBonus
 }
 
 export interface MethodLimit {
@@ -79,8 +87,12 @@ export interface CheckoutInfoResponse {
   recharge_fee_rate: number
   /** 充值赠送阶梯（按 min_amount 升序）；缺失/空数组 = 不赠送 */
   recharge_bonus_tiers?: RechargeBonusTier[]
+  /** 关闭时保留阶梯但不生效；旧响应缺失时按是否配置阶梯决定 */
+  recharge_bonus_enabled?: boolean
   /** 阶梯模式：bonus 赠金 / discount 折扣；缺失按 bonus */
   recharge_bonus_mode?: string
+  /** 固定赠送门槛和面额使用支付币种 */
+  recharge_fixed_bonus?: RechargeFixedBonus
   /** 充值页金额区顶部的 Markdown 活动文案；空 = 不展示 */
   recharge_bonus_notice?: string
   help_text: string

@@ -62,6 +62,17 @@
                 data-testid="recharge-bonus-notice"
                 v-html="renderedBonusNotice"
               ></div>
+              <div v-if="fixedBonus" class="mb-5 rounded-lg bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-600 dark:bg-dark-800 dark:text-gray-300">
+                <p data-testid="recharge-fixed-bonus-rule">
+                  {{ t('payment.rechargeBonus.fixedRule', {
+                    threshold: formatFixedRuleAmount(fixedBonus.threshold_amount),
+                    gift: formatFixedRuleAmount(fixedBonus.bonus_amount),
+                  }) }}
+                </p>
+                <p v-if="rechargeBonusTiers.length > 0" class="mt-1" data-testid="recharge-bonus-selection-rule">
+                  {{ t('payment.rechargeBonus.selectionRule') }}
+                </p>
+              </div>
               <AmountInput
                 v-model="amount"
                 :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
@@ -69,6 +80,7 @@
                 :max="globalMaxAmount"
                 :bonus-tiers="rechargeBonusTiers"
                 :bonus-mode="rechargeBonusMode"
+                :fixed-bonus="fixedBonus"
                 :multiplier="balanceRechargeMultiplier"
                 :currency="selectedCurrency"
               />
@@ -81,31 +93,31 @@
                 @select="selectedMethod = $event"
               />
             </div>
-            <div v-if="validAmount > 0" class="card p-6">
+            <div v-if="validAmount > 0 && bonusQuote.available" class="card p-6">
               <div class="space-y-2 text-sm">
-                <div class="flex justify-between">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.paymentAmount') }}</span>
-                  <span :class="discountAmount > 0 ? 'text-gray-400 line-through dark:text-gray-500' : 'text-gray-900 dark:text-white'">{{ formatSelectedPaymentAmount(validAmount) }}</span>
+                <div class="flex justify-between" data-testid="recharge-amount-row">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t(showBonusRow ? 'payment.rechargeBonus.rechargeAmount' : 'payment.paymentAmount') }}</span>
+                  <span :class="discountAmount > 0 ? 'text-gray-400 line-through dark:text-gray-500' : 'text-gray-900 dark:text-white'">{{ formatRechargeSummaryAmount(validAmount) }}</span>
                 </div>
                 <div v-if="discountAmount > 0" class="flex justify-between" data-testid="recharge-discount-row">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.rechargeBonus.discountLabelWithPercent', { percent: formatRechargeBonusNumber(bonusQuote.percent) }) }}</span>
                   <span class="font-medium text-red-600 dark:text-red-400">-{{ formatSelectedPaymentAmount(discountAmount) }}</span>
                 </div>
-                <div v-if="feeRate > 0" class="flex justify-between">
+                <div v-if="feeRate > 0" class="flex justify-between" data-testid="recharge-fee-row">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.fee') }} ({{ feeRate }}%)</span>
-                  <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(feeAmount) }}</span>
+                  <span class="text-gray-900 dark:text-white">{{ formatRechargeSummaryAmount(feeAmount) }}</span>
                 </div>
-                <div v-if="showActualPay" class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
+                <div v-if="showActualPay" class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600" data-testid="recharge-actual-pay-row">
                   <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.actualPay') }}</span>
-                  <span class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ formatSelectedPaymentAmount(totalAmount) }}</span>
+                  <span class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ formatRechargeSummaryAmount(totalAmount) }}</span>
                 </div>
                 <div v-if="showBonusRow" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': !showActualPay }" data-testid="recharge-bonus-row">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.rechargeBonus.amountLabelWithPercent', { percent: formatRechargeBonusNumber(bonusQuote.percent) }) }}</span>
-                  <span class="font-medium text-red-600 dark:text-red-400">+${{ bonusQuote.bonus.toFixed(2) }}</span>
+                  <span class="text-gray-500 dark:text-gray-400">{{ bonusQuote.source === 'percent' ? t('payment.rechargeBonus.amountLabelWithPercent', { percent: formatRechargeBonusNumber(bonusQuote.percent) }) : t('payment.rechargeBonus.amountLabel') }}</span>
+                  <span :class="bonusQuote.bonus > 0 ? 'font-medium text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'">{{ bonusQuote.bonus > 0 ? '+' : '' }}${{ bonusQuote.bonus.toFixed(2) }} USD</span>
                 </div>
                 <div v-if="showCreditedBalance" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': !showActualPay && !showBonusRow }" data-testid="recharge-credited-row">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.creditedBalance') }}</span>
-                  <span :class="bonusQuote.percent > 0 ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-900 dark:text-white'">${{ creditedAmount.toFixed(2) }}</span>
+                  <span class="text-gray-900 dark:text-white" :class="{ 'font-semibold': bonusQuote.source }">${{ creditedAmount.toFixed(2) }}<template v-if="showBonusRow"> USD</template></span>
                 </div>
                 <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
                   {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
@@ -300,7 +312,14 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiErro
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
-import { formatRechargeBonusNumber, normalizeRechargeBonusMode, normalizeRechargeBonusTiers, quoteRechargeBonus } from '@/utils/rechargeBonus'
+import {
+  calculateRechargeFee,
+  formatRechargeBonusNumber,
+  isRechargeFixedBonusEnabled,
+  normalizeRechargeBonusMode,
+  normalizeRechargeBonusTiers,
+  quoteRechargeBonus,
+} from '@/utils/rechargeBonus'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -320,7 +339,7 @@ import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, pl
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency, paymentCurrencyFractionDigits } from '@/components/payment/currency'
 import { planValiditySuffix as validitySuffixOf } from '@/components/payment/validity'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 import { buildPaymentErrorToastMessage, describePaymentScenarioError } from './paymentUx'
@@ -591,8 +610,18 @@ const subscriptionUsdToCnyRate = computed(() => {
   const rate = checkout.value.subscription_usd_to_cny_rate
   return Number.isFinite(rate) && rate > 0 ? rate : 0
 })
-const rechargeBonusTiers = computed(() => normalizeRechargeBonusTiers(checkout.value.recharge_bonus_tiers))
-const rechargeBonusMode = computed(() => normalizeRechargeBonusMode(checkout.value.recharge_bonus_mode))
+const rechargeBonusTiers = computed(() => checkout.value.recharge_bonus_enabled === false
+  ? []
+  : normalizeRechargeBonusTiers(checkout.value.recharge_bonus_tiers),
+)
+const rechargeBonusMode = computed(() => rechargeBonusTiers.value.length > 0
+  ? normalizeRechargeBonusMode(checkout.value.recharge_bonus_mode)
+  : 'bonus',
+)
+const fixedBonus = computed(() => {
+  const rule = checkout.value.recharge_fixed_bonus
+  return rechargeBonusMode.value !== 'discount' && isRechargeFixedBonusEnabled(rule) ? rule : undefined
+})
 
 // Adaptive grid: center single card, 2-col for 2 plans, 3-col for 3+
 const planGridClass = computed(() => {
@@ -637,26 +666,15 @@ const localeCode = computed(() => {
   return undefined
 })
 
-function currencyFractionDigits(currency: string): number {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  } catch {
-    return 2
-  }
-}
-
 function roundPaymentAmount(value: number, currency: string): number {
   if (!Number.isFinite(value)) return 0
-  const factor = 10 ** currencyFractionDigits(currency)
+  const factor = 10 ** paymentCurrencyFractionDigits(currency)
   return Math.round(value * factor) / factor
 }
 
 function ceilPaymentAmount(value: number, currency: string): number {
   if (!Number.isFinite(value)) return 0
-  const factor = 10 ** currencyFractionDigits(currency)
+  const factor = 10 ** paymentCurrencyFractionDigits(currency)
   return Math.ceil(value * factor) / factor
 }
 
@@ -670,6 +688,15 @@ function formatSelectedPaymentAmount(value: number): string {
   return formatPaymentAmount(value, selectedCurrency.value, localeCode.value)
 }
 
+function formatRechargeSummaryAmount(value: number): string {
+  const formatted = formatSelectedPaymentAmount(value)
+  return showBonusRow.value ? `${formatted} ${selectedCurrency.value}` : formatted
+}
+
+function formatFixedRuleAmount(value: number): string {
+  return `${formatRechargeBonusNumber(value)} ${selectedCurrency.value}`
+}
+
 function formatSelectedSubscriptionPaymentAmount(value: number): string {
   return formatSelectedPaymentAmount(subscriptionPaymentAmountForCurrency(value, selectedCurrency.value))
 }
@@ -679,13 +706,14 @@ function formatSelectedSubscriptionPaymentAmount(value: number): string {
 const bonusQuote = computed(() => quoteRechargeBonus(rechargeBonusTiers.value, validAmount.value, {
   multiplier: balanceRechargeMultiplier.value,
   mode: rechargeBonusMode.value,
-  currencyDigits: currencyFractionDigits(selectedCurrency.value),
+  fixedBonus: fixedBonus.value,
+  currencyDigits: paymentCurrencyFractionDigits(selectedCurrency.value),
 }))
 const payBaseAmount = computed(() => bonusQuote.value.payBase)
 const discountAmount = computed(() => roundPaymentAmount(validAmount.value - payBaseAmount.value, selectedCurrency.value))
 const creditedAmount = computed(() => bonusQuote.value.credited)
-const showBonusRow = computed(() => bonusQuote.value.mode !== 'discount' && bonusQuote.value.bonus > 0)
-const showCreditedBalance = computed(() => balanceRechargeMultiplier.value !== 1 || bonusQuote.value.percent > 0)
+const showBonusRow = computed(() => rechargeBonusMode.value !== 'discount' && (rechargeBonusTiers.value.length > 0 || !!fixedBonus.value))
+const showCreditedBalance = computed(() => showBonusRow.value || balanceRechargeMultiplier.value !== 1 || bonusQuote.value.source === 'discount')
 
 const methodOptions = computed<PaymentMethodOption[]>(() =>
   enabledMethods.value.map((type) => {
@@ -701,19 +729,18 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
 
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
-  feeRate.value > 0 && payBaseAmount.value > 0
-    ? Math.ceil(((payBaseAmount.value * feeRate.value) / 100) * 100) / 100
-    : 0
+  calculateRechargeFee(payBaseAmount.value, feeRate.value, paymentCurrencyFractionDigits(selectedCurrency.value)),
 )
 const totalAmount = computed(() =>
-  feeRate.value > 0 && payBaseAmount.value > 0
-    ? Math.round((payBaseAmount.value + feeAmount.value) * 100) / 100
+  feeAmount.value > 0
+    ? roundPaymentAmount(payBaseAmount.value + feeAmount.value, selectedCurrency.value)
     : payBaseAmount.value
 )
 const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value > 0)
 
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
+  if (!bonusQuote.value.available) return t('payment.rechargeBonus.unavailable')
   // No method can handle this amount
   if (!enabledMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
     return t('payment.amountNoMethod')
@@ -729,6 +756,7 @@ const amountError = computed(() => {
 
 const canSubmit = computed(() =>
   validAmount.value > 0
+    && bonusQuote.value.available
     && amountFitsMethod(payBaseAmount.value, selectedMethod.value)
     && selectedLimit.value?.available !== false
 )

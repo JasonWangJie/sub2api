@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -33,12 +34,24 @@ func NewPaymentHandler(paymentService *service.PaymentService, configService *se
 // GetPaymentConfig returns the payment system configuration.
 // GET /api/v1/payment/config
 func (h *PaymentHandler) GetPaymentConfig(c *gin.Context) {
-	cfg, err := h.configService.GetPaymentConfig(c.Request.Context())
+	cfg, err := h.getUserPaymentConfig(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, cfg)
+}
+
+func (h *PaymentHandler) getUserPaymentConfig(ctx context.Context) (*service.PaymentConfig, error) {
+	cfg, err := h.configService.GetPaymentConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Older checkout clients infer an active promotion from the tier list.
+	if !cfg.RechargeBonusEnabled {
+		cfg.RechargeBonusTiers = []service.RechargeBonusTier{}
+	}
+	return cfg, nil
 }
 
 // GetPlans returns subscription plans available for sale.
@@ -104,7 +117,7 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 	}
 
 	// Fetch payment config
-	cfg, err := h.configService.GetPaymentConfig(ctx)
+	cfg, err := h.getUserPaymentConfig(ctx)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -149,9 +162,11 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		BalanceRechargeMultiplier:     cfg.BalanceRechargeMultiplier,
 		SubscriptionUSDToCNYRate:      cfg.SubscriptionUSDToCNYRate,
 		RechargeFeeRate:               cfg.RechargeFeeRate,
+		RechargeBonusEnabled:          cfg.RechargeBonusEnabled,
 		RechargeBonusTiers:            cfg.RechargeBonusTiers,
 		RechargeBonusMode:             cfg.RechargeBonusMode,
 		RechargeBonusNotice:           cfg.RechargeBonusNotice,
+		RechargeFixedBonus:            cfg.RechargeFixedBonus,
 		HelpText:                      cfg.HelpText,
 		HelpImageURL:                  cfg.HelpImageURL,
 		StripePublishableKey:          cfg.StripePublishableKey,
@@ -179,9 +194,11 @@ type checkoutInfoResponse struct {
 	BalanceRechargeMultiplier     float64                         `json:"balance_recharge_multiplier"`
 	SubscriptionUSDToCNYRate      float64                         `json:"subscription_usd_to_cny_rate"`
 	RechargeFeeRate               float64                         `json:"recharge_fee_rate"`
+	RechargeBonusEnabled          bool                            `json:"recharge_bonus_enabled"`
 	RechargeBonusTiers            []service.RechargeBonusTier     `json:"recharge_bonus_tiers"`
 	RechargeBonusMode             string                          `json:"recharge_bonus_mode"`
 	RechargeBonusNotice           string                          `json:"recharge_bonus_notice"`
+	RechargeFixedBonus            service.RechargeFixedBonus      `json:"recharge_fixed_bonus"`
 	HelpText                      string                          `json:"help_text"`
 	HelpImageURL                  string                          `json:"help_image_url"`
 	StripePublishableKey          string                          `json:"stripe_publishable_key"`

@@ -411,6 +411,100 @@ describe('PaymentView recharge rate preview', () => {
   })
 })
 
+describe('PaymentView recharge gifts', () => {
+  async function mountRecharge(checkout: Partial<CheckoutInfoResponse>, currency = 'CNY') {
+    vi.useRealTimers()
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    appStoreState.setPublicSettings(undefined)
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      methods: { wxpay: { ...checkoutInfoFixture().data.methods.wxpay, currency } },
+      ...checkout,
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          AmountInput: false,
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('uses the same winning gift on presets and custom entry and shows zero below the threshold', async () => {
+    const wrapper = await mountRecharge({
+      balance_recharge_multiplier: 0.1,
+      recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+      recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 15 },
+    })
+    expect(wrapper.get('[data-testid="recharge-fixed-bonus-rule"]').text()).toContain('payment.rechargeBonus.fixedRule')
+    expect(wrapper.get('[data-testid="recharge-bonus-selection-rule"]').text()).toContain('payment.rechargeBonus.selectionRule')
+    const preset = wrapper.get('[data-testid="quick-amount-100"]')
+    expect(preset.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('+$3.00')
+    await preset.trigger('click')
+    expect(wrapper.get('[data-testid="recharge-amount-row"]').text()).toContain(`${formatPaymentAmount(100, 'CNY')} CNY`)
+    expect(translate).toHaveBeenCalledWith('payment.rechargeBonus.fixedRule', { threshold: '50 CNY', gift: '15 CNY' })
+    expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('+$3.00 USD')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$13.00 USD')
+
+    await wrapper.get('input[inputmode="decimal"]').setValue('125')
+    expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('+$3.00 USD')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$15.50 USD')
+
+    await wrapper.get('input[inputmode="decimal"]').setValue('20')
+    expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('$0.00 USD')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$2.00 USD')
+  })
+
+  it('uses fixed gifts after explicit opt-out of a stored percentage discount', async () => {
+    const wrapper = await mountRecharge({
+      recharge_bonus_enabled: false,
+      recharge_bonus_mode: 'discount',
+      recharge_bonus_tiers: [{ min_amount: 0, bonus_percent: 99 }],
+      recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 15 },
+      recharge_fee_rate: 0.1,
+    }, 'JPY')
+    await wrapper.get('[data-testid="quick-amount-50"]').trigger('click')
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="recharge-bonus-selection-rule"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('+$15.00 USD')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$65.00 USD')
+    expect(wrapper.get('[data-testid="recharge-fee-row"]').text()).toContain(formatPaymentAmount(1, 'JPY'))
+    expect(wrapper.get('[data-testid="recharge-actual-pay-row"]').text()).toContain(formatPaymentAmount(51, 'JPY'))
+  })
+
+  it('keeps the existing checkout presentation when an older response contains a discount tier', async () => {
+    const wrapper = await mountRecharge({
+      recharge_bonus_mode: 'discount',
+      recharge_bonus_tiers: [{ min_amount: 50, bonus_percent: 20 }],
+      recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 15 },
+    })
+    const preset = wrapper.get('[data-testid="quick-amount-50"]')
+    expect(preset.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('20% OFF')
+    await preset.trigger('click')
+    expect(wrapper.get('[data-testid="recharge-discount-row"]').text()).toContain(formatPaymentAmount(10, 'CNY'))
+    expect(wrapper.find('[data-testid="recharge-fixed-bonus-rule"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="recharge-bonus-row"]').exists()).toBe(false)
+  })
+
+  it('blocks checkout when the fixed gift cannot fit an order', async () => {
+    const wrapper = await mountRecharge({
+      recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 1e308 },
+    })
+    const preset = wrapper.get('[data-testid="quick-amount-100"]')
+    expect(preset.find('[data-testid="quick-amount-bonus-badge"]').exists()).toBe(false)
+    await preset.trigger('click')
+    expect(wrapper.find('[data-testid="recharge-credited-row"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('payment.rechargeBonus.unavailable')
+    expect(wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))?.attributes()).toHaveProperty('disabled')
+  })
+})
+
 describe('PaymentView subscription confirmation amounts', () => {
   it('shows converted CNY pay amount using the subscription rate, not the balance multiplier', async () => {
     const wrapper = await mountSubscriptionConfirm({

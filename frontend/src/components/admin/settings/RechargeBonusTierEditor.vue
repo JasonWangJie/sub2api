@@ -2,25 +2,24 @@
   <div class="card" data-testid="recharge-bonus-tier-editor">
     <!-- Header：与服务商管理卡片同款 -->
     <div class="border-b border-gray-100 px-4 py-3 dark:border-dark-700">
-      <div class="flex items-center justify-between gap-3">
+      <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <h2 class="text-base font-semibold text-gray-900 dark:text-white">
+          <h2 id="recharge-bonus-title" class="text-base font-semibold text-gray-900 dark:text-white">
             {{ t('admin.settings.payment.rechargeBonus.label') }}
           </h2>
           <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.settings.payment.rechargeBonus.hint') }}
           </p>
+          <p v-if="!enabled" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.settings.payment.rechargeBonus.pausedHint') }}
+          </p>
         </div>
-        <button
-          type="button"
-          class="btn btn-primary btn-sm shrink-0"
-          :disabled="tiers.length >= MAX_RECHARGE_BONUS_TIERS"
-          data-testid="recharge-bonus-tier-add"
-          @click="addTier"
-        >
-          <Icon name="plus" size="sm" class="mr-1" />
-          {{ t('admin.settings.payment.rechargeBonus.addTier') }}
-        </button>
+        <Toggle
+          :model-value="enabled"
+          aria-labelledby="recharge-bonus-title"
+          data-testid="recharge-bonus-enabled"
+          @update:model-value="emit('update:enabled', $event)"
+        />
       </div>
     </div>
 
@@ -51,7 +50,17 @@
             {{ option.label }}
           </button>
         </div>
-        <span class="text-xs text-gray-400 dark:text-gray-500">
+        <button
+          type="button"
+          class="btn btn-primary btn-sm ml-auto shrink-0"
+          :disabled="tiers.length >= MAX_RECHARGE_BONUS_TIERS"
+          data-testid="recharge-bonus-tier-add"
+          @click="addTier"
+        >
+          <Icon name="plus" size="sm" class="mr-1" />
+          {{ t('admin.settings.payment.rechargeBonus.addTier') }}
+        </button>
+        <span class="w-full text-xs text-gray-500 dark:text-gray-400">
           {{ currentMode === 'discount'
             ? t('admin.settings.payment.rechargeBonus.modeDiscountHint')
             : t('admin.settings.payment.rechargeBonus.modeBonusHint') }}
@@ -154,6 +163,67 @@
         >{{ intervalLabel(interval) }}</span>
       </p>
 
+      <section class="space-y-3 border-t border-gray-100 pt-4 dark:border-dark-700">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 id="recharge-fixed-bonus-title" class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('admin.settings.payment.rechargeBonus.fixedLabel') }}
+            </h3>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.payment.rechargeBonus.fixedHint') }}
+            </p>
+          </div>
+          <Toggle
+            :model-value="fixedBonus.enabled"
+            aria-labelledby="recharge-fixed-bonus-title"
+            data-testid="recharge-fixed-bonus-enabled"
+            @update:model-value="emit('update:fixedBonus', { ...fixedBonus, enabled: $event })"
+          />
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label for="recharge-fixed-bonus-threshold" class="input-label">
+              {{ t('admin.settings.payment.rechargeBonus.fixedThreshold') }}
+            </label>
+            <input
+              id="recharge-fixed-bonus-threshold"
+              :value="fixedBonus.threshold_amount"
+              :disabled="!fixedBonus.enabled"
+              type="number"
+              min="0.01"
+              step="0.01"
+              class="input"
+              data-testid="recharge-fixed-bonus-threshold"
+              @input="updateFixedAmount('threshold_amount', $event)"
+            />
+          </div>
+          <div>
+            <label for="recharge-fixed-bonus-amount" class="input-label">
+              {{ t('admin.settings.payment.rechargeBonus.fixedAmount') }}
+            </label>
+            <input
+              id="recharge-fixed-bonus-amount"
+              :value="fixedBonus.bonus_amount"
+              :disabled="!fixedBonus.enabled"
+              type="number"
+              min="0.01"
+              step="0.01"
+              class="input"
+              data-testid="recharge-fixed-bonus-amount"
+              @input="updateFixedAmount('bonus_amount', $event)"
+            />
+          </div>
+        </div>
+        <p
+          v-if="configError"
+          role="alert"
+          class="text-xs text-red-600 dark:text-red-400"
+          data-testid="recharge-bonus-config-error"
+        >
+          {{ t(`admin.settings.payment.rechargeBonus.${configError}`) }}
+        </p>
+      </section>
+
       <!-- 活动文案 -->
       <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
         <label class="input-label">
@@ -180,6 +250,8 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Icon from '@/components/icons/Icon.vue'
+import Toggle from '@/components/common/Toggle.vue'
+import type { RechargeFixedBonus } from '@/types/payment'
 import {
   MAX_RECHARGE_BONUS_PERCENT,
   MAX_RECHARGE_BONUS_TIERS,
@@ -199,14 +271,19 @@ const { t } = useI18n()
 
 const props = defineProps<{
   modelValue?: RechargeBonusTierDraft[] | null
+  enabled: boolean
   mode?: RechargeBonusMode | string | null
   notice?: string | null
+  fixedBonus: RechargeFixedBonus
+  configError?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: RechargeBonusTierDraft[]): void
+  (e: 'update:enabled', value: boolean): void
   (e: 'update:mode', value: RechargeBonusMode): void
   (e: 'update:notice', value: string): void
+  (e: 'update:fixedBonus', value: RechargeFixedBonus): void
 }>()
 
 const tiers = computed(() => props.modelValue ?? [])
@@ -244,6 +321,12 @@ function parseNumberInput(event: Event): number | null {
   if (raw === '') return null
   const parsed = Number(raw)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function updateFixedAmount(field: 'threshold_amount' | 'bonus_amount', event: Event) {
+  const value = parseNumberInput(event) ?? 0
+  if (props.fixedBonus[field] === value) return
+  emit('update:fixedBonus', { ...props.fixedBonus, [field]: value })
 }
 
 function onMinAmountInput(index: number, event: Event) {

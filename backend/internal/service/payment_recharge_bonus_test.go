@@ -144,12 +144,13 @@ func TestCalculateRechargeBonusRounding(t *testing.T) {
 	// 阈值按支付金额命中，赠送按到账基数计算：1000 CNY × 0.14 = 140 USD，命中 1000 档 30% → 42
 	cfg := &PaymentConfig{
 		BalanceRechargeMultiplier: 0.14,
+		RechargeBonusEnabled:      true,
 		RechargeBonusTiers:        []RechargeBonusTier{{MinAmount: 100, BonusPercent: 20}, {MinAmount: 500, BonusPercent: 30}},
 	}
-	require.Equal(t, rechargeBonusQuote{PayBase: 1000, Credited: 182, Bonus: 42, Percent: 30}, quoteRechargeBonus(cfg, 1000, "CNY"))
+	require.Equal(t, rechargeBonusQuote{PayBase: 1000, Credited: 182, Bonus: 42, Percent: 30}, mustQuoteRechargeBonus(t, cfg, 1000, "CNY"))
 	// 命中 0% 档位视为无优惠
 	cfg.RechargeBonusTiers = []RechargeBonusTier{{MinAmount: 10, BonusPercent: 0}}
-	require.Equal(t, rechargeBonusQuote{PayBase: 50, Credited: 7}, quoteRechargeBonus(cfg, 50, "CNY"))
+	require.Equal(t, rechargeBonusQuote{PayBase: 50, Credited: 7}, mustQuoteRechargeBonus(t, cfg, 50, "CNY"))
 }
 
 func TestParsePaymentConfigRechargeBonus(t *testing.T) {
@@ -257,42 +258,42 @@ func TestQuoteRechargeBonus(t *testing.T) {
 	tiers := []RechargeBonusTier{{MinAmount: 100, BonusPercent: 20}, {MinAmount: 500, BonusPercent: 50}}
 
 	t.Run("bonus mode keeps pay base and inflates credit", func(t *testing.T) {
-		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusTiers: tiers, RechargeBonusMode: RechargeBonusModeBonus}
-		q := quoteRechargeBonus(cfg, 100, "USD")
+		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusEnabled: true, RechargeBonusTiers: tiers, RechargeBonusMode: RechargeBonusModeBonus}
+		q := mustQuoteRechargeBonus(t, cfg, 100, "USD")
 		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 120, Bonus: 20, Percent: 20}, q)
 
 		// 未命中：无优惠
-		q = quoteRechargeBonus(cfg, 50, "USD")
+		q = mustQuoteRechargeBonus(t, cfg, 50, "USD")
 		require.Equal(t, rechargeBonusQuote{PayBase: 50, Credited: 50}, q)
 	})
 
 	t.Run("discount mode keeps credit and reduces pay base", func(t *testing.T) {
-		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusTiers: tiers, RechargeBonusMode: RechargeBonusModeDiscount}
-		q := quoteRechargeBonus(cfg, 500, "USD")
+		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusEnabled: true, RechargeBonusTiers: tiers, RechargeBonusMode: RechargeBonusModeDiscount}
+		q := mustQuoteRechargeBonus(t, cfg, 500, "USD")
 		require.Equal(t, rechargeBonusQuote{PayBase: 250, Credited: 500, Bonus: 250, Percent: 50}, q)
 
 		// 倍率 0.14：1000 CNY 到账 140 USD；20% off 实付 800 CNY，免费部分 = 140 − 112 = 28 USD
 		cfg.BalanceRechargeMultiplier = 0.14
-		q = quoteRechargeBonus(cfg, 1000, "CNY")
+		q = mustQuoteRechargeBonus(t, cfg, 1000, "CNY")
 		require.Equal(t, rechargeBonusQuote{PayBase: 500, Credited: 140, Bonus: 70, Percent: 50}, q)
-		q = quoteRechargeBonus(cfg, 200, "CNY")
+		q = mustQuoteRechargeBonus(t, cfg, 200, "CNY")
 		require.Equal(t, rechargeBonusQuote{PayBase: 160, Credited: 28, Bonus: 5.6, Percent: 20}, q)
 	})
 
 	t.Run("discount rounds pay base to currency precision", func(t *testing.T) {
-		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusTiers: []RechargeBonusTier{{MinAmount: 1, BonusPercent: 15}}, RechargeBonusMode: RechargeBonusModeDiscount}
-		require.Equal(t, 85.85, quoteRechargeBonus(cfg, 101, "USD").PayBase)
-		require.Equal(t, 86.0, quoteRechargeBonus(cfg, 101, "JPY").PayBase)
+		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusEnabled: true, RechargeBonusTiers: []RechargeBonusTier{{MinAmount: 1, BonusPercent: 15}}, RechargeBonusMode: RechargeBonusModeDiscount}
+		require.Equal(t, 85.85, mustQuoteRechargeBonus(t, cfg, 101, "USD").PayBase)
+		require.Equal(t, 86.0, mustQuoteRechargeBonus(t, cfg, 101, "JPY").PayBase)
 	})
 
 	t.Run("discount percent at or above 100 is ignored fail-safe", func(t *testing.T) {
-		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusTiers: []RechargeBonusTier{{MinAmount: 1, BonusPercent: 100}}, RechargeBonusMode: RechargeBonusModeDiscount}
-		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, quoteRechargeBonus(cfg, 100, "USD"))
+		cfg := &PaymentConfig{BalanceRechargeMultiplier: 1, RechargeBonusEnabled: true, RechargeBonusTiers: []RechargeBonusTier{{MinAmount: 1, BonusPercent: 100}}, RechargeBonusMode: RechargeBonusModeDiscount}
+		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, mustQuoteRechargeBonus(t, cfg, 100, "USD"))
 	})
 
 	t.Run("nil config and empty tiers yield plain conversion", func(t *testing.T) {
-		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, quoteRechargeBonus(nil, 100, "USD"))
-		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 14}, quoteRechargeBonus(&PaymentConfig{BalanceRechargeMultiplier: 0.14}, 100, "CNY"))
+		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, mustQuoteRechargeBonus(t, nil, 100, "USD"))
+		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 14}, mustQuoteRechargeBonus(t, &PaymentConfig{BalanceRechargeMultiplier: 0.14}, 100, "CNY"))
 	})
 }
 

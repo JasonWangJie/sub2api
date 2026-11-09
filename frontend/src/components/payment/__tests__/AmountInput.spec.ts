@@ -89,4 +89,26 @@ describe('recharge bonus hints on quick amounts', () => {
     // 500 × (1 − 30%) = 350
     expect(hit.get('[data-testid="quick-amount-credited"]').text()).toContain('350.00')
   })
+
+  it('shows the winning fixed USD gift and retains a percent badge for a tie', () => {
+    const wrapper = mount(AmountInput, {
+      props: {
+        modelValue: null,
+        amounts: [20, 100, 500],
+        bonusTiers: tiers,
+        fixedBonus: { enabled: true, threshold_amount: 50, bonus_amount: 15 },
+        currency: 'CNY',
+        multiplier: 0.1,
+      },
+    })
+    const below = wrapper.get('[data-testid="quick-amount-20"]')
+    const fixed = wrapper.get('[data-testid="quick-amount-100"]')
+    const percent = wrapper.get('[data-testid="quick-amount-500"]')
+    expect(below.find('[data-testid="quick-amount-bonus-badge"]').exists()).toBe(false)
+    expect(below.get('[data-testid="quick-amount-credited"]').text()).toContain('$2.00')
+    expect(fixed.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('+$3.00')
+    expect(fixed.get('[data-testid="quick-amount-credited"]').text()).toContain('$13.00')
+    expect(percent.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('+30%')
+    expect(percent.get('[data-testid="quick-amount-credited"]').text()).toContain('$65.00')
+  })
 })

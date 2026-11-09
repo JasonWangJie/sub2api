@@ -139,6 +139,7 @@ func TestCreateUSDTOrderIgnoresOrdinaryRechargeTiers(t *testing.T) {
 				}, map[string]string{
 					SettingPaymentEnabled: "true", SettingBalanceRechargeMult: "0.1", SettingRechargeFeeRate: "2.5",
 					SettingRechargeBonusMode: mode, SettingRechargeBonusTiers: `[{"min_amount":0,"bonus_percent":20}]`,
+					"RECHARGE_FIXED_BONUS": `{"enabled":true,"threshold_amount":1,"bonus_amount":100}`,
 				})
 				now := time.Now()
 				svc.configService.usdtRate = &USDTExchangeRateService{

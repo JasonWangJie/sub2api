@@ -1,4 +1,4 @@
-import type { RechargeBonusTier } from '@/types/payment'
+import type { RechargeBonusTier, RechargeFixedBonus } from '@/types/payment'
 
 export type { RechargeBonusTier }
 
@@ -8,6 +8,8 @@ export const MAX_RECHARGE_BONUS_TIERS = 20
 export const MAX_RECHARGE_BONUS_PERCENT = 1000
 
 const AMOUNT_EPSILON = 1e-9
+// 到账额度必须能写入 DECIMAL(20, 8) 的余额字段。
+const RECHARGE_BALANCE_AMOUNT_LIMIT = 1e12
 
 // 后台编辑态：两个值都允许留空（未完成的行在提交时丢弃）。
 export interface RechargeBonusTierDraft {
@@ -24,6 +26,7 @@ export interface RechargeBonusInterval {
 
 export interface RechargeBonusQuote {
   mode: RechargeBonusMode
+  available: boolean
   /** 命中档位的百分比；未命中或未产生优惠时为 0 */
   percent: number
   /** 网关收款基数（支付币种，不含手续费）；赠金模式 = 输入金额，折扣模式 = 折后金额 */
@@ -34,6 +37,7 @@ export interface RechargeBonusQuote {
   bonus: number
   /** 到账总额（USD） */
   credited: number
+  source: 'percent' | 'fixed' | 'discount' | null
   tier: RechargeBonusTier | null
 }
 
@@ -53,6 +57,16 @@ export function normalizeRechargeBonusMode(raw: unknown): RechargeBonusMode {
 
 export function isRechargeBonusMinAmountValid(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && hasAtMostTwoDecimals(value)
+}
+
+export function isRechargeFixedBonusAmountValid(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && decimalParts(value).exponent >= -2
+}
+
+export function isRechargeFixedBonusEnabled(rule?: RechargeFixedBonus): rule is RechargeFixedBonus {
+  return rule?.enabled === true
+    && isRechargeFixedBonusAmountValid(rule.threshold_amount) && rule.threshold_amount > 0
+    && isRechargeFixedBonusAmountValid(rule.bonus_amount) && rule.bonus_amount > 0
 }
 
 export function isRechargeBonusPercentValid(value: unknown): value is number {
@@ -138,15 +152,54 @@ export function matchRechargeBonusTier(tiers: RechargeBonusTier[], paymentAmount
   return matched
 }
 
+// 用十进制系数计算整倍数和舍入，与后端 decimal.NewFromFloat 的金额语义一致。
+function decimalParts(value: number | bigint) {
+  const [mantissa, exponent = '0'] = String(value).split('e')
+  const [whole, fraction = ''] = mantissa.split('.')
+  return { coefficient: BigInt(whole + fraction), exponent: Number(exponent) - fraction.length }
+}
+
+function roundDecimalProduct(factors: (number | bigint)[], digits = 2, shift = 0, roundUp = false): number {
+  let coefficient = 1n
+  let exponent = shift
+  for (const factor of factors) {
+    const parts = decimalParts(factor)
+    coefficient *= parts.coefficient
+    exponent += parts.exponent
+  }
+  if (exponent < -digits) {
+    const divisor = 10n ** BigInt(-digits - exponent)
+    coefficient = (coefficient + (roundUp ? divisor - 1n : divisor / 2n)) / divisor
+    exponent = -digits
+  }
+  return Number(`${coefficient}e${exponent}`)
+}
+
+function calculateFixedBonus(amount: number, rate: number, rule: RechargeFixedBonus): number {
+  const payment = decimalParts(amount)
+  const threshold = decimalParts(rule.threshold_amount)
+  const exponent = payment.exponent - threshold.exponent
+  const multiples = exponent >= 0
+    ? payment.coefficient * 10n ** BigInt(exponent) / threshold.coefficient
+    : payment.coefficient / (threshold.coefficient * 10n ** BigInt(-exponent))
+  return roundDecimalProduct([multiples, rule.bonus_amount, rate])
+}
+
+export function calculateRechargeFee(paymentAmount: number, feeRate: number, currencyDigits: number): number {
+  if (!Number.isFinite(paymentAmount) || !Number.isFinite(feeRate) || paymentAmount <= 0 || feeRate <= 0) return 0
+  return roundDecimalProduct([paymentAmount, feeRate], currencyDigits, -2, true)
+}
+
 // 赠送额度 = 到账基数 × 百分比，保留两位小数；与后端 calculateRechargeBonus 一致。
 export function calculateRechargeBonus(baseCredited: number, percent: number): number {
   if (!Number.isFinite(baseCredited) || !Number.isFinite(percent) || baseCredited <= 0 || percent <= 0) return 0
-  return roundRechargeAmount((baseCredited * percent) / 100)
+  return roundDecimalProduct([baseCredited, percent], 2, -2)
 }
 
 export interface RechargeBonusQuoteOptions {
   multiplier?: number
   mode?: RechargeBonusMode
+  fixedBonus?: RechargeFixedBonus
   /** 支付币种小数位，折扣模式实付基数按此精度四舍五入 */
   currencyDigits?: number
 }
@@ -159,30 +212,46 @@ export function quoteRechargeBonus(
   options: RechargeBonusQuoteOptions | number = {},
 ): RechargeBonusQuote {
   const opts: RechargeBonusQuoteOptions = typeof options === 'number' ? { multiplier: options } : options
-  const mode = opts.mode ?? 'bonus'
+  const mode = tiers.length > 0 ? opts.mode ?? 'bonus' : 'bonus'
   const amount = Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0
   const rate = typeof opts.multiplier === 'number' && Number.isFinite(opts.multiplier) && opts.multiplier > 0 ? opts.multiplier : 1
   const digits = typeof opts.currencyDigits === 'number' && Number.isInteger(opts.currencyDigits) && opts.currencyDigits >= 0 ? opts.currencyDigits : 2
-  const base = roundRechargeAmount(amount * rate)
-  const quote: RechargeBonusQuote = { mode, percent: 0, payBase: amount, base, bonus: 0, credited: base, tier: null }
+  const base = roundDecimalProduct([amount, rate])
+  const quote: RechargeBonusQuote = { mode, available: Number.isFinite(base), percent: 0, payBase: amount, base, bonus: 0, credited: base, source: null, tier: null }
+  if (!quote.available) return quote
   const tier = matchRechargeBonusTier(tiers, amount)
-  if (!tier || tier.bonus_percent <= 0) return quote
-  quote.tier = tier
   if (mode === 'discount') {
-    if (tier.bonus_percent >= 100) return quote
-    const payBase = roundRechargeAmount((amount * (100 - tier.bonus_percent)) / 100, digits)
+    if (!tier || !Number.isFinite(tier.bonus_percent) || tier.bonus_percent <= 0 || tier.bonus_percent >= 100) return quote
+    const discount = decimalParts(tier.bonus_percent)
+    const remaining = 100n * 10n ** BigInt(-discount.exponent) - discount.coefficient
+    const payBase = roundDecimalProduct([amount, remaining], digits, discount.exponent - 2)
     if (payBase <= 0 || payBase >= amount) return quote
-    const paidCredit = roundRechargeAmount(payBase * rate)
+    const paidCredit = roundDecimalProduct([payBase, rate])
     quote.payBase = payBase
     quote.bonus = Math.max(0, roundRechargeAmount(base - paidCredit))
     quote.percent = tier.bonus_percent
+    quote.source = 'discount'
+    quote.tier = tier
     return quote
   }
-  const bonus = calculateRechargeBonus(base, tier.bonus_percent)
-  if (bonus <= 0) return quote
-  quote.bonus = bonus
-  quote.credited = roundRechargeAmount(base + bonus)
-  quote.percent = tier.bonus_percent
+
+  const percentBonus = calculateRechargeBonus(base, tier?.bonus_percent ?? 0)
+  const fixedRule = opts.fixedBonus
+  const fixedEnabled = isRechargeFixedBonusEnabled(fixedRule)
+  const fixedBonus = fixedEnabled ? calculateFixedBonus(amount, rate, fixedRule) : 0
+  if (fixedBonus > percentBonus) {
+    quote.bonus = fixedBonus
+    quote.source = 'fixed'
+  } else if (tier && percentBonus > 0) {
+    quote.bonus = percentBonus
+    quote.percent = tier.bonus_percent
+    quote.source = 'percent'
+    quote.tier = tier
+  }
+  const credited = base + quote.bonus
+  quote.available = Number.isFinite(credited)
+    && (!fixedEnabled || credited < RECHARGE_BALANCE_AMOUNT_LIMIT)
+  if (quote.available) quote.credited = roundRechargeAmount(credited)
   return quote
 }
 
