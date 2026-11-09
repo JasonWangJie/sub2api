@@ -46,8 +46,9 @@ const (
 	maxRechargeBonusTiers       = 20
 	maxRechargeBonusPercent     = 1000
 	maxRechargeBonusNoticeRunes = 10000
+	maxRechargeFixedBonusAmount = 1e9
 	rechargeBonusAmountEpsilon  = 1e-9
-	// 到账后的钱包余额使用 DECIMAL(20,8)，比订单金额字段的容量更小。
+	// Redeem-code value is DECIMAL(20,8), so one credit must stay below 1e12.
 	rechargeCreditExclusiveLimit = 1e12
 )
 
@@ -225,6 +226,9 @@ func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, r
 			return nil, fmt.Errorf("get recharge bonus settings: %w", err)
 		}
 	}
+	storedTiers := parseRechargeBonusTiers(stored[SettingRechargeBonusTiers])
+	storedMode, _ := NormalizeRechargeBonusMode(stored[SettingRechargeBonusMode])
+	storedEnabled := parseRechargeBonusEnabled(stored[SettingRechargeBonusEnabled], storedTiers)
 
 	var tiers []RechargeBonusTier
 	if req.RechargeBonusTiers != nil {
@@ -239,10 +243,10 @@ func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, r
 		}
 		updates[SettingRechargeBonusTiers] = tiersValue
 	} else {
-		tiers = parseRechargeBonusTiers(stored[SettingRechargeBonusTiers])
+		tiers = storedTiers
 	}
 
-	mode, _ := NormalizeRechargeBonusMode(stored[SettingRechargeBonusMode])
+	mode := storedMode
 	if req.RechargeBonusMode != nil {
 		normalized, ok := NormalizeRechargeBonusMode(*req.RechargeBonusMode)
 		if !ok {
@@ -264,7 +268,18 @@ func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, r
 	}
 
 	fixed := parseRechargeFixedBonus(stored[SettingRechargeFixedBonus])
+	if fixed.Enabled && rechargeDiscountEnabled(storedEnabled, storedMode, storedTiers) {
+		// Persistently clear a conflicting legacy switch so turning discount off
+		// later cannot silently activate a previously suppressed fixed gift.
+		fixed.Enabled = false
+		value, err := json.Marshal(fixed)
+		if err != nil {
+			return nil, fmt.Errorf("marshal fixed recharge bonus: %w", err)
+		}
+		updates[SettingRechargeFixedBonus] = string(value)
+	}
 	if req.RechargeFixedBonus != nil {
+		previousFixed := fixed
 		next := *req.RechargeFixedBonus
 		// 只关闭开关时保留已配置金额，新配置仍可保存 0。
 		if !next.Enabled {
@@ -276,8 +291,11 @@ func (s *PaymentConfigService) resolveRechargeBonusUpdate(ctx context.Context, r
 			}
 		}
 		fixed = next
-		if !rechargeFixedBonusValid(fixed) {
-			return nil, infraerrors.BadRequest("INVALID_RECHARGE_FIXED_BONUS", "fixed recharge bonus amounts must be non-negative with at most 2 decimals and greater than 0 when enabled")
+		newExcessiveGift := fixed.Enabled && fixed.BonusAmount > maxRechargeFixedBonusAmount &&
+			(!previousFixed.Enabled || fixed.BonusAmount != previousFixed.BonusAmount ||
+				fixed.ThresholdAmount != previousFixed.ThresholdAmount)
+		if !rechargeFixedBonusValid(fixed) || newExcessiveGift {
+			return nil, infraerrors.BadRequest("INVALID_RECHARGE_FIXED_BONUS", "fixed recharge bonus amounts must be non-negative with at most 2 decimals, positive when enabled, and the bonus amount must not exceed 1 billion")
 		}
 		value, err := json.Marshal(fixed)
 		if err != nil {
@@ -373,7 +391,7 @@ func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency stri
 	if rechargeDiscountEnabled(true, mode, tiers) {
 		return quoteRechargeDiscount(quote, tier.BonusPercent, multiplier, currency), nil
 	}
-	if fixed.Enabled && base >= rechargeCreditExclusiveLimit {
+	if math.IsNaN(base) || math.IsInf(base, 0) || base >= rechargeCreditExclusiveLimit {
 		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
 	}
 	if ok {
@@ -400,14 +418,14 @@ func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency stri
 	if quote.Bonus > 0 {
 		quote.Credited = addRechargeBonus(base, quote.Bonus)
 	}
-	if fixed.Enabled && quote.Credited >= rechargeCreditExclusiveLimit {
+	if math.IsNaN(quote.Credited) || math.IsInf(quote.Credited, 0) || quote.Credited >= rechargeCreditExclusiveLimit {
 		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
 	}
 	return quote, nil
 }
 
 func invalidRechargeBonusAmount() error {
-	return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_AMOUNT", "recharge amount with bonus exceeds the supported limit")
+	return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_AMOUNT", "recharge credit exceeds the supported limit")
 }
 
 func quoteRechargeDiscount(quote rechargeBonusQuote, percent, multiplier float64, currency string) rechargeBonusQuote {

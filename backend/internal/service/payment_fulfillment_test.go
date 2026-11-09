@@ -678,14 +678,6 @@ func TestValidateProviderNotificationMetadataRejectsStripeCurrencyMismatch(t *te
 	assert.ErrorContains(t, err, "stripe currency mismatch")
 }
 
-func TestPaymentAmountToleranceForThreeDecimalCurrency(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, amountToleranceCNY, paymentAmountToleranceForCurrency("CNY"))
-	assert.Equal(t, amountToleranceCNY, paymentAmountToleranceForCurrency("JPY"))
-	assert.InDelta(t, 0.0005, paymentAmountToleranceForCurrency("KWD"), 1e-12)
-}
-
 func TestRetryFulfillmentRejectsFreshRechargingLease(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
@@ -939,6 +931,102 @@ func TestDuplicatePaymentNotificationDoesNotReprocessCompletedBalanceOrder(t *te
 	require.Empty(t, redeemRepo.useCalls, "a duplicate notification must not redeem the balance code again")
 }
 
+func TestLateSuccessfulNotificationRecoversExpiredAndCancelledBalanceOrders(t *testing.T) {
+	for _, status := range []string{OrderStatusExpired, OrderStatusCancelled} {
+		t.Run(status, func(t *testing.T) {
+			ctx := context.Background()
+			client := newPaymentConfigServiceTestClient(t)
+			ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+			staleAt := time.Now().Add(-10 * time.Minute)
+			order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, status, staleAt)
+			order, err := client.PaymentOrder.UpdateOneID(order.ID).
+				SetOrderType(payment.OrderTypeBalance).
+				ClearPlanID().ClearSubscriptionGroupID().ClearSubscriptionDays().ClearPaidAt().
+				SetUpdatedAt(staleAt).
+				Save(ctx)
+			require.NoError(t, err)
+
+			redeemRepo := &paymentFulfillmentRedeemRepo{}
+			credited := 0.0
+			userRepo := &mockUserRepo{getByIDUser: &User{ID: order.UserID}}
+			userRepo.updateBalanceFn = func(_ context.Context, _ int64, amount float64) error {
+				credited += amount
+				return nil
+			}
+			svc := &PaymentService{
+				entClient:     client,
+				redeemService: NewRedeemService(redeemRepo, userRepo, nil, nil, nil, client, nil, nil),
+			}
+			notification := &payment.PaymentNotification{
+				TradeNo: "late-trade-" + status,
+				OrderID: order.OutTradeNo,
+				Amount:  order.PayAmount,
+				Status:  payment.NotificationStatusSuccess,
+			}
+			require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeAlipay))
+			require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeAlipay))
+
+			reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+			require.NoError(t, err)
+			require.Equal(t, OrderStatusCompleted, reloaded.Status)
+			require.Equal(t, notification.TradeNo, reloaded.PaymentTradeNo)
+			require.Equal(t, order.Amount, credited)
+			require.Len(t, redeemRepo.useCalls, 1)
+			count, err := client.PaymentAuditLog.Query().Where(
+				paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)), paymentauditlog.ActionEQ("ORDER_RECOVERED"),
+			).Count(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 1, count)
+		})
+	}
+}
+
+func TestSuccessfulNotificationRecordsPaymentBeforeFulfillingUnpaidFailedOrder(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusFailed, time.Now())
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetOrderType(payment.OrderTypeBalance).
+		ClearPlanID().ClearSubscriptionGroupID().ClearSubscriptionDays().
+		ClearPaidAt().SetPaymentTradeNo("").
+		Save(ctx)
+	require.NoError(t, err)
+
+	redeemRepo := &paymentFulfillmentRedeemRepo{}
+	credited := 0.0
+	userRepo := &mockUserRepo{getByIDUser: &User{ID: order.UserID}}
+	userRepo.updateBalanceFn = func(_ context.Context, _ int64, amount float64) error {
+		credited += amount
+		return nil
+	}
+	svc := &PaymentService{
+		entClient:     client,
+		redeemService: NewRedeemService(redeemRepo, userRepo, nil, nil, nil, client, nil, nil),
+	}
+	notification := &payment.PaymentNotification{
+		TradeNo: "late-paid-after-provider-error",
+		OrderID: order.OutTradeNo,
+		Amount:  order.PayAmount,
+		Status:  payment.NotificationStatusSuccess,
+	}
+	require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeAlipay))
+	require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeAlipay))
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+	require.NotNil(t, reloaded.PaidAt)
+	require.Equal(t, notification.TradeNo, reloaded.PaymentTradeNo)
+	require.Equal(t, order.Amount, credited)
+	require.Len(t, redeemRepo.useCalls, 1)
+	paidAuditCount, err := client.PaymentAuditLog.Query().Where(
+		paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)), paymentauditlog.ActionEQ("ORDER_PAID"),
+	).Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, paidAuditCount)
+}
+
 func TestPaymentNotificationRejectsAmountMismatchBeforeFulfillment(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
@@ -963,6 +1051,81 @@ func TestPaymentNotificationRejectsAmountMismatchBeforeFulfillment(t *testing.T)
 	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
 	require.Equal(t, OrderStatusPending, reloaded.Status)
+}
+
+func TestPaymentNotificationRejectsOneMinorUnitUnderpayment(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPending, time.Now())
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).SetPayAmount(250).Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	err = svc.HandlePaymentNotification(ctx, &payment.PaymentNotification{
+		TradeNo: "alipay-one-cent-short",
+		OrderID: order.OutTradeNo,
+		Amount:  249.99,
+		Status:  payment.NotificationStatusSuccess,
+	}, payment.TypeAlipay)
+	require.ErrorContains(t, err, "amount mismatch")
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusPending, reloaded.Status)
+}
+
+func TestPaymentNotificationAcceptsExactThreeDecimalAmount(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPending, time.Now())
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetOrderType(payment.OrderTypeBalance).
+		ClearPlanID().ClearSubscriptionGroupID().ClearSubscriptionDays().
+		SetPaymentType(payment.TypeStripe).
+		SetPayAmount(10.001).
+		SetAmount(10).
+		SetProviderSnapshot(map[string]any{
+			"schema_version": 2,
+			"provider_key":   payment.TypeStripe,
+			"currency":       "KWD",
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	redeemRepo := &paymentFulfillmentRedeemRepo{}
+	userRepo := &mockUserRepo{getByIDUser: &User{ID: order.UserID}}
+	credited := 0.0
+	userRepo.updateBalanceFn = func(_ context.Context, _ int64, amount float64) error {
+		credited += amount
+		return nil
+	}
+	svc := &PaymentService{
+		entClient:     client,
+		redeemService: NewRedeemService(redeemRepo, userRepo, nil, nil, nil, client, nil, nil),
+	}
+	notification := &payment.PaymentNotification{
+		TradeNo:  "stripe-kwd-10-001",
+		OrderID:  order.OutTradeNo,
+		Amount:   10.001,
+		Status:   payment.NotificationStatusSuccess,
+		Metadata: map[string]string{"currency": "KWD"},
+	}
+	wrongAmount := *notification
+	wrongAmount.Amount = 10.002
+	require.ErrorContains(t, svc.HandlePaymentNotification(ctx, &wrongAmount, payment.TypeStripe), "amount mismatch")
+	require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeStripe))
+	require.NoError(t, svc.HandlePaymentNotification(ctx, notification, payment.TypeStripe))
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+	require.Equal(t, 10.001, reloaded.PayAmount)
+	require.Equal(t, 10.0, credited)
+	require.Len(t, redeemRepo.useCalls, 1)
+	require.Equal(t, "10.001", formatGatewayRefundAmount(
+		calculateGatewayRefundAmount(reloaded.Amount, reloaded.PayAmount, reloaded.Amount, "KWD"), reloaded,
+	))
 }
 
 func TestExecuteBalanceFulfillmentRejectsCodeUsedByAnotherUser(t *testing.T) {

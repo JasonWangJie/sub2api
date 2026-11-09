@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/shopspring/decimal"
 )
 
 // --- Refund Flow ---
@@ -234,11 +235,22 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if amt <= 0 {
 		amt = o.Amount
 	}
+	refundAmount := decimal.NewFromFloat(amt)
+	if !refundAmount.Equal(refundAmount.Round(2)) {
+		return nil, nil, infraerrors.BadRequest("INVALID_AMOUNT", "refund amount allows at most 2 decimal places")
+	}
 	orderCurrency := PaymentOrderCurrency(o)
-	if amt-o.Amount > paymentAmountToleranceForCurrency(orderCurrency) {
+	if refundAmount.GreaterThan(decimal.NewFromFloat(o.Amount)) {
 		return nil, nil, infraerrors.BadRequest("REFUND_AMOUNT_EXCEEDED", "refund amount exceeds recharge")
 	}
 	ga := calculateGatewayRefundAmount(o.Amount, o.PayAmount, amt, orderCurrency)
+	if ga <= 0 {
+		return nil, nil, infraerrors.BadRequest("INVALID_AMOUNT", "refund amount is too small for the payment currency")
+	}
+	if refundAmount.LessThan(decimal.NewFromFloat(o.Amount)) &&
+		!decimal.NewFromFloat(ga).LessThan(decimal.NewFromFloat(o.PayAmount)) {
+		return nil, nil, infraerrors.BadRequest("INVALID_AMOUNT", "partial refund rounds to the full gateway payment")
+	}
 	rr := strings.TrimSpace(reason)
 	if rr == "" && o.RefundRequestReason != nil {
 		rr = *o.RefundRequestReason
@@ -445,24 +457,30 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 	if !ok {
 		return nil, infraerrors.BadRequest("REFUND_QUERY_UNSUPPORTED", "this payment provider does not support refund status query; please verify manually")
 	}
+	if err := validateProviderSnapshotMetadata(o, prov.ProviderKey(), providerMerchantIdentityMetadata(prov)); err != nil {
+		s.writeAuditLog(ctx, o.ID, "REFUND_QUERY_PROVIDER_METADATA_MISMATCH", "admin", map[string]any{
+			"detail": err.Error(),
+		})
+		return nil, err
+	}
 
 	pendingDetail, err := s.latestRefundPendingDetail(ctx, oid)
 	if err != nil {
 		return nil, err
 	}
+	plan := s.refundFinalizePlan(o)
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := queryProvider.QueryRefund(ctx, payment.RefundQueryRequest{
 		TradeNo:     o.PaymentTradeNo,
 		OrderID:     o.OutTradeNo,
 		RefundID:    pendingDetail.RefundID,
-		Amount:      formatGatewayRefundAmount(o.RefundAmount, o),
+		Amount:      formatGatewayRefundAmount(plan.GatewayAmount, o),
 		RequestedAt: pendingDetail.requestedAt,
 	})
 	finishProviderCall()
 	if err != nil {
 		return nil, fmt.Errorf("query refund: %w", err)
 	}
-	plan := s.refundFinalizePlan(o)
 	switch {
 	case pendingDetail.DeductionHeld:
 		pendingDetail.applyTo(plan)

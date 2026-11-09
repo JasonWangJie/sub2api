@@ -78,6 +78,7 @@
                 :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
+                :is-amount-available="hasAvailableRechargeMethod"
                 :bonus-tiers="rechargeBonusTiers"
                 :bonus-mode="rechargeBonusMode"
                 :fixed-bonus="fixedBonus"
@@ -339,7 +340,7 @@ import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, pl
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency, paymentCurrencyFractionDigits } from '@/components/payment/currency'
+import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, hasPaymentCurrencyPrecision, normalizePaymentCurrency, paymentCurrencyFractionDigits } from '@/components/payment/currency'
 import { planValiditySuffix as validitySuffixOf } from '@/components/payment/validity'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 import { buildPaymentErrorToastMessage, describePaymentScenarioError } from './paymentUx'
@@ -571,8 +572,9 @@ const renderedHelpText = computed(() => {
   return content.innerHTML
 })
 
-// 充值赠送活动文案：后台 Markdown 配置，空字符串时金额卡顶部不渲染
+// 充值赠送活动文案仅在有实际优惠时展示，暂停时保留后台配置。
 const renderedBonusNotice = computed(() => {
+  if (!rechargeBonusTiers.value.some(tier => tier.bonus_percent > 0) && !fixedBonus.value) return ''
   const raw = (checkout.value.recharge_bonus_notice || '').trim()
   if (!raw) return ''
   return DOMPurify.sanitize(marked.parse(raw, { async: false, gfm: true, breaks: true }))
@@ -635,24 +637,30 @@ function amountFitsMethod(amt: number, methodType: string): boolean {
   if (amt <= 0) return true
   const ml = visibleMethods.value[methodType]
   if (!ml) return false
+  if (ml.single_ranges?.length) {
+    return ml.single_ranges.some(range =>
+      (range.min <= 0 || amt >= range.min) && (range.max <= 0 || amt <= range.max),
+    )
+  }
   if (ml.single_min > 0 && amt < ml.single_min) return false
   if (ml.single_max > 0 && amt > ml.single_max) return false
   return true
 }
 
-// Visible methods decide the amount range shown to users.
+// These bounds apply to the amount entered by the user, before discounts and fees.
 const globalMinAmount = computed(() => {
-  const limits = Object.values(visibleMethods.value)
-  if (limits.length === 0) return 0
-  if (limits.some(limit => limit.single_min <= 0)) return 0
-  return Math.min(...limits.map(limit => limit.single_min))
+  const min = checkout.value.min_amount
+  return typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : 0
 })
 const globalMaxAmount = computed(() => {
-  const limits = Object.values(visibleMethods.value)
-  if (limits.length === 0) return 0
-  if (limits.some(limit => limit.single_max <= 0)) return 0
-  return Math.max(...limits.map(limit => limit.single_max))
+  const max = checkout.value.max_amount
+  return typeof max === 'number' && Number.isFinite(max) && max > 0 ? max : 0
 })
+
+function amountFitsGlobalRechargeRange(value: number): boolean {
+  return (globalMinAmount.value <= 0 || value >= globalMinAmount.value)
+    && (globalMaxAmount.value <= 0 || value <= globalMaxAmount.value)
+}
 
 // Selected method's limits (for validation and error messages)
 const selectedLimit = computed(() => visibleMethods.value[selectedMethod.value])
@@ -715,16 +723,37 @@ const creditedAmount = computed(() => bonusQuote.value.credited)
 const showBonusRow = computed(() => rechargeBonusMode.value !== 'discount' && (rechargeBonusTiers.value.length > 0 || !!fixedBonus.value))
 const showCreditedBalance = computed(() => showBonusRow.value || balanceRechargeMultiplier.value !== 1 || bonusQuote.value.source === 'discount')
 
-const methodOptions = computed<PaymentMethodOption[]>(() =>
-  enabledMethods.value.map((type) => {
-    const ml = visibleMethods.value[type]
-    return {
-      type,
-      display_name: ml?.display_name,
-      fee_rate: ml?.fee_rate ?? 0,
-      available: ml?.available !== false && amountFitsMethod(payBaseAmount.value, type),
-    }
+function rechargeMethodAcceptsAmount(value: number, type: string): boolean {
+  const ml = visibleMethods.value[type]
+  if (!ml || ml.available === false) return false
+  if (value <= 0) return true
+  if (!amountFitsGlobalRechargeRange(value)) return false
+  const currency = normalizePaymentCurrency(ml.currency)
+  if (!hasPaymentCurrencyPrecision(value, currency)) return false
+  const digits = paymentCurrencyFractionDigits(currency)
+  const quote = quoteRechargeBonus(rechargeBonusTiers.value, value, {
+    multiplier: balanceRechargeMultiplier.value,
+    mode: rechargeBonusMode.value,
+    fixedBonus: fixedBonus.value,
+    currencyDigits: digits,
   })
+  if (!quote.available) return false
+  const fee = calculateRechargeFee(quote.payBase, feeRate.value, digits)
+  const payable = roundPaymentAmount(quote.payBase + fee, currency)
+  return amountFitsMethod(payable, type)
+}
+
+function hasAvailableRechargeMethod(value: number): boolean {
+  return enabledMethods.value.some(type => rechargeMethodAcceptsAmount(value, type))
+}
+
+const methodOptions = computed<PaymentMethodOption[]>(() =>
+  enabledMethods.value.map((type) => ({
+    type,
+    display_name: visibleMethods.value[type]?.display_name,
+    fee_rate: visibleMethods.value[type]?.fee_rate ?? 0,
+    available: rechargeMethodAcceptsAmount(validAmount.value, type),
+  })),
 )
 
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
@@ -740,16 +769,28 @@ const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value >
 
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
+  if (!hasPaymentCurrencyPrecision(validAmount.value, selectedCurrency.value)) {
+    return t('payment.amountCurrencyPrecision', {
+      currency: selectedCurrency.value,
+      digits: paymentCurrencyFractionDigits(selectedCurrency.value),
+    })
+  }
+  if (globalMinAmount.value > 0 && validAmount.value < globalMinAmount.value) {
+    return t('payment.amountTooLow', { min: `${formatRechargeBonusNumber(globalMinAmount.value)} ${selectedCurrency.value}` })
+  }
+  if (globalMaxAmount.value > 0 && validAmount.value > globalMaxAmount.value) {
+    return t('payment.amountTooHigh', { max: `${formatRechargeBonusNumber(globalMaxAmount.value)} ${selectedCurrency.value}` })
+  }
   if (!bonusQuote.value.available) return t('payment.rechargeBonus.unavailable')
   // No method can handle this amount
-  if (!enabledMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
+  if (!methodOptions.value.some(option => option.available)) {
     return t('payment.amountNoMethod')
   }
   // Selected method can't handle this amount (but others can)
   const ml = selectedLimit.value
   if (ml) {
-    if (ml.single_min > 0 && payBaseAmount.value < ml.single_min) return t('payment.amountTooLow', { min: formatSelectedPaymentAmount(ml.single_min) })
-    if (ml.single_max > 0 && payBaseAmount.value > ml.single_max) return t('payment.amountTooHigh', { max: formatSelectedPaymentAmount(ml.single_max) })
+    if (ml.single_min > 0 && totalAmount.value < ml.single_min) return t('payment.amountTooLow', { min: formatSelectedPaymentAmount(ml.single_min) })
+    if (ml.single_max > 0 && totalAmount.value > ml.single_max) return t('payment.amountTooHigh', { max: formatSelectedPaymentAmount(ml.single_max) })
   }
   return ''
 })
@@ -757,8 +798,7 @@ const amountError = computed(() => {
 const canSubmit = computed(() =>
   validAmount.value > 0
     && bonusQuote.value.available
-    && amountFitsMethod(payBaseAmount.value, selectedMethod.value)
-    && selectedLimit.value?.available !== false
+    && methodOptions.value.some(option => option.type === selectedMethod.value && option.available)
 )
 
 const subPaymentAmount = computed(() => {
@@ -804,11 +844,11 @@ const canSubmitSubscription = computed(() =>
     && selectedLimit.value?.available !== false
 )
 
-// Auto-switch to first available method when current selection can't handle the amount
-watch(() => [payBaseAmount.value, selectedMethod.value] as const, ([amt, method]) => {
-  if (amt <= 0 || amountFitsMethod(amt, method)) return
-  const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
-  if (available) selectedMethod.value = available
+// Auto-switch to first available method when current selection can't handle the payable amount.
+watch(() => [validAmount.value, selectedMethod.value, methodOptions.value] as const, ([amt, method, options]) => {
+  if (amt <= 0 || options.some(option => option.type === method && option.available)) return
+  const available = options.find(option => option.available)
+  if (available) selectedMethod.value = available.type
 })
 
 // Payment button class: follows selected payment method color

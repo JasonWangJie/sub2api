@@ -293,14 +293,15 @@ func unionFloat(agg float64, limited bool, val float64, wantMin bool) (float64, 
 //   - SingleMax: highest ceiling across instances; 0 if any is unlimited
 //   - DailyLimit: highest cap across instances; 0 if any is unlimited
 func pcAggregateMethodLimits(pt string, instances []*dbent.PaymentProviderInstance) MethodLimits {
-	ml := MethodLimits{PaymentType: pt}
+	ml := MethodLimits{PaymentType: pt, SingleRanges: make([]MethodSingleRange, 0, len(instances))}
 	minLimited, maxLimited, dailyLimited := true, true, true
 
 	for _, inst := range instances {
 		cl, hasLimits := pcInstanceTypeLimits(inst, pt)
 		if !hasLimits {
-			return MethodLimits{PaymentType: pt} // any unlimited instance → all zeros
+			return MethodLimits{PaymentType: pt, SingleRanges: []MethodSingleRange{{}}} // any unlimited instance → all zeros
 		}
+		ml.SingleRanges = append(ml.SingleRanges, MethodSingleRange{Min: cl.SingleMin, Max: cl.SingleMax})
 		ml.SingleMin, minLimited = unionFloat(ml.SingleMin, minLimited, cl.SingleMin, true)
 		ml.SingleMax, maxLimited = unionFloat(ml.SingleMax, maxLimited, cl.SingleMax, false)
 		ml.DailyLimit, dailyLimited = unionFloat(ml.DailyLimit, dailyLimited, cl.DailyLimit, false)

@@ -112,7 +112,11 @@ func AmountToMinorUnit(amountStr, currency string) (int64, error) {
 	}
 	factor := decimal.New(1, int32(amountUnit.apiMinorUnit))
 	minorAmount := d.Mul(factor)
-	return minorAmount.IntPart(), nil
+	minorInteger := minorAmount.BigInt()
+	if !minorInteger.IsInt64() {
+		return 0, fmt.Errorf("payment amount for %s exceeds the supported range", normalizedCurrency)
+	}
+	return minorInteger.Int64(), nil
 }
 
 func MinorUnitToAmount(value int64, currency string) float64 {

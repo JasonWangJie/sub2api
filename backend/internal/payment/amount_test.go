@@ -203,6 +203,21 @@ func TestAmountToMinorUnitRejectsUnsupportedPrecision(t *testing.T) {
 	}
 }
 
+func TestAmountToMinorUnitRejectsInt64Overflow(t *testing.T) {
+	if got, err := AmountToMinorUnit("9223372036854775.807", "KWD"); err != nil || got != 9223372036854775807 {
+		t.Fatalf("largest KWD minor amount = (%d, %v), want max int64", got, err)
+	}
+	for _, tc := range []struct{ amount, currency string }{
+		{"9223372036854775.808", "KWD"},
+		{"100000000000000000", "KWD"},
+		{"92233720368547758.08", "CNY"},
+	} {
+		if _, err := AmountToMinorUnit(tc.amount, tc.currency); err == nil {
+			t.Errorf("AmountToMinorUnit(%q, %q) accepted an amount outside int64", tc.amount, tc.currency)
+		}
+	}
+}
+
 func TestThreeDecimalPaymentCurrencies(t *testing.T) {
 	for _, currency := range []string{"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"} {
 		t.Run(currency, func(t *testing.T) {

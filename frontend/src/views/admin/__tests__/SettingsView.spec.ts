@@ -1456,6 +1456,57 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("rejects an enabled fixed gift above the backend limit", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-enabled"]').setValue(true);
+    await wrapper.get('[data-testid="recharge-fixed-bonus-threshold"]').setValue("100");
+    await wrapper.get('[data-testid="recharge-fixed-bonus-amount"]').setValue("1000000000.01");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="recharge-bonus-config-error"]').text()).toContain("fixedAmountTooHigh");
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unchanged legacy fixed gift when saving other settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 100, bonus_amount: 1000000000.01 },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 100, bonus_amount: 1000000000.01 },
+      }),
+    );
+  });
+
+  it("rejects lowering a legacy gift threshold above the new limit", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_fixed_bonus: { enabled: true, threshold_amount: 100, bonus_amount: 1000000000.01 },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-fixed-bonus-threshold"]').setValue("1");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="recharge-bonus-config-error"]').text()).toContain("fixedAmountTooHigh");
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
   it("pauses fixed bonus while retaining saved amounts when a draft is invalid", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

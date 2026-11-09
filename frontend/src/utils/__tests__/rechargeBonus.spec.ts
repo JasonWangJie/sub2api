@@ -156,9 +156,11 @@ describe('rechargeBonus helpers', () => {
     })).toMatchObject({ bonus: 20, credited: 120, source: 'percent' })
   })
 
-  it('marks a fixed quote unavailable when the credit cannot fit the balance field', () => {
+  it('marks every quote unavailable when the credit cannot fit a redeem code', () => {
     const fixedBonus = { enabled: true, threshold_amount: 50, bonus_amount: 1e12 - 50 }
     expect(quoteRechargeBonus([], 50, { fixedBonus })).toMatchObject({ available: false })
+    expect(quoteRechargeBonus([], 1e12)).toMatchObject({ available: false })
+    expect(quoteRechargeBonus([], 1e11, { multiplier: 10 })).toMatchObject({ available: false })
   })
 
   it('normalizes mode and validates percent per mode', () => {

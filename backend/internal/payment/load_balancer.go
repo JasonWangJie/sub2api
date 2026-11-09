@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"entgo.io/ent/dialect"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 )
 
 // Strategy represents a load balancing strategy for provider instance selection.
@@ -27,6 +31,58 @@ type ChannelLimits struct {
 	DailyLimit float64 `json:"dailyLimit,omitempty"`
 	SingleMin  float64 `json:"singleMin,omitempty"`
 	SingleMax  float64 `json:"singleMax,omitempty"`
+}
+
+// RecheckSelectedInstanceLimitsInTx serializes orders for the same provider
+// instance and checks its current capacity immediately before inserting one.
+// The transaction-level PostgreSQL lock closes the race between selection and
+// order creation across application processes.
+func RecheckSelectedInstanceLimitsInTx(ctx context.Context, tx *dbent.Tx, sel *InstanceSelection, paymentType PaymentType, orderAmount float64) error {
+	if sel == nil || strings.TrimSpace(sel.InstanceID) == "" {
+		return nil
+	}
+	instanceID, err := strconv.ParseInt(sel.InstanceID, 10, 64)
+	if err != nil || instanceID <= 0 {
+		return fmt.Errorf("invalid selected payment instance ID %q", sel.InstanceID)
+	}
+	if tx.Client().Driver().Dialect() == dialect.Postgres {
+		hasher := fnv.New64a()
+		_, _ = hasher.Write([]byte("payment_instance_capacity:" + sel.InstanceID))
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", int64(hasher.Sum64())); err != nil {
+			return fmt.Errorf("lock payment instance capacity: %w", err)
+		}
+	}
+	inst, err := tx.PaymentProviderInstance.Get(ctx, instanceID)
+	if err != nil {
+		return fmt.Errorf("get selected payment instance: %w", err)
+	}
+	if !inst.Enabled || inst.ProviderKey != sel.ProviderKey ||
+		(paymentType == TypeStripe && inst.ProviderKey != TypeStripe) ||
+		(paymentType != TypeStripe && !InstanceSupportsType(inst.SupportedTypes, paymentType)) {
+		return fmt.Errorf("selected payment instance is no longer available")
+	}
+	var dailyUsage []struct {
+		InstanceID string  `json:"provider_instance_id"`
+		Sum        float64 `json:"sum"`
+	}
+	if err := tx.PaymentOrder.Query().
+		Where(
+			paymentorder.ProviderInstanceID(sel.InstanceID),
+			instanceDailyUsagePredicate(time.Now()),
+		).
+		GroupBy(paymentorder.FieldProviderInstanceID).
+		Aggregate(dbent.Sum(paymentorder.FieldPayAmount)).
+		Scan(ctx, &dailyUsage); err != nil {
+		return fmt.Errorf("recheck provider instance daily usage: %w", err)
+	}
+	dailyUsed := 0.0
+	if len(dailyUsage) > 0 {
+		dailyUsed = dailyUsage[0].Sum
+	}
+	if len(filterByLimits([]instanceCandidate{{inst: inst, dailyUsed: dailyUsed}}, paymentType, orderAmount)) == 0 {
+		return fmt.Errorf("selected payment instance has insufficient capacity")
+	}
+	return nil
 }
 
 // InstanceLimits holds per-channel limits for a provider instance (JSON).
@@ -99,11 +155,10 @@ type instanceCandidate struct {
 //
 // Flow:
 //  1. Query all enabled instances for providerKey, filter by supported paymentType
-//  2. Batch-query daily usage (PENDING + PAID + COMPLETED + RECHARGING) for all candidates
+//  2. Batch-query today's paid volume and pending reservations for all candidates
 //  3. Filter out instances where: single-min/max violated OR daily remaining < orderAmount
 //  4. Pick from survivors using the configured strategy (round-robin / least-amount)
-//  5. If all filtered out, legacy methods fall back to the full list; USDT
-//     returns an unavailable error so an over-limit order is never created.
+//  5. If none satisfy the limits, return an unavailable error.
 func (lb *DefaultLoadBalancer) SelectInstance(
 	ctx context.Context,
 	providerKey string,
@@ -118,18 +173,15 @@ func (lb *DefaultLoadBalancer) SelectInstance(
 	}
 
 	// Step 2: batch-fetch daily usage for all candidates.
-	candidates := lb.attachDailyUsage(ctx, instances)
+	candidates, err := lb.attachDailyUsage(ctx, instances)
+	if err != nil {
+		return nil, err
+	}
 
 	// Step 3: filter by limits.
 	available := filterByLimits(candidates, paymentType, orderAmount)
 	if len(available) == 0 {
-		if paymentType == TypeUSDT {
-			return nil, fmt.Errorf("no available USDT instance for amount %.2f", orderAmount)
-		}
-		slog.Warn("all instances exceeded limits, using full candidate list",
-			"provider", providerKey, "payment_type", paymentType,
-			"order_amount", orderAmount, "count", len(candidates))
-		available = candidates
+		return nil, fmt.Errorf("no available instance for payment type %s and amount %.2f", paymentType, orderAmount)
 	}
 
 	// Step 4: pick by strategy.
@@ -208,13 +260,12 @@ func providerNetworkEnabled(config map[string]string, network string) bool {
 }
 
 // attachDailyUsage queries daily usage for each instance in a single pass.
-// Usage includes PENDING orders to avoid over-committing capacity.
+// Usage includes all PENDING orders to avoid over-committing capacity, plus
+// every order paid today regardless of when it was created or later refunded.
 func (lb *DefaultLoadBalancer) attachDailyUsage(
 	ctx context.Context,
 	instances []*dbent.PaymentProviderInstance,
-) []instanceCandidate {
-	todayStart := startOfDay(time.Now())
-
+) ([]instanceCandidate, error) {
 	// Collect instance IDs.
 	ids := make([]string, len(instances))
 	for i, inst := range instances {
@@ -230,17 +281,13 @@ func (lb *DefaultLoadBalancer) attachDailyUsage(
 	err := lb.db.PaymentOrder.Query().
 		Where(
 			paymentorder.ProviderInstanceIDIn(ids...),
-			paymentorder.StatusIn(
-				OrderStatusPending, OrderStatusPaid,
-				OrderStatusCompleted, OrderStatusRecharging,
-			),
-			paymentorder.CreatedAtGTE(todayStart),
+			instanceDailyUsagePredicate(time.Now()),
 		).
 		GroupBy(paymentorder.FieldProviderInstanceID).
 		Aggregate(dbent.Sum(paymentorder.FieldPayAmount)).
 		Scan(ctx, &rows)
 	if err != nil {
-		slog.Warn("batch daily usage query failed, treating all as zero", "error", err)
+		return nil, fmt.Errorf("query provider instance daily usage: %w", err)
 	}
 
 	usageMap := make(map[string]float64, len(rows))
@@ -255,7 +302,14 @@ func (lb *DefaultLoadBalancer) attachDailyUsage(
 			dailyUsed: usageMap[fmt.Sprintf("%d", inst.ID)],
 		}
 	}
-	return candidates
+	return candidates, nil
+}
+
+func instanceDailyUsagePredicate(now time.Time) predicate.PaymentOrder {
+	return paymentorder.Or(
+		paymentorder.StatusEQ(OrderStatusPending),
+		paymentorder.PaidAtGTE(startOfDay(now)),
+	)
 }
 
 // filterByLimits removes instances that cannot accommodate the order:

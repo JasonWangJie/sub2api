@@ -83,6 +83,16 @@ func TestPcAggregateMethodLimits(t *testing.T) {
 		}
 	})
 
+	t.Run("preserves disjoint instance ranges for checkout", func(t *testing.T) {
+		t.Parallel()
+		inst1 := makeInstance(1, "easypay", "alipay", `{"alipay":{"singleMin":1,"singleMax":50}}`)
+		inst2 := makeInstance(2, "easypay", "alipay", `{"alipay":{"singleMin":100,"singleMax":200}}`)
+		ml := pcAggregateMethodLimits("alipay", []*dbent.PaymentProviderInstance{inst1, inst2})
+		require.Equal(t, float64(1), ml.SingleMin)
+		require.Equal(t, float64(200), ml.SingleMax)
+		require.Equal(t, []MethodSingleRange{{Min: 1, Max: 50}, {Min: 100, Max: 200}}, ml.SingleRanges)
+	})
+
 	t.Run("one instance unlimited makes aggregate unlimited", func(t *testing.T) {
 		t.Parallel()
 		inst1 := makeInstance(1, "easypay", "wxpay",

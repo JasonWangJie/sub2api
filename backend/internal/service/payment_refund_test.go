@@ -274,12 +274,90 @@ func TestGwRefundRejectsAlipayMerchantIdentitySnapshotMismatch(t *testing.T) {
 		Reason:        "snapshot mismatch",
 	})
 	require.ErrorContains(t, err, "alipay app_id mismatch")
+
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).
+		SetStatus(OrderStatusRefundPending).
+		SetRefundAmount(order.Amount).
+		Save(ctx)
+	require.NoError(t, err)
+	result, err := svc.QueryAndFinalizeRefund(ctx, order.ID)
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "alipay app_id mismatch")
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusRefundPending, reloaded.Status)
 }
 
 func TestCalculateGatewayRefundAmountUsesCurrencyPrecision(t *testing.T) {
 	require.InDelta(t, 6.173, calculateGatewayRefundAmount(100, 12.345, 50, "KWD"), 1e-12)
 	require.InDelta(t, 12.345, calculateGatewayRefundAmount(100, 12.345, 100, "KWD"), 1e-12)
 	require.InDelta(t, 52, calculateGatewayRefundAmount(100, 103, 50, "JPY"), 1e-12)
+	require.InDelta(t, 249.99, calculateGatewayRefundAmount(250, 250, 249.99, "CNY"), 1e-12)
+}
+
+func TestPrepareRefundRejectsUnrepresentableJPYPartials(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	user, err := client.User.Create().
+		SetEmail("refund-zero-jpy@example.com").
+		SetPasswordHash("hash").
+		SetUsername("refund-zero-jpy-user").
+		Save(ctx)
+	require.NoError(t, err)
+	inst, err := client.PaymentProviderInstance.Create().
+		SetProviderKey(payment.TypeStripe).
+		SetName("stripe-jpy-refund-instance").
+		SetConfig("{}").
+		SetSupportedTypes("card").
+		SetEnabled(true).
+		SetRefundEnabled(true).
+		Save(ctx)
+	require.NoError(t, err)
+	instID := strconv.FormatInt(inst.ID, 10)
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(100).
+		SetPayAmount(1).
+		SetFeeRate(0).
+		SetRechargeCode("REFUND-ZERO-JPY").
+		SetOutTradeNo("refund_zero_jpy").
+		SetPaymentType(payment.TypeStripe).
+		SetPaymentTradeNo("pi_refund_zero_jpy").
+		SetOrderType(payment.OrderTypeBalance).
+		SetStatus(OrderStatusCompleted).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetPaidAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		SetProviderInstanceID(instID).
+		SetProviderKey(payment.TypeStripe).
+		SetProviderSnapshot(map[string]any{
+			"schema_version": 2, "provider_instance_id": instID,
+			"provider_key": payment.TypeStripe, "currency": "JPY",
+		}).
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	plan, result, err := svc.PrepareRefund(ctx, order.ID, 1, "", false, false)
+	require.Nil(t, plan)
+	require.Nil(t, result)
+	require.Equal(t, "INVALID_AMOUNT", infraerrors.Reason(err))
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+
+	plan, result, err = svc.PrepareRefund(ctx, order.ID, 50, "", false, false)
+	require.Nil(t, plan)
+	require.Nil(t, result)
+	require.Equal(t, "INVALID_AMOUNT", infraerrors.Reason(err))
+
+	plan, result, err = svc.PrepareRefund(ctx, order.ID, 100, "", false, false)
+	require.NoError(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1.0, plan.GatewayAmount)
 }
 
 func TestFormatGatewayRefundAmountUsesOrderCurrency(t *testing.T) {
@@ -525,6 +603,45 @@ func TestQueryAndFinalizeRefundPassesPendingAuditTimeToProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "rf_test", prov.lastQuery.RefundID)
 	require.True(t, pendingAudit.CreatedAt.Equal(prov.lastQuery.RequestedAt), "RequestedAt = %v, want %v", prov.lastQuery.RequestedAt, pendingAudit.CreatedAt)
+}
+
+func TestQueryAndFinalizeRefundUsesGatewayAmountForCurrency(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		currency      string
+		payAmount     float64
+		pendingDetail string
+		wantAmount    string
+		wantRefundID  string
+	}{
+		{name: "JPY without stored refund ID", currency: "JPY", payAmount: 10,
+			pendingDetail: `{}`, wantAmount: "5"},
+		{name: "KWD with stored refund ID", currency: "KWD", payAmount: 12.345,
+			pendingDetail: `{"refundID":"rf_kwd"}`, wantAmount: "6.173", wantRefundID: "rf_kwd"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			client := newPaymentConfigServiceTestClient(t)
+			order := createPendingRefundOrderWithDetailForTest(t, ctx, client, "gateway-amount-"+tc.currency, tc.pendingDetail)
+			var err error
+			order, err = client.PaymentOrder.UpdateOneID(order.ID).
+				SetPayAmount(tc.payAmount).
+				SetRefundAmount(50).
+				SetProviderSnapshot(map[string]any{"schema_version": 2, "provider_key": payment.TypeStripe, "currency": tc.currency}).
+				Save(ctx)
+			require.NoError(t, err)
+
+			svc := &PaymentService{entClient: client, loadBalancer: &captureLoadBalancer{}, userRepo: &mockUserRepo{}}
+			prov := &refundQueryProviderTestDouble{refundResponse: &payment.RefundResponse{Status: payment.ProviderStatusPending}}
+			restore := replacePaymentProviderFactoryForTest(t, prov)
+			defer restore()
+
+			_, err = svc.QueryAndFinalizeRefund(ctx, order.ID)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAmount, prov.lastQuery.Amount)
+			require.Equal(t, tc.wantRefundID, prov.lastQuery.RefundID)
+		})
+	}
 }
 
 func TestFinalizePendingRefundSuccessRejectsStaleCallerBeforeSecondDeduction(t *testing.T) {

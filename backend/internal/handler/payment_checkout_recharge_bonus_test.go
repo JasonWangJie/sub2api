@@ -29,9 +29,21 @@ func TestGetCheckoutInfoIncludesRechargePromotions(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	settings := repository.NewSettingRepository(client)
 	require.NoError(t, settings.SetMultiple(context.Background(), map[string]string{
-		service.SettingRechargeBonusTiers: `[{"min_amount":100,"bonus_percent":15}]`,
-		service.SettingRechargeFixedBonus: `{"enabled":true,"threshold_amount":500,"bonus_amount":200}`,
+		service.SettingMinRechargeAmount:   "25",
+		service.SettingMaxRechargeAmount:   "300",
+		service.SettingRechargeBonusTiers:  `[{"min_amount":100,"bonus_percent":15}]`,
+		service.SettingRechargeFixedBonus:  `{"enabled":true,"threshold_amount":500,"bonus_amount":200}`,
+		service.SettingRechargeBonusNotice: "Recharge 500, receive 200 extra",
 	}))
+	for _, limits := range []string{
+		`{"alipay":{"singleMin":1,"singleMax":50}}`,
+		`{"alipay":{"singleMin":100,"singleMax":200}}`,
+	} {
+		_, err := client.PaymentProviderInstance.Create().
+			SetProviderKey("easypay").SetConfig("{}").SetSupportedTypes("alipay").
+			SetLimits(limits).Save(context.Background())
+		require.NoError(t, err)
+	}
 	config := service.NewPaymentConfigService(client, settings, nil)
 	h := NewPaymentHandler(nil, config)
 	getPaymentData := func(path string, handler gin.HandlerFunc) map[string]json.RawMessage {
@@ -49,9 +61,17 @@ func TestGetCheckoutInfoIncludesRechargePromotions(t *testing.T) {
 	}
 
 	checkout := getPaymentData("/api/v1/payment/checkout-info", h.GetCheckoutInfo)
+	require.JSONEq(t, `25`, string(checkout["min_amount"]))
+	require.JSONEq(t, `300`, string(checkout["max_amount"]))
+	var methods map[string]struct {
+		SingleRanges []service.MethodSingleRange `json:"single_ranges"`
+	}
+	require.NoError(t, json.Unmarshal(checkout["methods"], &methods))
+	require.Equal(t, []service.MethodSingleRange{{Min: 1, Max: 50}, {Min: 100, Max: 200}}, methods["alipay"].SingleRanges)
 	require.JSONEq(t, `true`, string(checkout["recharge_bonus_enabled"]))
 	require.JSONEq(t, `[{"min_amount":100,"bonus_percent":15}]`, string(checkout["recharge_bonus_tiers"]))
 	require.JSONEq(t, `{"enabled":true,"threshold_amount":500,"bonus_amount":200}`, string(checkout["recharge_fixed_bonus"]))
+	require.JSONEq(t, `"Recharge 500, receive 200 extra"`, string(checkout["recharge_bonus_notice"]))
 
 	require.NoError(t, settings.Set(context.Background(), service.SettingRechargeBonusEnabled, "false"))
 	for _, data := range []map[string]json.RawMessage{
@@ -61,5 +81,14 @@ func TestGetCheckoutInfoIncludesRechargePromotions(t *testing.T) {
 		require.JSONEq(t, `false`, string(data["recharge_bonus_enabled"]))
 		require.JSONEq(t, `[]`, string(data["recharge_bonus_tiers"]))
 		require.JSONEq(t, `{"enabled":true,"threshold_amount":500,"bonus_amount":200}`, string(data["recharge_fixed_bonus"]))
+		require.JSONEq(t, `"Recharge 500, receive 200 extra"`, string(data["recharge_bonus_notice"]))
+	}
+	require.NoError(t, settings.Set(context.Background(), service.SettingRechargeFixedBonus,
+		`{"enabled":false,"threshold_amount":500,"bonus_amount":200}`))
+	for _, data := range []map[string]json.RawMessage{
+		getPaymentData("/api/v1/payment/checkout-info", h.GetCheckoutInfo),
+		getPaymentData("/api/v1/payment/config", h.GetPaymentConfig),
+	} {
+		require.JSONEq(t, `""`, string(data["recharge_bonus_notice"]))
 	}
 }

@@ -455,6 +455,7 @@ export default {
     amountTooLow: '最低金额为 {min}',
     amountTooHigh: '最高金额为 {max}',
     amountNoMethod: '该金额没有可用的支付方式',
+    amountCurrencyPrecision: '{currency} 金额最多允许 {digits} 位小数',
     rechargeRatePreview: '当前倍率：1 {currency} = {usd} USD',
     refundReason: '退款原因',
     refundReasonPlaceholder: '请描述您的退款原因',

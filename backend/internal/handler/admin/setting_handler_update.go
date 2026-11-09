@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -2197,33 +2198,51 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
-		response.ErrorFrom(c, err)
+	fastPolicyError := false
+	saveSettings := func(ctx context.Context) error {
+		if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmittingInTransaction(ctx, settings, authSourceDefaults, omitted); err != nil {
+			return err
+		}
+		if req.OpenAIFastPolicySettings != nil {
+			if err := h.settingService.SetOpenAIFastPolicySettings(ctx, openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
+				fastPolicyError = true
+				return err
+			}
+		}
+		if updatePayment {
+			return h.paymentConfigService.UpdatePaymentConfigInTransaction(ctx, paymentReq)
+		}
+		return nil
+	}
+	refreshAfterCommit := func() {
+		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
+		defer cancel()
+		h.settingService.RefreshCachedSettingsAfterWrite(refreshCtx, settings, omitted)
+		if h.opsService != nil && req.OpsMonitoringEnabled != nil {
+			h.opsService.SetMonitoringEnabled(settings.OpsMonitoringEnabled)
+		}
+		if updatePayment && h.paymentService != nil {
+			// Refresh providers while this process still holds the settings lock.
+			h.paymentService.RefreshProviders(refreshCtx)
+		}
+	}
+	var saveErr error
+	if h.paymentConfigService != nil {
+		saveErr = h.paymentConfigService.RunSettingsTransaction(c.Request.Context(), saveSettings, refreshAfterCommit)
+	} else {
+		saveErr = saveSettings(c.Request.Context())
+		if saveErr == nil {
+			refreshAfterCommit()
+		}
+	}
+	if saveErr != nil {
+		if fastPolicyError {
+			response.BadRequest(c, saveErr.Error())
+		} else {
+			response.ErrorFrom(c, saveErr)
+		}
 		return
 	}
-	if h.opsService != nil {
-		h.opsService.SetMonitoringEnabled(settings.OpsMonitoringEnabled)
-	}
-
-	// Update OpenAI fast policy (stored under dedicated key, only when provided).
-	if req.OpenAIFastPolicySettings != nil {
-		if err := h.settingService.SetOpenAIFastPolicySettings(c.Request.Context(), openaiFastPolicySettingsFromDTO(req.OpenAIFastPolicySettings)); err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-	}
-
-	if updatePayment {
-		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		// Refresh in-memory provider registry so config changes take effect immediately
-		if h.paymentService != nil {
-			h.paymentService.RefreshProviders(c.Request.Context())
-		}
-	}
-
 	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
 
 	// 重新获取设置返回

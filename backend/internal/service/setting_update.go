@@ -47,7 +47,7 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
-	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	s.RefreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
 
@@ -60,6 +60,16 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Contex
 // auth-source defaults in a single write, leaving the keys in omitted at their
 // stored value.
 func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, omitted OmittedSettingKeys) error {
+	if err := s.UpdateSettingsWithAuthSourceDefaultsOmittingInTransaction(ctx, settings, authDefaults, omitted); err != nil {
+		return err
+	}
+	s.RefreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	return nil
+}
+
+// UpdateSettingsWithAuthSourceDefaultsOmittingInTransaction writes settings
+// without refreshing process caches before the caller commits its transaction.
+func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmittingInTransaction(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, omitted OmittedSettingKeys) error {
 	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
 	if err != nil {
 		return err
@@ -77,15 +87,14 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
-	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
 
-// refreshCachedSettingsAfterWrite keeps the in-process caches in step with the
+// RefreshCachedSettingsAfterWrite keeps the in-process caches in step with the
 // write that just landed. A partial payload carries zero values for the fields
 // it omitted, so in that case the caches are rebuilt from storage rather than
 // from the request struct.
-func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, settings *SystemSettings, omitted OmittedSettingKeys) {
+func (s *SettingService) RefreshCachedSettingsAfterWrite(ctx context.Context, settings *SystemSettings, omitted OmittedSettingKeys) {
 	if len(omitted) == 0 {
 		s.refreshCachedSettings(ctx, settings)
 		return

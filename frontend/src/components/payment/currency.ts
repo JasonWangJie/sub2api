@@ -45,6 +45,11 @@ export function paymentCurrencyFractionDigits(currency: string): number {
   return 2
 }
 
+export function hasPaymentCurrencyPrecision(amount: number, currency: string): boolean {
+  return Number.isFinite(amount)
+    && Number(amount.toFixed(paymentCurrencyFractionDigits(currency))) === amount
+}
+
 export function formatPaymentAmount(amount: number, currency?: string | null, locale?: string): string {
   const normalized = normalizePaymentCurrency(currency)
   if (normalized === 'USDT') {

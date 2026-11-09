@@ -3,12 +3,192 @@
 package payment
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	_ "modernc.org/sqlite"
 )
+
+func TestSelectInstanceRejectsDailyUsageQueryFailure(t *testing.T) {
+	ctx := context.Background()
+	dbName := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared&_fk=1"
+	db, err := sql.Open("sqlite", dbName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, db))))
+	t.Cleanup(func() { _ = client.Close() })
+	_, err = client.PaymentProviderInstance.Create().
+		SetProviderKey(TypeEasyPay).SetConfig("{}").SetSupportedTypes(TypeAlipay).
+		SetLimits(`{"alipay":{"dailyLimit":100}}`).Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "DROP TABLE payment_orders"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewDefaultLoadBalancer(client, nil).SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 50)
+	if err == nil || !strings.Contains(err.Error(), "query provider instance daily usage") {
+		t.Fatalf("expected daily usage query failure to block selection, got %v", err)
+	}
+}
+
+func TestRecheckSelectedInstanceLimitsRejectsStaleSelection(t *testing.T) {
+	ctx := context.Background()
+	dbName := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared&_fk=1"
+	db, err := sql.Open("sqlite", dbName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, db))))
+	t.Cleanup(func() { _ = client.Close() })
+	_, err = client.PaymentProviderInstance.Create().
+		SetProviderKey(TypeEasyPay).SetConfig("{}").SetSupportedTypes(TypeAlipay).
+		SetLimits(`{"alipay":{"dailyLimit":100}}`).Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb := NewDefaultLoadBalancer(client, nil)
+	selection, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := client.User.Create().SetEmail("payer@example.com").SetPasswordHash("hash").SetUsername("payer").Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.PaymentOrder.Create().
+		SetUserID(user.ID).SetUserEmail("payer@example.com").SetUserName("payer").
+		SetAmount(60).SetPayAmount(60).SetRechargeCode("pending-usage").
+		SetPaymentType(TypeAlipay).SetPaymentTradeNo("").SetProviderInstanceID(selection.InstanceID).
+		SetClientIP("127.0.0.1").SetSrcHost("app.example.com").
+		SetExpiresAt(time.Now().Add(time.Hour)).Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := RecheckSelectedInstanceLimitsInTx(ctx, tx, selection, TypeAlipay, 40); err != nil {
+		t.Fatalf("exact remaining capacity rejected: %v", err)
+	}
+	if err := RecheckSelectedInstanceLimitsInTx(ctx, tx, selection, TypeAlipay, 50); err == nil || !strings.Contains(err.Error(), "insufficient capacity") {
+		t.Fatalf("stale selection exceeded daily capacity: %v", err)
+	}
+}
+
+func TestInstanceDailyLimitCountsCrossMidnightPaymentsAndPendingReservations(t *testing.T) {
+	ctx := context.Background()
+	dbName := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared&_fk=1"
+	db, err := sql.Open("sqlite", dbName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, db))))
+	t.Cleanup(func() { _ = client.Close() })
+	_, err = client.PaymentProviderInstance.Create().
+		SetProviderKey(TypeEasyPay).SetConfig("{}").SetSupportedTypes(TypeAlipay).
+		SetLimits(`{"alipay":{"dailyLimit":100}}`).Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := client.User.Create().SetEmail("midnight@example.com").SetPasswordHash("hash").SetUsername("midnight").Save(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb := NewDefaultLoadBalancer(client, nil)
+	staleSelection, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousDay := startOfDay(time.Now()).Add(-time.Minute)
+	newOrder := func(code, status string, amount float64) *dbent.PaymentOrderCreate {
+		return client.PaymentOrder.Create().
+			SetUserID(user.ID).SetUserEmail(user.Email).SetUserName(user.Username).
+			SetAmount(amount).SetPayAmount(amount).SetRechargeCode(code).
+			SetPaymentType(TypeAlipay).SetPaymentTradeNo("").SetProviderInstanceID(staleSelection.InstanceID).
+			SetClientIP("127.0.0.1").SetSrcHost("app.example.com").
+			SetStatus(status).SetCreatedAt(previousDay).SetExpiresAt(time.Now().Add(time.Hour))
+	}
+	if _, err := newOrder("paid-across-midnight", OrderStatusRefunded, 60).SetPaidAt(time.Now()).Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 40); err != nil {
+		t.Fatalf("exact daily remainder rejected: %v", err)
+	}
+	if _, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 41); err == nil {
+		t.Fatal("payment made today from a yesterday order did not consume daily capacity")
+	}
+	if _, err := newOrder("pending-across-midnight", OrderStatusPending, 10).Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 30); err != nil {
+		t.Fatalf("exact capacity after pending reservation rejected: %v", err)
+	}
+	if _, err := lb.SelectInstance(ctx, TypeEasyPay, TypeAlipay, StrategyRoundRobin, 31); err == nil {
+		t.Fatal("yesterday pending order did not reserve today's capacity")
+	}
+	tx, err := client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := RecheckSelectedInstanceLimitsInTx(ctx, tx, staleSelection, TypeAlipay, 31); err == nil {
+		t.Fatal("transactional recheck ignored cross-midnight usage")
+	}
+}
+
+func TestRecheckSelectedInstanceLimitsAcquiresPostgresTransactionLock(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").WithArgs(sqlmock.AnyArg()).WillReturnError(errors.New("lock unavailable"))
+	mock.ExpectRollback()
+	tx, err := client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RecheckSelectedInstanceLimitsInTx(ctx, tx, &InstanceSelection{InstanceID: "7", ProviderKey: TypeEasyPay}, TypeAlipay, 50)
+	if err == nil || !strings.Contains(err.Error(), "lock payment instance capacity") {
+		t.Fatalf("expected transaction lock failure, got %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestInstanceSupportsType(t *testing.T) {
 	t.Parallel()

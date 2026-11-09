@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	"github.com/shopspring/decimal"
 )
 
 // ErrOrderNotFound is returned by HandlePaymentNotification when the webhook
@@ -137,19 +138,21 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 		})
 		return fmt.Errorf("invalid paid amount from provider: %v", paid)
 	}
-	if math.Abs(paid-o.PayAmount) > paymentAmountToleranceForCurrency(PaymentOrderCurrency(o)) {
+	if !paymentAmountsMatch(paid, o.PayAmount, PaymentOrderCurrency(o)) {
 		s.writeAuditLog(ctx, o.ID, "PAYMENT_AMOUNT_MISMATCH", pk, map[string]any{"expected": o.PayAmount, "paid": paid, "tradeNo": tradeNo})
 		return fmt.Errorf("amount mismatch: expected %s, got %s", strconv.FormatFloat(o.PayAmount, 'f', -1, 64), strconv.FormatFloat(paid, 'f', -1, 64))
 	}
 	return s.toPaid(ctx, o, tradeNo, paid, pk)
 }
 
-func paymentAmountToleranceForCurrency(currency string) float64 {
-	minorUnit := payment.CurrencyMinorUnit(currency)
-	if minorUnit <= 2 {
-		return amountToleranceCNY
+func paymentAmountsMatch(paid, expected float64, currency string) bool {
+	expectedMinor, err := payment.AmountToMinorUnit(strconv.FormatFloat(expected, 'f', -1, 64), currency)
+	if err != nil {
+		return false
 	}
-	return math.Pow10(-minorUnit) / 2
+	paidMinor, err := payment.AmountToMinorUnit(strconv.FormatFloat(paid, 'f', -1, 64), currency)
+	// Require the same decimal amount even if both values map to one minor unit.
+	return err == nil && expectedMinor == paidMinor && decimal.NewFromFloat(expected).Equal(decimal.NewFromFloat(paid))
 }
 
 func isValidProviderAmount(amount float64) bool {
@@ -176,24 +179,35 @@ func expectedNotificationProviderKey(registry *payment.Registry, orderPaymentTyp
 }
 
 func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, tradeNo string, paid float64, pk string) error {
+	return s.toPaidAttempt(ctx, o, tradeNo, paid, pk, false)
+}
+
+func (s *PaymentService) toPaidAttempt(ctx context.Context, o *dbent.PaymentOrder, tradeNo string, paid float64, pk string, retried bool) error {
 	previousStatus := o.Status
 	now := time.Now()
-	grace := now.Add(-paymentGraceMinutes * time.Minute)
 	c, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
 		paymentorder.Or(
 			paymentorder.StatusEQ(OrderStatusPending),
 			paymentorder.StatusEQ(OrderStatusCancelled),
-			paymentorder.And(
-				paymentorder.StatusEQ(OrderStatusExpired),
-				paymentorder.UpdatedAtGTE(grace),
-			),
+			paymentorder.StatusEQ(OrderStatusExpired),
+			paymentorder.And(paymentorder.StatusEQ(OrderStatusFailed), paymentorder.PaidAtIsNil()),
 		),
 	).SetStatus(OrderStatusPaid).SetPayAmount(paid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
 	if err != nil {
 		return fmt.Errorf("update to PAID: %w", err)
 	}
 	if c == 0 {
+		cur, reloadErr := s.entClient.PaymentOrder.Get(ctx, o.ID)
+		if reloadErr != nil {
+			return fmt.Errorf("reload paid order after status race: %w", reloadErr)
+		}
+		if cur.Status == OrderStatusCancelled || cur.Status == OrderStatusExpired || (cur.Status == OrderStatusFailed && cur.PaidAt == nil) {
+			if retried {
+				return fmt.Errorf("paid order %d remains %s after recovery retry", o.ID, cur.Status)
+			}
+			return s.toPaidAttempt(ctx, cur, tradeNo, paid, pk, true)
+		}
 		return s.alreadyProcessed(ctx, o)
 	}
 	if previousStatus == OrderStatusCancelled || previousStatus == OrderStatusExpired {
@@ -217,27 +231,34 @@ func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, trad
 func (s *PaymentService) alreadyProcessed(ctx context.Context, o *dbent.PaymentOrder) error {
 	cur, err := s.entClient.PaymentOrder.Get(ctx, o.ID)
 	if err != nil {
-		return nil
+		return fmt.Errorf("reload already processed order: %w", err)
 	}
 	switch cur.Status {
-	case OrderStatusCompleted, OrderStatusRefunded:
+	case OrderStatusCompleted, OrderStatusRefundRequested, OrderStatusRefunding,
+		OrderStatusRefundPending, OrderStatusPartiallyRefunded, OrderStatusRefunded,
+		OrderStatusRefundFailed:
 		return nil
-	case OrderStatusFailed, OrderStatusPaid, OrderStatusRecharging:
+	case OrderStatusFailed:
+		if cur.PaidAt == nil {
+			return fmt.Errorf("failed order %d has no confirmed payment", o.ID)
+		}
 		return s.executeFulfillment(ctx, o.ID)
-	case OrderStatusExpired:
-		slog.Warn("webhook payment success for expired order beyond grace period",
+	case OrderStatusPaid, OrderStatusRecharging:
+		return s.executeFulfillment(ctx, o.ID)
+	case OrderStatusExpired, OrderStatusCancelled:
+		slog.Error("paid order remained unfulfilled after status update",
 			"orderID", o.ID,
 			"status", cur.Status,
 			"updatedAt", cur.UpdatedAt,
 		)
-		s.writeAuditLog(ctx, o.ID, "PAYMENT_AFTER_EXPIRY", "system", map[string]any{
+		s.writeAuditLog(ctx, o.ID, "PAYMENT_RECOVERY_FAILED", "system", map[string]any{
 			"status":    cur.Status,
 			"updatedAt": cur.UpdatedAt,
-			"reason":    "payment arrived after expiry grace period",
+			"reason":    "paid order was not recovered",
 		})
-		return nil
+		return fmt.Errorf("paid order %d remained %s after status update", o.ID, cur.Status)
 	default:
-		return nil
+		return fmt.Errorf("paid order %d cannot be fulfilled in status %s", o.ID, cur.Status)
 	}
 }
 

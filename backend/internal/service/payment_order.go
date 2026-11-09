@@ -121,6 +121,9 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 	}
 	if plan == nil && req.OrderType == payment.OrderTypeBalance && !allowUSDT {
 		// USDT 使用上面的独立汇率和赠送报价，不叠加普通充值优惠。
+		if err := validateCreateOrderAmountCurrency(req.Amount, methodCurrency); err != nil {
+			return nil, err
+		}
 		quote, err := quoteRechargeBonus(cfg, req.Amount, methodCurrency)
 		if err != nil {
 			return nil, err
@@ -128,6 +131,10 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 		limitAmount = quote.PayBase
 		bonusAmount = quote.Bonus
 		orderAmount = quote.Credited
+	}
+	if req.OrderType == payment.OrderTypeBalance &&
+		(math.IsNaN(orderAmount) || math.IsInf(orderAmount, 0) || orderAmount <= 0 || orderAmount >= rechargeCreditExclusiveLimit) {
+		return nil, invalidRechargeBonusAmount()
 	}
 	payAmountStr, payAmount, err := calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate, methodCurrency, req.OrderType, cfg.SubscriptionUSDToCNYRate)
 	if err != nil {
@@ -145,6 +152,11 @@ func (s *PaymentService) createOrder(ctx context.Context, req CreateOrderRequest
 		selectedCurrency = paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
 	}
 	if selectedCurrency != methodCurrency {
+		if plan == nil && req.OrderType == payment.OrderTypeBalance && !allowUSDT {
+			if err := validateCreateOrderAmountCurrency(req.Amount, selectedCurrency); err != nil {
+				return nil, err
+			}
+		}
 		payAmountStr, payAmount, err = calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate, selectedCurrency, req.OrderType, cfg.SubscriptionUSDToCNYRate)
 		if err != nil {
 			return nil, err
@@ -241,6 +253,11 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	if sel != nil {
 		selectedInstanceID = strings.TrimSpace(sel.InstanceID)
 		selectedProviderKey = strings.TrimSpace(sel.ProviderKey)
+	}
+	if err := payment.RecheckSelectedInstanceLimitsInTx(ctx, tx, sel, req.PaymentType, payAmount); err != nil {
+		slog.Warn("selected payment instance capacity recheck failed", "instance_id", selectedInstanceID, "error", err)
+		return nil, infraerrors.ServiceUnavailable("PAYMENT_GATEWAY_ERROR", "method_not_configured").
+			WithMetadata(map[string]string{"payment_type": req.PaymentType})
 	}
 	b := tx.PaymentOrder.Create().
 		SetUserID(req.UserID).

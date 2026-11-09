@@ -6,9 +6,10 @@ export type RechargeBonusMode = 'bonus' | 'discount'
 
 export const MAX_RECHARGE_BONUS_TIERS = 20
 export const MAX_RECHARGE_BONUS_PERCENT = 1000
+export const MAX_RECHARGE_FIXED_BONUS_AMOUNT = 1e9
 
 const AMOUNT_EPSILON = 1e-9
-// 到账额度必须能写入 DECIMAL(20, 8) 的余额字段。
+// 单笔到账上限与后端兑换码金额字段一致。
 const RECHARGE_BALANCE_AMOUNT_LIMIT = 1e12
 
 // 后台编辑态：两个值都允许留空（未完成的行在提交时丢弃）。
@@ -217,7 +218,7 @@ export function quoteRechargeBonus(
   const rate = typeof opts.multiplier === 'number' && Number.isFinite(opts.multiplier) && opts.multiplier > 0 ? opts.multiplier : 1
   const digits = typeof opts.currencyDigits === 'number' && Number.isInteger(opts.currencyDigits) && opts.currencyDigits >= 0 ? opts.currencyDigits : 2
   const base = roundDecimalProduct([amount, rate])
-  const quote: RechargeBonusQuote = { mode, available: Number.isFinite(base), percent: 0, payBase: amount, base, bonus: 0, credited: base, source: null, tier: null }
+  const quote: RechargeBonusQuote = { mode, available: Number.isFinite(base) && base < RECHARGE_BALANCE_AMOUNT_LIMIT, percent: 0, payBase: amount, base, bonus: 0, credited: base, source: null, tier: null }
   if (!quote.available) return quote
   const tier = matchRechargeBonusTier(tiers, amount)
   if (mode === 'discount') {
@@ -249,8 +250,7 @@ export function quoteRechargeBonus(
     quote.tier = tier
   }
   const credited = base + quote.bonus
-  quote.available = Number.isFinite(credited)
-    && (!fixedEnabled || credited < RECHARGE_BALANCE_AMOUNT_LIMIT)
+  quote.available = Number.isFinite(credited) && credited < RECHARGE_BALANCE_AMOUNT_LIMIT
   if (quote.available) quote.credited = roundRechargeAmount(credited)
   return quote
 }

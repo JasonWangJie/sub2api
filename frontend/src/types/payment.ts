@@ -59,12 +59,14 @@ export interface MethodLimit {
   currency?: string
   display_name?: string
   daily_limit: number
-  daily_used: number
-  daily_remaining: number
+  daily_used?: number
+  daily_remaining?: number
   single_min: number
   single_max: number
+  /** Payable ranges for individual provider instances; absent on older servers. */
+  single_ranges?: Array<{ min: number; max: number }>
   fee_rate: number
-  available: boolean
+  available?: boolean
 }
 
 /** Response from /payment/limits API */
@@ -79,6 +81,9 @@ export interface CheckoutInfoResponse {
   methods: Record<string, MethodLimit>
   global_min: number
   global_max: number
+  /** Global raw recharge amount range; missing on older servers. */
+  min_amount?: number
+  max_amount?: number
   plans: SubscriptionPlan[]
   balance_disabled: boolean
   balance_recharge_multiplier: number

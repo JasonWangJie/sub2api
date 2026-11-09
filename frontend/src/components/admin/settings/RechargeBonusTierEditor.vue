@@ -207,6 +207,7 @@
               :disabled="!fixedBonus.enabled"
               type="number"
               min="0.01"
+              :max="MAX_RECHARGE_FIXED_BONUS_AMOUNT"
               step="0.01"
               class="input"
               data-testid="recharge-fixed-bonus-amount"
@@ -255,6 +256,7 @@ import type { RechargeFixedBonus } from '@/types/payment'
 import {
   MAX_RECHARGE_BONUS_PERCENT,
   MAX_RECHARGE_BONUS_TIERS,
+  MAX_RECHARGE_FIXED_BONUS_AMOUNT,
   describeRechargeBonusIntervals,
   formatRechargeBonusNumber,
   isDuplicateRechargeBonusMinAmount,

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -37,14 +38,9 @@ const (
 )
 
 const (
-	// defaultMaxPendingOrders and defaultOrderTimeoutMin are defined in
-	// payment_config_service.go alongside other payment configuration defaults.
-	paymentGraceMinutes = 5
-
-	defaultPageSize    = 20
-	maxPageSize        = 100
-	topUsersLimit      = 10
-	amountToleranceCNY = 0.01
+	defaultPageSize = 20
+	maxPageSize     = 100
+	topUsersLimit   = 10
 
 	orderIDPrefix = "sub2_"
 )
@@ -203,19 +199,20 @@ type TopUsersByCurrency map[string][]TopUserStat
 // --- Service ---
 
 type PaymentService struct {
-	providerMu               sync.Mutex
-	providersLoaded          bool
-	entClient                *dbent.Client
-	registry                 *payment.Registry
-	loadBalancer             payment.LoadBalancer
-	redeemService            *RedeemService
-	subscriptionSvc          *SubscriptionService
-	configService            *PaymentConfigService
-	userRepo                 UserRepository
-	groupRepo                GroupRepository
-	resumeService            *PaymentResumeService
-	affiliateService         *AffiliateService
-	notificationEmailService *NotificationEmailService
+	providerMu                   sync.Mutex
+	failedPaymentReconcileCursor atomic.Int64
+	providersLoaded              bool
+	entClient                    *dbent.Client
+	registry                     *payment.Registry
+	loadBalancer                 payment.LoadBalancer
+	redeemService                *RedeemService
+	subscriptionSvc              *SubscriptionService
+	configService                *PaymentConfigService
+	userRepo                     UserRepository
+	groupRepo                    GroupRepository
+	resumeService                *PaymentResumeService
+	affiliateService             *AffiliateService
+	notificationEmailService     *NotificationEmailService
 }
 
 func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService) *PaymentService {

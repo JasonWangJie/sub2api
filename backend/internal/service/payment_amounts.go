@@ -50,7 +50,7 @@ func calculateGatewayRefundAmount(orderAmount, payAmount, refundAmount float64, 
 		return 0
 	}
 	fractionDigits := int32(payment.CurrencyMaxFractionDigits(currency))
-	if math.Abs(refundAmount-orderAmount) <= paymentAmountToleranceForCurrency(currency) {
+	if decimal.NewFromFloat(refundAmount).Equal(decimal.NewFromFloat(orderAmount)) {
 		return decimal.NewFromFloat(payAmount).Round(fractionDigits).InexactFloat64()
 	}
 	return decimal.NewFromFloat(payAmount).

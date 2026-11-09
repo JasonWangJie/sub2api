@@ -871,6 +871,7 @@ export default {
           fixedThreshold: '每满金额（支付币种）',
           fixedAmount: '每份赠送面额（支付币种）',
           invalidFixedAmounts: '启用固定满赠时，两项金额都必须大于 0，且最多保留两位小数。',
+          fixedAmountTooHigh: '固定赠送面额不得超过 10 亿。',
           discountConflict: '固定满赠与阶梯折扣不能同时生效。请关闭其中一项，或将阶梯优惠改为赠金。',
           noticeLabel: '充值赠送活动文案',
           noticeHint: '支持 Markdown，展示在充值页金额选择区顶部；留空则不展示。',

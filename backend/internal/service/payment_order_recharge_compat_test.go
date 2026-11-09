@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,6 +109,46 @@ func TestCreateOrderRechargeTiersPreserveMultiplierAndFee(t *testing.T) {
 	}
 }
 
+func TestCreateRechargeOrderRejectsFractionalJPYBeforeDiscount(t *testing.T) {
+	ctx := context.Background()
+	svc, userID := newPaymentRechargeCompatService(t, payment.TypeStripe, payment.TypeStripe, map[string]string{
+		"currency": "JPY", "secretKey": "sk_test_example", "webhookSecret": "whsec_example",
+	}, map[string]string{
+		SettingPaymentEnabled: "true", SettingRechargeBonusMode: RechargeBonusModeDiscount,
+		SettingRechargeBonusTiers: `[{"min_amount":50,"bonus_percent":50}]`,
+	})
+	_, err := svc.CreateOrder(ctx, CreateOrderRequest{
+		UserID: userID, Amount: 50.5, PaymentType: payment.TypeStripe,
+		OrderType: payment.OrderTypeBalance, SrcHost: "app.example.com",
+	})
+	require.Equal(t, "INVALID_AMOUNT", infraerrors.Reason(err))
+	count, err := svc.entClient.PaymentOrder.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
+func TestCreateRechargeOrderHonorsFeeInclusiveInstanceLimit(t *testing.T) {
+	ctx := context.Background()
+	svc, userID := newPaymentRechargeCompatService(t, payment.TypeEasyPay, payment.TypeAlipay, map[string]string{
+		"pid": "test-merchant", "pkey": "test-key", "apiBase": "https://gateway.example.com",
+		"notifyUrl": "https://app.example.com/notify", "returnUrl": "https://app.example.com/return",
+	}, map[string]string{
+		SettingPaymentEnabled: "true", SettingRechargeFeeRate: "1",
+	})
+	instance, err := svc.entClient.PaymentProviderInstance.Query().Only(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.entClient.PaymentProviderInstance.UpdateOneID(instance.ID).
+		SetLimits(`{"alipay":{"singleMax":100}}`).Exec(ctx))
+	_, err = svc.CreateOrder(ctx, CreateOrderRequest{
+		UserID: userID, Amount: 100, PaymentType: payment.TypeAlipay,
+		OrderType: payment.OrderTypeBalance, SrcHost: "app.example.com",
+	})
+	require.Equal(t, "PAYMENT_GATEWAY_ERROR", infraerrors.Reason(err))
+	count, err := svc.entClient.PaymentOrder.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
 func TestCreateUSDTOrderIgnoresOrdinaryRechargeTiers(t *testing.T) {
 	for _, currency := range []string{"USDT", "CNY"} {
 		for _, mode := range []string{"bonus", "discount"} {
@@ -175,4 +216,25 @@ func TestCreateUSDTOrderIgnoresOrdinaryRechargeTiers(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestCreateUSDTOrderRejectsCreditBeyondRedeemCodeCapacity(t *testing.T) {
+	ctx := context.Background()
+	svc, userID := newPaymentRechargeCompatService(t, payment.TypeEpusdt, payment.TypeUSDT, map[string]string{
+		"pid": "test-merchant", "secretKey": "test-key", "apiBase": "https://gateway.example.com",
+		"notifyUrl": "https://app.example.com/notify", "returnUrl": "https://app.example.com/return",
+		"networks": "tron=TRC20", "currency": "USDT", "bonusRate": "0",
+	}, map[string]string{SettingPaymentEnabled: "true"})
+	now := time.Now()
+	svc.configService.usdtRate = &USDTExchangeRateService{
+		hasValue: true, now: func() time.Time { return now },
+		current: USDTExchangeRate{Rate: 6.67, Source: usdtRateSourceOKXC2C, At: now},
+	}
+	_, err := svc.CreateUSDTOrder(ctx, CreateOrderRequest{
+		UserID: userID, Amount: 1e12, Network: "tron", SrcHost: "app.example.com",
+	})
+	require.Equal(t, "INVALID_RECHARGE_BONUS_AMOUNT", infraerrors.Reason(err))
+	count, err := svc.entClient.PaymentOrder.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
 }

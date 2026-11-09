@@ -4,6 +4,7 @@ import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -461,6 +462,104 @@ describe('PaymentView recharge gifts', () => {
     expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$2.00 USD')
   })
 
+  it('hides a stored bonus notice while both promotions are paused', async () => {
+    const wrapper = await mountRecharge({
+      recharge_bonus_notice: '**Recharge 50, get 15**',
+      recharge_bonus_enabled: false,
+      recharge_bonus_tiers: [{ min_amount: 50, bonus_percent: 20 }],
+      recharge_fixed_bonus: { enabled: false, threshold_amount: 50, bonus_amount: 15 },
+    })
+    expect(wrapper.find('[data-testid="recharge-bonus-notice"]').exists()).toBe(false)
+  })
+
+  it('checks the fee-inclusive payable amount against the channel maximum', async () => {
+    const wrapper = await mountRecharge({
+      recharge_fee_rate: 1,
+      methods: {
+        wxpay: { ...checkoutInfoFixture().data.methods.wxpay, single_max: 100 },
+      },
+    })
+    expect(wrapper.find('[data-testid="quick-amount-100"]').exists()).toBe(false)
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="recharge-actual-pay-row"]').text()).toContain(formatPaymentAmount(101, 'CNY'))
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')[0].available).toBe(false)
+    expect(wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))?.attributes()).toHaveProperty('disabled')
+  })
+
+  it('honors global raw recharge bounds before offering methods or presets', async () => {
+    const wrapper = await mountRecharge({ min_amount: 100, max_amount: 200 })
+    expect(wrapper.getComponent(AmountInput).props()).toMatchObject({ min: 100, max: 200 })
+    expect(wrapper.find('[data-testid="quick-amount-50"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="quick-amount-100"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="quick-amount-500"]').exists()).toBe(false)
+
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 50)
+    await flushPromises()
+    expect(wrapper.text()).toContain('payment.amountTooLow')
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')[0].available).toBe(false)
+    expect(wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))?.attributes()).toHaveProperty('disabled')
+
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 250)
+    await flushPromises()
+    expect(wrapper.text()).toContain('payment.amountTooHigh')
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')[0].available).toBe(false)
+  })
+
+  it('keeps a preset when its discounted payable amount fits the channel', async () => {
+    const wrapper = await mountRecharge({
+      recharge_bonus_enabled: true,
+      recharge_bonus_tiers: [{ min_amount: 0, bonus_percent: 50 }],
+      recharge_bonus_mode: 'discount',
+      recharge_fee_rate: 1,
+      methods: { wxpay: { ...checkoutInfoFixture().data.methods.wxpay, single_max: 30 } },
+    })
+    expect(wrapper.find('[data-testid="quick-amount-50"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="quick-amount-100"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="quick-amount-50"]').trigger('click')
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')[0].available).toBe(true)
+  })
+
+  it('rejects an amount in a gap between provider instance ranges', async () => {
+    const wrapper = await mountRecharge({
+      methods: {
+        wxpay: {
+          ...checkoutInfoFixture().data.methods.wxpay,
+          single_min: 1,
+          single_max: 200,
+          single_ranges: [{ min: 1, max: 50 }, { min: 100, max: 200 }],
+        },
+      },
+    })
+    expect(wrapper.find('[data-testid="quick-amount-50"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="quick-amount-100"]').exists()).toBe(true)
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 75)
+    await flushPromises()
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')[0].available).toBe(false)
+    expect(wrapper.text()).toContain('payment.amountNoMethod')
+    expect(wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))?.attributes()).toHaveProperty('disabled')
+  })
+
+  it('quotes each channel in its own currency and only offers valid input precision', async () => {
+    const common = checkoutInfoFixture().data.methods.wxpay
+    const wrapper = await mountRecharge({
+      recharge_bonus_enabled: true,
+      recharge_bonus_tiers: [{ min_amount: 50, bonus_percent: 50 }],
+      recharge_bonus_mode: 'discount',
+      recharge_fee_rate: 1,
+      methods: {
+        stripe: { ...common, currency: 'JPY' },
+        airwallex: { ...common, currency: 'KWD' },
+      },
+    })
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 50.5)
+    await flushPromises()
+    const methods = wrapper.getComponent(PaymentMethodSelector).props('methods')
+    expect(methods.find((method: { type: string }) => method.type === 'stripe')?.available).toBe(false)
+    expect(methods.find((method: { type: string }) => method.type === 'airwallex')?.available).toBe(true)
+    expect(wrapper.get('[data-testid="recharge-actual-pay-row"]').text()).toContain(formatPaymentAmount(25.503, 'KWD'))
+  })
+
   it('uses fixed gifts after explicit opt-out of a stored percentage discount', async () => {
     const wrapper = await mountRecharge({
       recharge_bonus_enabled: false,
@@ -496,9 +595,9 @@ describe('PaymentView recharge gifts', () => {
     const wrapper = await mountRecharge({
       recharge_fixed_bonus: { enabled: true, threshold_amount: 50, bonus_amount: 1e308 },
     })
-    const preset = wrapper.get('[data-testid="quick-amount-100"]')
-    expect(preset.find('[data-testid="quick-amount-bonus-badge"]').exists()).toBe(false)
-    await preset.trigger('click')
+    expect(wrapper.find('[data-testid="quick-amount-100"]').exists()).toBe(false)
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
     expect(wrapper.find('[data-testid="recharge-credited-row"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('payment.rechargeBonus.unavailable')
     expect(wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))?.attributes()).toHaveProperty('disabled')

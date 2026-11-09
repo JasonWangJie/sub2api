@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"entgo.io/ent/dialect"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -137,13 +138,20 @@ type UpdatePaymentConfigRequest struct {
 
 // MethodLimits holds per-payment-type limits.
 type MethodLimits struct {
-	PaymentType string  `json:"payment_type"`
-	DisplayName string  `json:"display_name,omitempty"`
-	Currency    string  `json:"currency"`
-	FeeRate     float64 `json:"fee_rate"`
-	DailyLimit  float64 `json:"daily_limit"`
-	SingleMin   float64 `json:"single_min"`
-	SingleMax   float64 `json:"single_max"`
+	PaymentType  string              `json:"payment_type"`
+	DisplayName  string              `json:"display_name,omitempty"`
+	Currency     string              `json:"currency"`
+	FeeRate      float64             `json:"fee_rate"`
+	DailyLimit   float64             `json:"daily_limit"`
+	SingleMin    float64             `json:"single_min"`
+	SingleMax    float64             `json:"single_max"`
+	SingleRanges []MethodSingleRange `json:"single_ranges,omitempty"`
+}
+
+// MethodSingleRange is one instance's payable-amount interval. Zero means no bound.
+type MethodSingleRange struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
 }
 
 // MethodLimitsResponse is the full response for the user-facing /limits API.
@@ -361,11 +369,58 @@ func (s *PaymentConfigService) ValidatePaymentConfigUpdate(ctx context.Context, 
 	return err
 }
 
-// UpdatePaymentConfig updates the payment configuration settings.
-func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req UpdatePaymentConfigRequest) error {
-	// Keep concurrent patches on this service from validating against the same stale rule.
+// RunSettingsTransaction keeps a setting patch atomic and serializes PostgreSQL
+// updates across application instances. The callback uses the same transaction.
+// Post-commit refreshes run under the local lock so a later patch cannot refresh
+// the process caches first and then be overwritten by an earlier response.
+func (s *PaymentConfigService) RunSettingsTransaction(ctx context.Context, update func(context.Context) error, afterCommit ...func()) error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
+	if s.entClient == nil {
+		if err := update(ctx); err != nil {
+			return err
+		}
+		for _, refresh := range afterCommit {
+			refresh()
+		}
+		return nil
+	}
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin settings transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if s.entClient.Driver().Dialect() == dialect.Postgres {
+		lockID := hashAdvisoryLockID("payment_config_update")
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", lockID); err != nil {
+			return fmt.Errorf("lock payment settings: %w", err)
+		}
+	}
+	if err := update(dbent.NewTxContext(ctx, tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit settings transaction: %w", err)
+	}
+	for _, refresh := range afterCommit {
+		refresh()
+	}
+	return nil
+}
+
+// UpdatePaymentConfig updates the payment configuration settings.
+func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req UpdatePaymentConfigRequest) error {
+	return s.RunSettingsTransaction(ctx, func(txCtx context.Context) error {
+		return s.UpdatePaymentConfigInTransaction(txCtx, req)
+	})
+}
+
+// UpdatePaymentConfigInTransaction validates the current state and writes the
+// patch while the caller holds the settings transaction.
+func (s *PaymentConfigService) UpdatePaymentConfigInTransaction(ctx context.Context, req UpdatePaymentConfigRequest) error {
+	if s.entClient != nil && dbent.TxFromContext(ctx) == nil {
+		return fmt.Errorf("payment configuration update requires a settings transaction")
+	}
 	updates, err := s.paymentConfigUpdates(ctx, req)
 	if err != nil {
 		return err

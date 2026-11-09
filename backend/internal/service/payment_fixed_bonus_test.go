@@ -150,6 +150,7 @@ func TestUpdatePaymentConfigFixedBonus(t *testing.T) {
 			`{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":10,"bonus_amount":-1}}`,
 			`{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":10.001,"bonus_amount":1}}`,
 			`{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":10,"bonus_amount":0.101}}`,
+			`{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":10,"bonus_amount":1000000000.01}}`,
 		} {
 			repo := &paymentConfigSettingRepoStub{}
 			svc := &PaymentConfigService{settingRepo: repo}
@@ -157,6 +158,33 @@ func TestUpdatePaymentConfigFixedBonus(t *testing.T) {
 			require.Equal(t, "INVALID_RECHARGE_FIXED_BONUS", infraerrors.Reason(err), body)
 			require.Nil(t, repo.updates)
 		}
+	})
+
+	t.Run("preserves an unchanged legacy gift above the new cap", func(t *testing.T) {
+		const legacy = `{"enabled":true,"threshold_amount":100,"bonus_amount":2000000000}`
+		repo := &paymentConfigSettingRepoStub{values: map[string]string{SettingRechargeFixedBonus: legacy}}
+		svc := &PaymentConfigService{settingRepo: repo}
+		require.NoError(t, update(t, svc, `{"recharge_fixed_bonus":`+legacy+`}`))
+		require.Equal(t, legacy, repo.values[SettingRechargeFixedBonus])
+		err := update(t, svc, `{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":1,"bonus_amount":2000000000}}`)
+		require.Equal(t, "INVALID_RECHARGE_FIXED_BONUS", infraerrors.Reason(err))
+		require.Equal(t, legacy, repo.values[SettingRechargeFixedBonus])
+		err = update(t, svc, `{"recharge_fixed_bonus":{"enabled":true,"threshold_amount":100,"bonus_amount":2000000001}}`)
+		require.Equal(t, "INVALID_RECHARGE_FIXED_BONUS", infraerrors.Reason(err))
+	})
+
+	t.Run("does not reactivate a suppressed legacy gift when discount is disabled", func(t *testing.T) {
+		repo := &paymentConfigSettingRepoStub{values: map[string]string{
+			SettingRechargeBonusMode:  RechargeBonusModeDiscount,
+			SettingRechargeBonusTiers: `[{"min_amount":100,"bonus_percent":20}]`,
+			SettingRechargeFixedBonus: `{"enabled":true,"threshold_amount":100,"bonus_amount":30}`,
+		}}
+		svc := &PaymentConfigService{settingRepo: repo}
+		require.NoError(t, update(t, svc, `{"recharge_bonus_mode":"bonus"}`))
+		require.JSONEq(t, `{"enabled":false,"threshold_amount":100,"bonus_amount":30}`,
+			repo.values[SettingRechargeFixedBonus])
+		cfg := svc.parsePaymentConfig(repo.values)
+		require.False(t, cfg.RechargeFixedBonus.Enabled)
 	})
 
 	t.Run("rejects a conflict with inferred legacy discount", func(t *testing.T) {
@@ -213,6 +241,37 @@ func TestCreateRechargeOrderRejectsUnrepresentableFixedBonus(t *testing.T) {
 			_, err := svc.CreateOrder(ctx, CreateOrderRequest{
 				UserID: userID, Amount: 100, PaymentType: payment.TypeAlipay, OrderType: payment.OrderTypeBalance,
 				SrcHost: "app.example.com",
+			})
+			require.Equal(t, "INVALID_RECHARGE_BONUS_AMOUNT", infraerrors.Reason(err))
+			count, err := svc.entClient.PaymentOrder.Query().Count(ctx)
+			require.NoError(t, err)
+			require.Zero(t, count)
+		})
+	}
+}
+
+func TestCreateRechargeOrderRejectsCreditBeyondRedeemCodeCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		amount   float64
+		settings map[string]string
+	}{
+		{name: "plain recharge", amount: 1e12},
+		{name: "multiplied recharge", amount: 1e11, settings: map[string]string{SettingBalanceRechargeMult: "10"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			settings := map[string]string{SettingPaymentEnabled: "true"}
+			for key, value := range tc.settings {
+				settings[key] = value
+			}
+			svc, userID := newPaymentRechargeCompatService(t, payment.TypeEasyPay, payment.TypeAlipay, map[string]string{
+				"pid": "test-merchant", "pkey": "test-key", "apiBase": "https://gateway.example.com",
+				"notifyUrl": "https://app.example.com/notify", "returnUrl": "https://app.example.com/return",
+			}, settings)
+			_, err := svc.CreateOrder(ctx, CreateOrderRequest{
+				UserID: userID, Amount: tc.amount, PaymentType: payment.TypeAlipay,
+				OrderType: payment.OrderTypeBalance, SrcHost: "app.example.com",
 			})
 			require.Equal(t, "INVALID_RECHARGE_BONUS_AMOUNT", infraerrors.Reason(err))
 			count, err := svc.entClient.PaymentOrder.Query().Count(ctx)

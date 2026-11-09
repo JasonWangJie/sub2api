@@ -15,6 +15,29 @@ function mountInput(value: number | null = null) {
 }
 
 describe('recharge amount input', () => {
+  it('accepts the payment currency precision and rejects fractional JPY or four-decimal KWD', async () => {
+    const yen = mount(AmountInput, { props: { modelValue: null, currency: 'JPY' } })
+    const yenInput = yen.get('input')
+    await yenInput.setValue('50.5')
+    expect((yenInput.element as HTMLInputElement).value).toBe('')
+    await yenInput.setValue('50')
+    expect(yen.emitted('update:modelValue')).toEqual([[50]])
+
+    const dinar = mount(AmountInput, { props: { modelValue: null, currency: 'KWD' } })
+    const dinarInput = dinar.get('input')
+    await dinarInput.setValue('10.001')
+    await dinarInput.setValue('10.0012')
+    expect((dinarInput.element as HTMLInputElement).value).toBe('10.001')
+    expect(dinar.emitted('update:modelValue')).toEqual([[10.001]])
+  })
+
+  it('clears an amount that becomes invalid when the currency changes', async () => {
+    const wrapper = mount(AmountInput, { props: { modelValue: 50.5, currency: 'CNY' } })
+    await wrapper.setProps({ currency: 'JPY' })
+    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[null]])
+  })
+
   it.each(['10abc', '10.555', '-10', '1e2'])('restores the accepted amount after rejecting %s', async (value) => {
     const wrapper = mountInput(10)
     const input = wrapper.get('input')

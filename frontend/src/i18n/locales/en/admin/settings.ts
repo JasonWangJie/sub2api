@@ -876,6 +876,7 @@ export default {
           fixedThreshold: 'Threshold amount (payment currency)',
           fixedAmount: 'Bonus per threshold (payment currency)',
           invalidFixedAmounts: 'Both fixed bonus amounts must be greater than zero and have at most two decimal places.',
+          fixedAmountTooHigh: 'The fixed bonus amount must not exceed 1 billion.',
           discountConflict: 'Fixed bonuses and tier discounts cannot be active together. Turn one off or switch the tiers to percentage bonuses.',
           noticeLabel: 'Recharge Bonus Notice',
           noticeHint: 'Markdown supported. Shown at the top of the amount picker on the recharge page; leave empty to hide.',

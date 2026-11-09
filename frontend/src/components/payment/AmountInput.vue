@@ -59,7 +59,7 @@
         </span>
         <input
           type="text"
-          inputmode="decimal"
+          :inputmode="paymentCurrencyFractionDigits(currency) === 0 ? 'numeric' : 'decimal'"
           :value="customText"
           :placeholder="placeholderText"
           class="input w-full py-3 pl-4 pr-16"
@@ -81,13 +81,15 @@ import {
   type RechargeBonusMode,
   type RechargeBonusQuote,
 } from '@/utils/rechargeBonus'
-import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, paymentCurrencyFractionDigits } from './currency'
+import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, hasPaymentCurrencyPrecision, paymentCurrencyFractionDigits } from './currency'
 
 const props = withDefaults(defineProps<{
   amounts?: number[]
   modelValue: number | null
   min?: number
   max?: number
+  /** Whether at least one payment method can charge this preset amount. */
+  isAmountAvailable?: (amount: number) => boolean
   /** 生效的充值优惠阶梯（按 min_amount 升序） */
   bonusTiers?: RechargeBonusTier[]
   /** 阶梯模式：bonus 赠金 / discount 折扣 */
@@ -117,7 +119,10 @@ const customText = ref('')
 
 // 0 = no limit
 const quickAmounts = computed(() => props.amounts
-  .filter((amount) => (props.min <= 0 || amount >= props.min) && (props.max <= 0 || amount <= props.max))
+  .filter((amount) => hasPaymentCurrencyPrecision(amount, props.currency)
+    && (props.min <= 0 || amount >= props.min)
+    && (props.max <= 0 || amount <= props.max)
+    && (!props.isAmountAvailable || props.isAmountAvailable(amount)))
   .map((amount) => ({
     amount,
     quote: quoteRechargeBonus(props.bonusTiers, amount, {
@@ -152,7 +157,10 @@ const placeholderText = computed(() => {
   return t('payment.enterAmount')
 })
 
-const AMOUNT_PATTERN = /^\d*(\.\d{0,2})?$/
+const amountPattern = computed(() => {
+  const digits = paymentCurrencyFractionDigits(props.currency)
+  return digits === 0 ? /^\d*$/ : new RegExp(`^\\d*(\\.\\d{0,${digits}})?$`)
+})
 
 function selectAmount(amt: number) {
   customText.value = String(amt)
@@ -162,7 +170,7 @@ function selectAmount(amt: number) {
 function handleInput(e: Event) {
   const input = e.target as HTMLInputElement
   const val = input.value
-  if (!AMOUNT_PATTERN.test(val)) {
+  if (!amountPattern.value.test(val)) {
     input.value = customText.value
     return
   }
@@ -184,4 +192,13 @@ watch(() => props.modelValue, (v) => {
     customText.value = String(v)
   }
 }, { immediate: true })
+
+watch(() => props.currency, () => {
+  if (props.modelValue !== null && !hasPaymentCurrencyPrecision(props.modelValue, props.currency)) {
+    customText.value = ''
+    emit('update:modelValue', null)
+    return
+  }
+  customText.value = props.modelValue === null ? '' : String(props.modelValue)
+})
 </script>

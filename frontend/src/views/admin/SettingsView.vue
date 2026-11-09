@@ -9536,6 +9536,7 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
 import {
+  MAX_RECHARGE_FIXED_BONUS_AMOUNT,
   isRechargeFixedBonusAmountValid,
   isRechargeFixedBonusEnabled,
   normalizeRechargeBonusMode,
@@ -12000,6 +12001,14 @@ const rechargeBonusConfigError = computed(() => {
   }
   if (!isRechargeFixedBonusEnabled(fixed)) {
     return "invalidFixedAmounts";
+  }
+  if (
+    fixed.bonus_amount > MAX_RECHARGE_FIXED_BONUS_AMOUNT &&
+    (!savedRechargeFixedBonus.value?.enabled ||
+      fixed.bonus_amount !== savedRechargeFixedBonus.value.bonus_amount ||
+      fixed.threshold_amount !== savedRechargeFixedBonus.value.threshold_amount)
+  ) {
+    return "fixedAmountTooHigh";
   }
   return "";
 });
