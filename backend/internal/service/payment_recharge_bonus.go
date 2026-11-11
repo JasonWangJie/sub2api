@@ -384,15 +384,15 @@ func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency stri
 		mode, _ = NormalizeRechargeBonusMode(cfg.RechargeBonusMode)
 	}
 	base := calculateCreditedBalance(paymentAmount, multiplier)
+	if math.IsNaN(base) || math.IsInf(base, 0) || base >= rechargeCreditExclusiveLimit {
+		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
+	}
 	quote := rechargeBonusQuote{PayBase: paymentAmount, Credited: base}
 	tier, ok := matchRechargeBonusTier(tiers, paymentAmount)
 
 	// 历史配置若同时启用折扣与满赠，沿用折扣规则。
 	if rechargeDiscountEnabled(true, mode, tiers) {
 		return quoteRechargeDiscount(quote, tier.BonusPercent, multiplier, currency), nil
-	}
-	if math.IsNaN(base) || math.IsInf(base, 0) || base >= rechargeCreditExclusiveLimit {
-		return rechargeBonusQuote{}, invalidRechargeBonusAmount()
 	}
 	if ok {
 		quote.Bonus = calculateRechargeBonus(base, tier.BonusPercent)

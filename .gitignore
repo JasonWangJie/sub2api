@@ -144,10 +144,6 @@ docs/*
 !docs/DURABLE_ASYNC_IMAGE_API.md
 !docs/openai-429-mode.md
 !docs/OPENAI_IMAGES_CODEX.md
-!docs/BATCH_IMAGE_MVP.md
-!docs/COMPOSITE_GROUPS.md
-!docs/PLUGIN_DEVELOPMENT.md
-!docs/channel-monitor-v2-safe-defaults.md
 !docs/codex-credits.md
 !docs/legal/
 !docs/legal/*.md

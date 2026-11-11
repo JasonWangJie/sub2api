@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -295,6 +296,33 @@ func TestQuoteRechargeBonus(t *testing.T) {
 		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 100}, mustQuoteRechargeBonus(t, nil, 100, "USD"))
 		require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 14}, mustQuoteRechargeBonus(t, &PaymentConfig{BalanceRechargeMultiplier: 0.14}, 100, "CNY"))
 	})
+}
+
+func TestQuoteRechargeDiscountRejectsUnrepresentableCredit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		multiplier float64
+	}{
+		{name: "credit overflows float64", multiplier: 1e308},
+		{name: "largest finite multiplier", multiplier: math.MaxFloat64},
+		{name: "credit reaches balance limit", multiplier: rechargeCreditExclusiveLimit / 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &PaymentConfig{
+				BalanceRechargeMultiplier: tc.multiplier,
+				RechargeBonusEnabled:      true,
+				RechargeBonusTiers:        []RechargeBonusTier{{MinAmount: 100, BonusPercent: 20}},
+				RechargeBonusMode:         RechargeBonusModeDiscount,
+			}
+			var quote rechargeBonusQuote
+			var err error
+			require.NotPanics(t, func() {
+				quote, err = quoteRechargeBonus(cfg, 100, "CNY")
+			})
+			require.ErrorIs(t, err, invalidRechargeBonusAmount())
+			require.Zero(t, quote)
+		})
+	}
 }
 
 func TestParsePaymentConfigRechargeBonusMode(t *testing.T) {

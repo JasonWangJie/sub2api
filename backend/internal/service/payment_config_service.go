@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -569,16 +570,19 @@ func formatPositiveFloat(v *float64) string {
 const balanceRechargeMultiplierMaxDecimals = 6
 
 func balanceRechargeMultiplierHasExcessPrecision(v float64) bool {
-	scaled := v * math.Pow(10, balanceRechargeMultiplierMaxDecimals)
-	return math.Abs(scaled-math.Round(scaled)) > 1e-6
+	value := decimal.NewFromFloat(v)
+	rounded := value.Round(balanceRechargeMultiplierMaxDecimals)
+	// Preserve the existing tolerance for float artifacts without scaling a
+	// float64, which can overflow even when the input multiplier is finite.
+	// A value rounded to zero would silently read back as the default rate 1.
+	return rounded.IsZero() || value.Sub(rounded).Abs().GreaterThan(decimal.New(1, -12))
 }
 
 func formatBalanceRechargeMultiplier(v *float64) string {
 	if v == nil || *v <= 0 {
 		return "" // empty → parsePaymentConfig uses default
 	}
-	rounded := math.Round(*v*math.Pow(10, balanceRechargeMultiplierMaxDecimals)) / math.Pow(10, balanceRechargeMultiplierMaxDecimals)
-	return strconv.FormatFloat(rounded, 'f', -1, 64)
+	return decimal.NewFromFloat(*v).Round(balanceRechargeMultiplierMaxDecimals).String()
 }
 
 // formatPositiveFloatExact 保留完整精度，用于汇率等对小数位敏感的配置。

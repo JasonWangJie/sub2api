@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -556,6 +558,8 @@ func paymentConfigStrPtr(value string) *string {
 }
 
 func TestUpdatePaymentConfig_PersistsBalanceRechargeMultiplierWithUpToSixDecimals(t *testing.T) {
+	floatArtifact := 0.1
+	floatArtifact += 0.2
 	tests := []struct {
 		name       string
 		multiplier float64
@@ -563,8 +567,11 @@ func TestUpdatePaymentConfig_PersistsBalanceRechargeMultiplierWithUpToSixDecimal
 	}{
 		{"six decimals", 0.140845, "0.140845"},
 		{"two decimals", 0.15, "0.15"},
-		{"float artifact", 0.1 + 0.2, "0.3"},
+		{"float artifact", floatArtifact, "0.3"},
 		{"integer", 1, "1"},
+		{"smallest six decimal multiplier", 0.000001, "0.000001"},
+		{"large finite multiplier", 1e308, "1" + strings.Repeat("0", 308)},
+		{"largest finite multiplier", math.MaxFloat64, "17976931348623157" + strings.Repeat("0", 292)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -581,22 +588,75 @@ func TestUpdatePaymentConfig_PersistsBalanceRechargeMultiplierWithUpToSixDecimal
 			if got := repo.updates[SettingBalanceRechargeMult]; got != tt.want {
 				t.Fatalf("stored multiplier = %q, want %q", got, tt.want)
 			}
+			cfg, err := svc.GetPaymentConfig(context.Background())
+			if err != nil {
+				t.Fatalf("GetPaymentConfig returned error: %v", err)
+			}
+			wantMultiplier, err := strconv.ParseFloat(tt.want, 64)
+			if err != nil {
+				t.Fatalf("invalid expected multiplier %q: %v", tt.want, err)
+			}
+			if cfg.BalanceRechargeMultiplier != wantMultiplier {
+				t.Fatalf("round-trip multiplier = %g, want %g", cfg.BalanceRechargeMultiplier, wantMultiplier)
+			}
 		})
 	}
 }
 
 func TestUpdatePaymentConfig_RejectsBalanceRechargeMultiplierWithMoreThanSixDecimals(t *testing.T) {
-	repo := &paymentConfigSettingRepoStub{}
-	svc := &PaymentConfigService{settingRepo: repo}
-	multiplier := 0.1408454
-
-	err := svc.UpdatePaymentConfig(context.Background(), UpdatePaymentConfigRequest{
-		BalanceRechargeMultiplier: &multiplier,
-	})
-	if err == nil {
-		t.Fatal("expected UpdatePaymentConfig to reject more than 6 decimal places")
+	for _, multiplier := range []float64{0.1408454, 0.0000001, 1e-12, 1e-13, math.SmallestNonzeroFloat64} {
+		t.Run(fmt.Sprint(multiplier), func(t *testing.T) {
+			repo := &paymentConfigSettingRepoStub{values: map[string]string{SettingBalanceRechargeMult: "0.14"}}
+			svc := &PaymentConfigService{settingRepo: repo}
+			err := svc.UpdatePaymentConfig(context.Background(), UpdatePaymentConfigRequest{
+				BalanceRechargeMultiplier: &multiplier,
+			})
+			if err == nil {
+				t.Fatal("expected UpdatePaymentConfig to reject an unrepresentable six decimal multiplier")
+			}
+			if got := repo.values[SettingBalanceRechargeMult]; got != "0.14" || len(repo.updates) != 0 {
+				t.Fatalf("invalid multiplier changed settings: values=%v updates=%v", repo.values, repo.updates)
+			}
+		})
 	}
-	if _, ok := repo.updates[SettingBalanceRechargeMult]; ok {
-		t.Fatalf("multiplier was persisted despite validation error: %q", repo.updates[SettingBalanceRechargeMult])
+}
+
+func TestUpdatePaymentConfig_SixDecimalMultiplierPreservesRechargeBonuses(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		enabled    bool
+		fixed      RechargeFixedBonus
+		want       rechargeBonusQuote
+	}{
+		{name: "percentage wins", mode: RechargeBonusModeBonus, enabled: true,
+			fixed: RechargeFixedBonus{Enabled: true, ThresholdAmount: 100, BonusAmount: 10},
+			want:  rechargeBonusQuote{PayBase: 100, Credited: 16.90, Bonus: 2.82, Percent: 20}},
+		{name: "disabled tiers use fixed gift", mode: RechargeBonusModeBonus,
+			fixed: RechargeFixedBonus{Enabled: true, ThresholdAmount: 100, BonusAmount: 10},
+			want:  rechargeBonusQuote{PayBase: 100, Credited: 15.49, Bonus: 1.41}},
+		{name: "discount", mode: RechargeBonusModeDiscount, enabled: true,
+			want: rechargeBonusQuote{PayBase: 80, Credited: 14.08, Bonus: 2.81, Percent: 20}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &paymentConfigSettingRepoStub{}
+			svc := &PaymentConfigService{settingRepo: repo}
+			multiplier := 0.140845
+			tiers := []RechargeBonusTier{{MinAmount: 100, BonusPercent: 20}}
+			err := svc.UpdatePaymentConfig(context.Background(), UpdatePaymentConfigRequest{
+				BalanceRechargeMultiplier: &multiplier, RechargeBonusEnabled: &tc.enabled,
+				RechargeBonusMode: &tc.mode, RechargeBonusTiers: &tiers, RechargeFixedBonus: &tc.fixed,
+			})
+			if err != nil {
+				t.Fatalf("UpdatePaymentConfig returned error: %v", err)
+			}
+			cfg, err := svc.GetPaymentConfig(context.Background())
+			if err != nil {
+				t.Fatalf("GetPaymentConfig returned error: %v", err)
+			}
+			got, err := quoteRechargeBonus(cfg, 100, "CNY")
+			if err != nil || got != tc.want {
+				t.Fatalf("quote = %+v, error = %v, want %+v", got, err, tc.want)
+			}
+		})
 	}
 }
