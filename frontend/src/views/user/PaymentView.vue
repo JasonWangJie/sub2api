@@ -121,7 +121,7 @@
                   <span class="text-gray-900 dark:text-white" :class="{ 'font-semibold': bonusQuote.source }">${{ creditedAmount.toFixed(2) }}<template v-if="showBonusRow"> USD</template></span>
                 </div>
                 <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
-                  {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
+                  {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: formatBalanceRechargeMultiplier(balanceRechargeMultiplier) }) }}
                 </p>
               </div>
             </div>
@@ -315,6 +315,7 @@ import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFi
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
 import {
   calculateRechargeFee,
+  formatBalanceRechargeMultiplier,
   formatRechargeBonusNumber,
   isRechargeFixedBonusEnabled,
   normalizeRechargeBonusMode,
