@@ -128,6 +128,8 @@ func (s *PromptService) Enqueue(_ context.Context, req Request) error {
 		<-s.enqueueSlots
 		return errors.New("prompt audit service not started")
 	}
+	// Enqueue borrows the handler's request. Take ownership only after local
+	// admission succeeds, before background work can outlive this call.
 	requestCopy := req.Clone()
 	s.enqueueWG.Add(1)
 	go func() {

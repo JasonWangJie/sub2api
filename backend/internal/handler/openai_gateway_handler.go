@@ -1734,23 +1734,48 @@ func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
 	return normalizeCodexCallOutputBootstrap(body, isCodexAutomationCandidate, false)
 }
 
-// mayContainCodexCallOutputCandidate is a necessary condition for a bootstrap
-// candidate, checked before the full uniqueness scan and decode. Its type and
-// tool name are JSON strings, which appear literally unless a \u escape spells
-// their letters; without either, normalization cannot change the body.
+// mayContainCodexCallOutputCandidate checks only output item names before the
+// full uniqueness scan and decode. Searching the entire body alone also matches
+// tool declarations and unrelated Unicode escapes in normal conversation text.
+// Keep the byte check as a cheap rejection, then project only names from matching
+// input items so large outputs are never decoded or copied by this precheck.
+// Names are conservative prefixes because selected-page names have a numbered
+// suffix. The normalizers still validate exact names, namespaces and envelopes.
 func mayContainCodexCallOutputCandidate(body []byte, toolNames ...string) bool {
-	if bytes.Contains(body, []byte(`\u`)) {
-		return true
-	}
-	if !bytes.Contains(body, []byte("function_call_output")) {
-		return false
-	}
-	for _, name := range toolNames {
-		if bytes.Contains(body, []byte(name)) {
-			return true
+	if !bytes.Contains(body, []byte(`\u`)) {
+		if !bytes.Contains(body, []byte("function_call_output")) {
+			return false
+		}
+		containsName := false
+		for _, name := range toolNames {
+			if bytes.Contains(body, []byte(name)) {
+				containsName = true
+				break
+			}
+		}
+		if !containsName {
+			return false
 		}
 	}
-	return false
+
+	// GJSON decodes escaped keys and string values, preserving candidates whose
+	// input/type/name fields use JSON Unicode escapes. Duplicate members remain
+	// rejected by hasUniqueJSONMembers on the normalization path.
+	names := gjson.GetBytes(body, `input.#(type=="function_call_output")#.name`)
+	found := false
+	names.ForEach(func(_, name gjson.Result) bool {
+		if name.Type != gjson.String {
+			return true
+		}
+		for _, prefix := range toolNames {
+			if strings.HasPrefix(name.Str, prefix) {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {

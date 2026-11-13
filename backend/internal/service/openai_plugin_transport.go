@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 )
 
@@ -12,11 +13,21 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	trace := openAIStreamTraceFromContext(request.Context())
+	if trace != nil {
+		request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) { trace.RecordWroteRequest(info.Err) },
+		}))
+	}
 	ticket, err := s.beginOpenAI429HTTP(request, account)
 	if err != nil {
 		return nil, err
 	}
+	trace.RecordTransport()
 	response, err := s.doOpenAIUpstreamRaw(request, proxyURL, account)
+	if trace != nil && response != nil {
+		trace.RecordHeaders(response.StatusCode, response.Header.Get("Content-Type"))
+	}
 	if ticket != nil {
 		if err != nil || response == nil || response.Body == nil {
 			ticket.finish(openAI429Outcome{})

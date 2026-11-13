@@ -1200,6 +1200,9 @@ type GatewayConfig struct {
 	// OpenAIEarlyFlushCreatedGroupIDs enables the same behavior only for the
 	// listed API key groups when the global switch is false.
 	OpenAIEarlyFlushCreatedGroupIDs []int64 `mapstructure:"openai_early_flush_created_group_ids"`
+	// Sample payload-free HTTP Responses stage timings for latency diagnosis.
+	OpenAIStreamTraceEnabled     bool `mapstructure:"openai_stream_trace_enabled"`
+	OpenAIStreamTraceSampleEvery int  `mapstructure:"openai_stream_trace_sample_every"`
 	// OpenAICompactModel: /responses/compact 上游使用的模型。
 	// compact 端点支持模型滞后于普通 /responses 时，可用该配置降级规避上游错误。
 	OpenAICompactModel string `mapstructure:"openai_compact_model"`
@@ -2668,6 +2671,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_early_flush_created", false)
 	viper.SetDefault("gateway.openai_early_flush_created_group_ids", []int64{})
+	viper.SetDefault("gateway.openai_stream_trace_enabled", false)
+	viper.SetDefault("gateway.openai_stream_trace_sample_every", 20)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）

@@ -1906,6 +1906,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	originalModel string,
 	mappedModel string,
 ) (*openaiStreamingResultPassthrough, error) {
+	streamTrace := openAIStreamTraceFromContext(ctx)
+	if streamTrace != nil {
+		streamTrace.RecordHeaders(resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -1961,12 +1965,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	pendingEventStartsDownstreamOutput := false
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
 	flushPending := false
+	traceDataPending := false
 	pendingSSEEventType := ""
 	flushPendingOutput := func() {
 		if clientDisconnected || !flushPending {
 			return
 		}
 		flusher.Flush()
+		if streamTrace != nil && traceDataPending {
+			streamTrace.RecordFlush()
+			traceDataPending = false
+		}
 		flushPending = false
 	}
 	defer flushPendingOutput()
@@ -1976,6 +1985,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				clientDisconnected = true
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 				return false
+			}
+			if _, isData := extractOpenAISSEDataLine(pending); isData {
+				traceDataPending = true
 			}
 		}
 		pendingLines = pendingLines[:0]
@@ -1999,6 +2011,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		clientOutputStarted = true
 		failureDelivered = true
 		flushPending = true
+		traceDataPending = true
 		flushPendingOutput()
 	}
 
@@ -2033,6 +2046,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			if streamTrace != nil {
+				streamTrace.ObserveSSE(dataBytes, rawEventType)
+			}
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
@@ -2235,6 +2251,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					continue
 				}
 				flusher.Flush()
+				if streamTrace != nil && traceDataPending {
+					streamTrace.RecordFlush()
+					traceDataPending = false
+				}
 				clientOutputStarted = true
 				pendingEventStartsDownstreamOutput = false
 				continue
@@ -2245,6 +2265,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			} else {
 				clientOutputStarted = true
 				flushPending = true
+				if _, isData := extractOpenAISSEDataLine(line); isData {
+					traceDataPending = true
+				}
 				if line == "" {
 					flushPendingOutput()
 				}

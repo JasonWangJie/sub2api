@@ -63,27 +63,45 @@ func (c *openAIImageOutputCounter) AddJSONResponse(body []byte) {
 }
 
 func (c *openAIImageOutputCounter) AddSSEData(data []byte) {
-	if c == nil || len(data) == 0 || strings.TrimSpace(string(data)) == "[DONE]" || !gjson.ValidBytes(data) {
+	payload := newOpenAISSEPayload(data)
+	c.addSSEPayload(&payload)
+}
+
+func (c *openAIImageOutputCounter) addSSEPayload(payload *openAISSEPayload) {
+	if c == nil {
 		return
 	}
-	root := gjson.ParseBytes(data)
-	c.addDataArray(root.Get("data"))
-	eventType := strings.TrimSpace(root.Get("type").String())
-	switch eventType {
+	data := payload.data
+	// Compatible image upstreams can attach a data array to any event type.
+	// Inspect it even for text deltas, but do not fully validate or copy their
+	// JSON unless there is image output to account for.
+	imageData := gjson.GetBytes(data, "data")
+	switch payload.eventType {
+	case "response.output_item.done", "response.completed", "response.done", "image_generation.completed", "image_edit.completed":
+	default:
+		if !imageData.IsArray() {
+			return
+		}
+	}
+	if !payload.validJSON() {
+		return
+	}
+	c.addDataArray(imageData)
+	switch payload.eventType {
 	case "response.output_item.done":
-		c.addImageOutputItem(root.Get("item"))
+		c.addImageOutputItem(gjson.GetBytes(data, "item"))
 	case "response.completed", "response.done":
-		c.addOutputArray(root.Get("response.output"))
+		c.addOutputArray(gjson.GetBytes(data, "response.output"))
 	case "image_generation.completed", "image_edit.completed":
-		if item := root.Get("item"); item.Exists() {
+		if item := gjson.GetBytes(data, "item"); item.Exists() {
 			c.addImageOutputItem(item)
 			return
 		}
-		if output := root.Get("output"); output.Exists() {
+		if output := gjson.GetBytes(data, "output"); output.Exists() {
 			c.addImageOutputItem(output)
 			return
 		}
-		c.addImageOutputItem(root)
+		c.addImageOutputItem(gjson.ParseBytes(data))
 	}
 }
 

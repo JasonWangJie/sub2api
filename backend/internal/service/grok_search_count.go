@@ -52,17 +52,22 @@ func countGrokNativeSearchCallsInSSEData(data []byte) int {
 // item.done + response.completed for the same tool still count once (never fall
 // back to raw multi-event n, which ~2× overbills).
 func countGrokNativeSearchCallsInSSEDataDedup(data []byte, seen map[string]struct{}) int {
+	payload := newOpenAISSEPayload(data)
+	return countGrokNativeSearchCallsInSSEPayloadDedup(&payload, seen)
+}
+
+func countGrokNativeSearchCallsInSSEPayloadDedup(payload *openAISSEPayload, seen map[string]struct{}) int {
+	n, keys := countGrokNativeSearchCallsInSSEPayloadWithKeys(payload)
 	if seen == nil {
-		return countGrokNativeSearchCallsInSSEData(data)
+		return n
 	}
-	n, keys := countGrokNativeSearchCallsInSSEDataWithKeys(data)
 	if n <= 0 {
 		return 0
 	}
 	// Prefer stable ids; fill gaps with synthetic keys so we never raw-add n.
 	if len(keys) < n {
 		// Rebuild keys for every item so unkeyed items still get a fingerprint.
-		keys = collectGrokNativeSearchCallKeys(data)
+		keys = collectGrokNativeSearchCallKeysPayload(payload)
 	}
 	if len(keys) == 0 {
 		// True empty — should not happen when n>0; fail-closed to 0 extra bill.
@@ -70,7 +75,7 @@ func countGrokNativeSearchCallsInSSEDataDedup(data []byte, seen map[string]struc
 	}
 	added := 0
 	local := make(map[string]struct{}, len(keys))
-	isItemDone := strings.TrimSpace(gjson.GetBytes(data, "type").String()) == "response.output_item.done"
+	isItemDone := payload.eventType == "response.output_item.done"
 	for _, k := range keys {
 		if k == "" {
 			continue
@@ -104,17 +109,18 @@ func countGrokNativeSearchCallsInSSEDataDedup(data []byte, seen map[string]struc
 	return added
 }
 
-func collectGrokNativeSearchCallKeys(data []byte) []string {
-	if len(data) == 0 || !gjson.ValidBytes(data) {
-		return nil
-	}
+func collectGrokNativeSearchCallKeysPayload(payload *openAISSEPayload) []string {
 	// An empty type means a bare item object without an SSE envelope; anything
 	// else that is not a completion event carries no billable call.
-	switch strings.TrimSpace(gjson.GetBytes(data, "type").String()) {
+	switch payload.eventType {
 	case "response.output_item.done", "response.completed", "response.done", "":
 	default:
 		return nil
 	}
+	if !payload.validJSON() {
+		return nil
+	}
+	data := payload.data
 	var keys []string
 	syntheticOrdinals := make(map[string]int)
 	consider := func(item gjson.Result) {
@@ -157,16 +163,22 @@ func collectGrokNativeSearchCallKeys(data []byte) []string {
 }
 
 func countGrokNativeSearchCallsInSSEDataWithKeys(data []byte) (int, []string) {
-	if len(data) == 0 || !gjson.ValidBytes(data) {
-		return 0, nil
-	}
+	payload := newOpenAISSEPayload(data)
+	return countGrokNativeSearchCallsInSSEPayloadWithKeys(&payload)
+}
+
+func countGrokNativeSearchCallsInSSEPayloadWithKeys(payload *openAISSEPayload) (int, []string) {
 	// Count once on item completion / completed response, not on every delta.
 	// An empty type is a bare item object without an SSE envelope.
-	switch strings.TrimSpace(gjson.GetBytes(data, "type").String()) {
+	switch payload.eventType {
 	case "response.output_item.done", "response.completed", "response.done", "":
 	default:
 		return 0, nil
 	}
+	if !payload.validJSON() {
+		return 0, nil
+	}
+	data := payload.data
 	var keys []string
 	n := 0
 	consider := func(item gjson.Result) {

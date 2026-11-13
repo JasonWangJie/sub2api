@@ -337,6 +337,10 @@ gateway:
   # configuration, apply it through the normal rollout/restart procedure.
   # 环境变量会覆盖 YAML；修改启动配置后需按现有发布/重启流程使其生效。
   openai_early_flush_created_group_ids: []
+  # Payload-free OpenAI HTTP Responses diagnostics (no prompt, headers or URL).
+  # Sample one in N attempts; log output is additionally capped at 60/minute.
+  openai_stream_trace_enabled: false
+  openai_stream_trace_sample_every: 20
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456

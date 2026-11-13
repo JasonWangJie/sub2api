@@ -201,7 +201,12 @@ func (p *openAIResponsesToolSchemaParser) parseValue(
 		case "additional_tools":
 			context = openAIResponsesToolSchemaToolCarrier
 		default:
-			context = openAIResponsesToolSchemaSkip
+			// The probe has already validated the entire item, including nested
+			// values and depth limits. Ordinary messages and tool outputs cannot
+			// contain schema definitions in this context, so reuse its end offset
+			// instead of scanning their potentially large contents a second time.
+			p.pos = probe.pos
+			return nil
 		}
 	}
 	switch p.body[p.pos] {
