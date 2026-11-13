@@ -74,6 +74,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertEqual(leaf['builds'][0]['goos'], ['darwin'])
         self.assertEqual(leaf['builds'][0]['goarch'], ['arm64'])
         self.assertEqual(leaf['builds'][0]['ignore'], [])
+        self.assertEqual(leaf['before']['hooks'], [])
         self.assertEqual(leaf['archives'], original['archives'])
         self.assertEqual(leaf['release'], original['release'])
         self.assertFalse(leaf['dockers'])
