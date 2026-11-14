@@ -2,13 +2,16 @@
   <span
     :class="[
       'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium transition-colors',
+      isMaintenance && 'max-w-full',
       badgeClass
     ]"
   >
     <!-- Platform logo -->
     <PlatformIcon v-if="platform" :platform="platform" size="sm" />
     <!-- Group name -->
-    <span :class="truncate ? 'truncate' : 'min-w-0 whitespace-normal [overflow-wrap:anywhere]'">{{ name }}</span>
+    <span :class="truncate && !isMaintenance ? 'truncate' : 'min-w-0 whitespace-normal [overflow-wrap:anywhere]'">
+      {{ name }}<span v-if="isMaintenance" class="text-red-600 dark:text-red-400">{{ t('groups.maintenanceUnavailable') }}</span>
+    </span>
     <!-- Right side label -->
     <span v-if="showLabel" :class="labelClass">
       <template v-if="hasCustomRate">
@@ -36,6 +39,7 @@ import PlatformIcon from './PlatformIcon.vue'
 
 interface Props {
   name: string
+  isMaintenance?: boolean
   platform?: GroupPlatform
   subscriptionType?: SubscriptionType
   rateMultiplier?: number

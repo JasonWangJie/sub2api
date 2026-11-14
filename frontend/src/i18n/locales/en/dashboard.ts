@@ -64,7 +64,8 @@ export default {
 
   // Groups (shared)
   groups: {
-    subscription: 'Sub'
+    subscription: 'Sub',
+    maintenanceUnavailable: '(Maintenance · temporarily unavailable)'
   },
 
   // API Keys

@@ -56,6 +56,7 @@ const messages: Record<string, string> = {
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
   'keys.usage': 'Usage',
+  'groups.maintenanceUnavailable': '（维护中·暂不可用）',
 }
 
 vi.mock('@/api', () => ({
@@ -223,7 +224,7 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
-const mountView = async () => {
+const mountView = async (renderGroups = false) => {
   const wrapper = mount(KeysView, {
     global: {
       stubs: {
@@ -238,14 +239,15 @@ const mountView = async () => {
         },
         ConfirmDialog: true,
         EmptyState: true,
-        Select: SelectStub,
+        Select: renderGroups ? false : SelectStub,
         SearchInput: SearchInputStub,
         Icon: IconStub,
         UseKeyModal: true,
         BulkEditKeysModal: true,
         EndpointPopover: true,
-        GroupBadge: true,
-        GroupOptionItem: true,
+        GroupBadge: renderGroups ? false : true,
+        GroupOptionItem: renderGroups ? false : true,
+        PlatformIcon: true,
         Teleport: true,
       },
     },
@@ -586,6 +588,20 @@ describe('user KeysView column settings', () => {
 
     beforeEach(() => {
       getAvailableGroups.mockResolvedValue(availableGroups)
+    })
+
+    it('shows maintenance in both group choices and the selected group', async () => {
+      getAvailableGroups.mockResolvedValue([{ ...availableGroups[0], is_maintenance: true }])
+      const wrapper = await mountView(true)
+      await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+      const select = groupSelect(wrapper)
+      await select.get('button').trigger('click')
+      const option = wrapper.get('.group-option-item')
+      expect(option.get('.text-red-600').text()).toBe('（维护中·暂不可用）')
+      await option.trigger('click')
+      expect(select.get('.select-value .text-red-600').text()).toBe('（维护中·暂不可用）')
+      expect(select.props('modelValue')).toBe(1)
+      wrapper.unmount()
     })
 
     it('classifies all configured platforms and retains the complete table filter', async () => {

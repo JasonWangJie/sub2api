@@ -136,11 +136,12 @@ func (h *GroupHandler) rejectUnsupportedSimpleModeOperation(c *gin.Context, oper
 }
 
 type simpleModeGroupResponse struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Platform    string `json:"platform"`
-	Status      string `json:"status"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Platform      string `json:"platform"`
+	Status        string `json:"status"`
+	IsMaintenance bool   `json:"is_maintenance"`
 
 	I18n service.GroupI18n `json:"i18n,omitempty"`
 
@@ -159,6 +160,7 @@ func groupForSimpleMode(group *service.Group) *simpleModeGroupResponse {
 	return &simpleModeGroupResponse{
 		ID: group.ID, Name: group.Name, Description: group.Description, Platform: group.Platform,
 		Status:             group.Status,
+		IsMaintenance:      group.IsMaintenance,
 		I18n:               group.I18n,
 		AccountCount:       group.AccountCount,
 		ActiveAccountCount: group.ActiveAccountCount, RateLimitedAccountCount: group.RateLimitedAccountCount,
@@ -170,7 +172,7 @@ func sanitizeCreateGroupRequestForSimpleMode(req *CreateGroupRequest) {
 	if req == nil {
 		return
 	}
-	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n, Platform: req.Platform}
+	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n, Platform: req.Platform, IsMaintenance: req.IsMaintenance}
 	allowed.RateMultiplier = 1
 	allowed.SubscriptionType = service.SubscriptionTypeStandard
 	*req = allowed
@@ -180,7 +182,7 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 	if req == nil {
 		return
 	}
-	*req = UpdateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n}
+	*req = UpdateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n, IsMaintenance: req.IsMaintenance}
 }
 
 // CreateGroupRequest represents create group request
@@ -192,6 +194,7 @@ type CreateGroupRequest struct {
 	Platform                  string                        `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            float64                       `json:"rate_multiplier"`
 	IsExclusive               bool                          `json:"is_exclusive"`
+	IsMaintenance             bool                          `json:"is_maintenance"`
 	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD             optionalLimitField            `json:"daily_limit_usd"`
 	WeeklyLimitUSD            optionalLimitField            `json:"weekly_limit_usd"`
@@ -270,6 +273,7 @@ type UpdateGroupRequest struct {
 	Platform                  string                         `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
 	IsExclusive               *bool                          `json:"is_exclusive"`
+	IsMaintenance             *bool                          `json:"is_maintenance"`
 	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
 	SubscriptionType          string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD             optionalLimitField             `json:"daily_limit_usd"`
@@ -680,6 +684,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
+		IsMaintenance:                   req.IsMaintenance,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
 		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
@@ -829,6 +834,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
+		IsMaintenance:                   req.IsMaintenance,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),

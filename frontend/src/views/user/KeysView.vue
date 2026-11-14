@@ -15,7 +15,19 @@
               class="w-40"
               :options="groupFilterOptions"
               @update:model-value="onGroupFilterChange"
-            />
+            >
+              <template #selected="{ option }">
+                <span v-if="option" class="whitespace-normal [overflow-wrap:anywhere]">
+                  {{ option.label }}<span v-if="option.isMaintenance" class="text-red-600 dark:text-red-400">{{ t('groups.maintenanceUnavailable') }}</span>
+                </span>
+              </template>
+              <template #option="{ option, selected }">
+                <span class="select-option-label" :class="option.isMaintenance && '!whitespace-normal [overflow-wrap:anywhere]'">
+                  {{ option.label }}<span v-if="option.isMaintenance" class="text-red-600 dark:text-red-400">{{ t('groups.maintenanceUnavailable') }}</span>
+                </span>
+                <Icon v-if="selected" name="check" size="sm" class="text-primary-500" :stroke-width="2" />
+              </template>
+            </Select>
             <Select
               :model-value="filterStatus"
               class="w-40"
@@ -165,6 +177,7 @@
                 <GroupBadge
                   v-if="row.group"
                   :name="row.group.name"
+                  :is-maintenance="row.group.is_maintenance"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
                   :rate-multiplier="row.group.rate_multiplier"
@@ -561,6 +574,7 @@
               <GroupBadge
                 v-if="option"
                 :name="(option as unknown as GroupOption).label"
+                :is-maintenance="(option as unknown as GroupOption).isMaintenance"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
@@ -583,6 +597,7 @@
                 v-else
                 variant="tech"
                 :name="(option as unknown as GroupOption).label"
+                :is-maintenance="(option as unknown as GroupOption).isMaintenance"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
@@ -1198,6 +1213,7 @@
               <GroupOptionItem
                 variant="tech"
                 :name="option.label"
+                :is-maintenance="option.isMaintenance"
                 :platform="option.platform"
                 :subscription-type="option.subscriptionType"
                 :rate-multiplier="option.rate"
@@ -1276,6 +1292,7 @@ const formatDateTimeLocal = (isoDate: string): string => {
 interface GroupOption {
   value: number
   label: string
+  isMaintenance?: boolean
   description: string | null
   section?: string
   rate: number
@@ -1516,7 +1533,7 @@ const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
 const groupFilterOptions = computed(() => [
   { value: '', label: t('keys.allGroups') },
   { value: 0, label: t('keys.noGroup') },
-  ...groups.value.map((g) => ({ value: g.id, label: g.name }))
+  ...groups.value.map((g) => ({ value: g.id, label: g.name, isMaintenance: g.is_maintenance }))
 ])
 
 const statusFilterOptions = computed(() => [
@@ -1549,6 +1566,7 @@ const groupOptionItems = computed(() => groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
+    isMaintenance: group.is_maintenance,
     section: group.section?.trim() || '',
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,

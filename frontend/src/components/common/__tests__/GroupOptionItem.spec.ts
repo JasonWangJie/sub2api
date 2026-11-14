@@ -7,7 +7,7 @@ vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
-    useI18n: () => ({ t: (key: string) => key }),
+    useI18n: () => ({ t: (key: string) => key === 'groups.maintenanceUnavailable' ? '（维护中·暂不可用）' : key }),
   }
 })
 
@@ -16,6 +16,22 @@ vi.mock('@/stores/app', () => ({
 }))
 
 describe('GroupOptionItem description layout', () => {
+  it('shows a red maintenance suffix after the group name and removes it when maintenance ends', async () => {
+    const wrapper = mount(GroupOptionItem, {
+      props: { name: 'Example group', platform: 'openai', isMaintenance: true },
+      global: { stubs: { PlatformIcon: true } },
+    })
+
+    const suffix = wrapper.get('.text-red-600')
+    expect(suffix.text()).toBe('（维护中·暂不可用）')
+    expect(suffix.classes()).toContain('dark:text-red-400')
+    expect(suffix.element.parentElement?.textContent?.trim()).toBe('Example group（维护中·暂不可用）')
+
+    await wrapper.setProps({ isMaintenance: false })
+    expect(wrapper.text()).toContain('Example group')
+    expect(wrapper.text()).not.toContain('（维护中·暂不可用）')
+  })
+
   it('applies multiline and overflow-safe text styles', () => {
     const description = 'First section\nvery-long-unbroken-description-value-that-must-not-overflow'
     const wrapper = mount(GroupOptionItem, {

@@ -64,7 +64,8 @@ export default {
 
   // Groups (shared)
   groups: {
-    subscription: '订阅'
+    subscription: '订阅',
+    maintenanceUnavailable: '（维护中·暂不可用）'
   },
 
   // API Keys

@@ -12,6 +12,7 @@
     >
       <GroupBadge
         :name="name"
+        :is-maintenance="isMaintenance"
         :platform="platform"
         :subscription-type="subscriptionType"
         :show-rate="false"
@@ -92,6 +93,7 @@ const { t } = useI18n()
 
 interface Props {
   name: string
+  isMaintenance?: boolean
   platform: GroupPlatform
   subscriptionType?: SubscriptionType
   rateMultiplier?: number

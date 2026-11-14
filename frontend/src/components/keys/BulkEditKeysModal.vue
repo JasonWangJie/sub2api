@@ -30,7 +30,18 @@
             :aria-label="t('keys.groupLabel')"
             searchable
             data-test="group-input"
-          />
+          >
+            <template #selected="{ option }">
+              <span v-if="option" class="whitespace-normal [overflow-wrap:anywhere]">
+                {{ option.label }}<span v-if="option.isMaintenance" class="text-red-600 dark:text-red-400">{{ t('groups.maintenanceUnavailable') }}</span>
+              </span>
+              <span v-else>{{ t('keys.selectGroup') }}</span>
+            </template>
+            <template #option="{ option, selected }">
+              <span class="select-option-label" :class="option.isMaintenance && '!whitespace-normal [overflow-wrap:anywhere]'">{{ option.label }}<span v-if="option.isMaintenance" class="text-red-600 dark:text-red-400">{{ t('groups.maintenanceUnavailable') }}</span></span>
+              <Icon v-if="selected" name="check" size="sm" class="text-primary-500" :stroke-width="2" />
+            </template>
+          </Select>
         </div>
 
         <div class="space-y-2">
@@ -155,6 +166,7 @@ import { keysAPI } from '@/api'
 import { useAppStore } from '@/stores/app'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { ApiKey, Group, UpdateApiKeyRequest } from '@/types'
 
 type SelectedKey = Pick<ApiKey, 'id' | 'name'>
@@ -206,7 +218,11 @@ const ipFields: Array<{ key: IPField; label: string }> = [
   { key: 'ip_whitelist', label: 'keys.ipWhitelist' },
   { key: 'ip_blacklist', label: 'keys.ipBlacklist' }
 ]
-const groupOptions = computed(() => props.groups.map((group) => ({ value: group.id, label: group.name })))
+const groupOptions = computed(() => props.groups.map((group) => ({
+  value: group.id,
+  label: group.name,
+  isMaintenance: group.is_maintenance
+})))
 const statusOptions = computed(() => [
   { value: 'active', label: t('keys.enable') },
   { value: 'inactive', label: t('keys.disable') }

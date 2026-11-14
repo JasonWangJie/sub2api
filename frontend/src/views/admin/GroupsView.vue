@@ -128,6 +128,11 @@
             <div class="min-w-0">
               <div class="font-medium text-gray-900 dark:text-white">
                 {{ row.name }}
+                <span
+                  v-if="row.is_maintenance"
+                  data-testid="group-maintenance-label"
+                  class="text-red-600 dark:text-red-400"
+                >{{ t("groups.maintenanceUnavailable") }}</span>
               </div>
               <div
                 v-if="row.section"
@@ -388,13 +393,23 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
+            <div class="flex flex-wrap items-center gap-1">
               <button
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t("common.edit") }}</span>
+              </button>
+              <button
+                data-testid="group-maintenance-toggle"
+                :title="maintenanceActionLabel(row)"
+                :disabled="updatingMaintenanceGroupIds.has(row.id)"
+                @click="handleToggleMaintenance(row)"
+                class="flex flex-col items-center gap-0.5 whitespace-nowrap rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              >
+                <Icon :name="row.is_maintenance ? 'checkCircle' : 'cog'" size="sm" />
+                <span class="text-xs">{{ maintenanceActionLabel(row) }}</span>
               </button>
               <button
                 v-if="!authStore.isSimpleMode"
@@ -4938,6 +4953,7 @@ const sortSubmitting = ref(false);
 const editingGroup = ref<AdminGroup | null>(null);
 const deletingGroup = ref<AdminGroup | null>(null);
 const duplicatingGroupIds = reactive(new Set<number>());
+const updatingMaintenanceGroupIds = reactive(new Set<number>());
 const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
@@ -6561,6 +6577,35 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const maintenanceActionLabel = (group: AdminGroup) =>
+  updatingMaintenanceGroupIds.has(group.id)
+    ? t("common.saving")
+    : t(group.is_maintenance
+      ? "admin.groups.unmarkMaintenance"
+      : "admin.groups.markMaintenance");
+
+const handleToggleMaintenance = async (group: AdminGroup) => {
+  if (updatingMaintenanceGroupIds.has(group.id)) return;
+
+  updatingMaintenanceGroupIds.add(group.id);
+  try {
+    const updated = await adminAPI.groups.update(group.id, {
+      is_maintenance: !group.is_maintenance,
+    });
+    const current = groups.value.find((item) => item.id === group.id);
+    if (current) current.is_maintenance = updated.is_maintenance;
+    appStore.showSuccess(t(updated.is_maintenance
+      ? "admin.groups.maintenanceMarked"
+      : "admin.groups.maintenanceUnmarked"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.groups.maintenanceUpdateFailed")),
+    );
+  } finally {
+    updatingMaintenanceGroupIds.delete(group.id);
+  }
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

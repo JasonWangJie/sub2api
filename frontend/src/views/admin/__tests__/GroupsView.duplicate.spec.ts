@@ -142,7 +142,7 @@ const DataTableStub = defineComponent({
     columns: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false }
   },
-  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>'
+  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-name" :row="row" /><slot name="cell-actions" :row="row" /></div></div>'
 })
 
 const BaseDialogStub = defineComponent({
@@ -175,7 +175,7 @@ function mountView() {
   })
 }
 
-describe('GroupsView duplicate action', () => {
+describe('GroupsView group actions', () => {
   beforeEach(() => {
     authState.isSimpleMode = false
     localStorage.clear()
@@ -195,7 +195,7 @@ describe('GroupsView duplicate action', () => {
     }
 
     listGroups.mockResolvedValue({
-      items: [sourceGroup],
+      items: [{ ...sourceGroup }],
       total: 1,
       page: 1,
       page_size: 20,
@@ -215,6 +215,71 @@ describe('GroupsView duplicate action', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it.each([false, true])('toggles maintenance from %s without changing the active status', async (isMaintenance) => {
+    listGroups.mockResolvedValueOnce({
+      items: [{ ...sourceGroup, is_maintenance: isMaintenance }],
+      total: 1, page: 1, page_size: 20, pages: 1
+    })
+    updateGroup.mockResolvedValue({ ...sourceGroup, is_maintenance: !isMaintenance })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="group-maintenance-label"]').exists()).toBe(isMaintenance)
+    const button = wrapper.get('[data-testid="group-maintenance-toggle"]')
+    expect(button.text()).toBe(isMaintenance ? 'admin.groups.unmarkMaintenance' : 'admin.groups.markMaintenance')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, { is_maintenance: !isMaintenance })
+    expect(wrapper.find('[data-testid="group-maintenance-label"]').exists()).toBe(!isMaintenance)
+    if (!isMaintenance) {
+      expect(wrapper.get('[data-testid="group-maintenance-label"]').classes()).toContain('text-red-600')
+    }
+    expect(button.text()).toBe(isMaintenance ? 'admin.groups.markMaintenance' : 'admin.groups.unmarkMaintenance')
+    expect(showSuccess).toHaveBeenCalledWith(isMaintenance ? 'admin.groups.maintenanceUnmarked' : 'admin.groups.maintenanceMarked')
+    wrapper.unmount()
+  })
+
+  it('prevents duplicate maintenance updates while saving', async () => {
+    let resolveUpdate!: (value: AdminGroup) => void
+    updateGroup.mockImplementationOnce(() => new Promise<AdminGroup>((resolve) => { resolveUpdate = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    const button = wrapper.get('[data-testid="group-maintenance-toggle"]')
+    void button.trigger('click')
+    void button.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(updateGroup).toHaveBeenCalledTimes(1)
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.text()).toBe('common.saving')
+
+    resolveUpdate({ ...sourceGroup, is_maintenance: true })
+    await flushPromises()
+    expect(button.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('preserves the maintenance mark and permits retry when clearing it fails', async () => {
+    listGroups.mockResolvedValueOnce({
+      items: [{ ...sourceGroup, is_maintenance: true }],
+      total: 1, page: 1, page_size: 20, pages: 1
+    })
+    updateGroup.mockRejectedValueOnce({ message: 'Unable to update group' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const button = wrapper.get('[data-testid="group-maintenance-toggle"]')
+    await button.trigger('click')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith('Unable to update group')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="group-maintenance-label"]').exists()).toBe(true)
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.text()).toBe('admin.groups.unmarkMaintenance')
+    wrapper.unmount()
   })
 
   it('duplicates the selected group, reports success, and refreshes the list', async () => {

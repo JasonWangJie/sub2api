@@ -98,6 +98,7 @@ type Group struct {
 	Platform       string  `json:"platform"`
 	RateMultiplier float64 `json:"rate_multiplier"`
 	IsExclusive    bool    `json:"is_exclusive"`
+	IsMaintenance  bool    `json:"is_maintenance"`
 	Status         string  `json:"status"`
 
 	// I18n 名称与描述的各语言译文。只有管理端输出；用户侧接口经 Localized 把
