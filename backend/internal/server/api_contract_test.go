@@ -325,6 +325,7 @@ func TestAPIContracts(t *testing.T) {
 						RateMultiplier:       1.5,
 						PeakRateMultiplier:   1.0,
 						IsExclusive:          false,
+						IsMaintenance:        true,
 						Status:               service.StatusActive,
 						SubscriptionType:     service.SubscriptionTypeStandard,
 						ProfitControlEnabled: true,
@@ -360,6 +361,7 @@ func TestAPIContracts(t *testing.T) {
 						"peak_end": "",
 						"peak_rate_multiplier": 1,
 						"is_exclusive": false,
+						"is_maintenance": true,
 						"status": "active",
 						"subscription_type": "standard",
 						"daily_limit_usd": null,
@@ -2078,6 +2080,10 @@ func (s *stubAccountRepo) ClearAntigravityQuotaScopes(ctx context.Context, id in
 }
 
 func (s *stubAccountRepo) ClearModelRateLimits(ctx context.Context, id int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) ClearModelRateLimit(ctx context.Context, id int64, scope string) error {
 	return errors.New("not implemented")
 }
 

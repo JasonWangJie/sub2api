@@ -1047,12 +1047,19 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Aggregator,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
+	NewUsageBillingLaneCombiner,
+	ProvideUsageBillingRepository,
 )
 
 // ProvideInvoiceService injects the settings service so every invoice API can
 // enforce the enterprise-invoice feature flag at the service boundary.
 func ProvideInvoiceService(entClient *dbent.Client, settingService *SettingService) *InvoiceService {
 	return NewInvoiceService(entClient, settingService)
+}
+
+// ProvideUsageBillingRepository 以按用户合并结算的通道作为各服务使用的计费仓储。
+func ProvideUsageBillingRepository(lanes *UsageBillingLaneCombiner) UsageBillingRepository {
+	return lanes
 }
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。

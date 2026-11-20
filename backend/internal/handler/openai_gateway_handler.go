@@ -368,7 +368,7 @@ func NewOpenAIGatewayHandler(
 	opsService *service.OpsService,
 	cfg *config.Config,
 ) *OpenAIGatewayHandler {
-	pingInterval := time.Duration(0)
+	pingInterval := defaultPingInterval
 	maxAccountSwitches := 3
 	if cfg != nil {
 		pingInterval = time.Duration(cfg.Concurrency.PingInterval) * time.Second
@@ -497,9 +497,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	} else if changed {
 		body = cappedBody
 	}
-	if normalizedBody, changed := normalizeCodexPageContext(body); changed {
+	if normalizedBody, changed := normalizeCodexUntrustedContext(body); changed {
 		body = normalizedBody
-		reqLog.Info("openai.codex_page_context_normalized",
+		reqLog.Info("openai.codex_untrusted_context_normalized",
 			zap.String("normalization", "call_output_to_user_message"),
 		)
 	}
@@ -1421,7 +1421,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
-		writerSizeBeforeForward := c.Writer.Size()
+		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -1509,10 +1509,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						)
 						return
 					}
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if !openAIForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
 						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
+					}
+					// Only keepalive bytes were written, so failover may continue, but
+					// every later error must be written as an SSE event.
+					if c.Writer.Written() {
+						streamStarted = true
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c.Request.Context(), account, currentRoutingModel, result), false, nil)
@@ -1671,16 +1676,24 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", failoverErr.ClientMessage, streamStarted)
 		return
 	}
+	// A failed or error frame that triggered the failover no longer reaches the
+	// client in-band, so its error passthrough rule is applied here instead.
+	if status, errType, msg, ok := service.ApplyOpenAIStreamFailedFrameRule(c, failoverErr); ok {
+		h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)
+		return
+	}
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
 // ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.
 func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool) bool {
-	if c == nil || c.Writer == nil || c.Writer.Written() {
+	// Keepalive pings alone do not count as a written response, but they do
+	// commit the response as SSE, so the fallback must then be an SSE event.
+	if c == nil || c.Writer == nil || service.OpenAICompactKeepaliveAdjustedWrittenSize(c) >= 0 {
 		return false
 	}
-	h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
+	h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted || c.Writer.Written())
 	return true
 }
 
@@ -1736,46 +1749,27 @@ func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
 
 // mayContainCodexCallOutputCandidate checks only output item names before the
 // full uniqueness scan and decode. Searching the entire body alone also matches
-// tool declarations and unrelated Unicode escapes in normal conversation text.
-// Keep the byte check as a cheap rejection, then project only names from matching
-// input items so large outputs are never decoded or copied by this precheck.
+// tool declarations. Common escapes for control and non-ASCII characters alone
+// do not trigger the scan, which reads input items without copying their output.
 // Names are conservative prefixes because selected-page names have a numbered
 // suffix. The normalizers still validate exact names, namespaces and envelopes.
 func mayContainCodexCallOutputCandidate(body []byte, toolNames ...string) bool {
-	if !bytes.Contains(body, []byte(`\u`)) {
-		if !bytes.Contains(body, []byte("function_call_output")) {
-			return false
-		}
-		containsName := false
-		for _, name := range toolNames {
-			if bytes.Contains(body, []byte(name)) {
-				containsName = true
-				break
-			}
-		}
-		if !containsName {
-			return false
-		}
+	if !service.JSONMayEscapePlainASCII(body) && !containsCodexCallOutputLiterals(body, toolNames) {
+		return false
 	}
+	return service.ResponsesInputHasFunctionCallOutputNamed(body, toolNames...)
+}
 
-	// GJSON decodes escaped keys and string values, preserving candidates whose
-	// input/type/name fields use JSON Unicode escapes. Duplicate members remain
-	// rejected by hasUniqueJSONMembers on the normalization path.
-	names := gjson.GetBytes(body, `input.#(type=="function_call_output")#.name`)
-	found := false
-	names.ForEach(func(_, name gjson.Result) bool {
-		if name.Type != gjson.String {
+func containsCodexCallOutputLiterals(body []byte, toolNames []string) bool {
+	if !bytes.Contains(body, []byte("function_call_output")) {
+		return false
+	}
+	for _, name := range toolNames {
+		if bytes.Contains(body, []byte(name)) {
 			return true
 		}
-		for _, prefix := range toolNames {
-			if strings.HasPrefix(name.Str, prefix) {
-				found = true
-				return false
-			}
-		}
-		return true
-	})
-	return found
+	}
+	return false
 }
 
 func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {

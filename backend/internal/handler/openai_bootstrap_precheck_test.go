@@ -34,7 +34,7 @@ func TestCodexBootstrapPrecheckScopesNamesToOutputItems(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := []byte(tc.body)
 			require.False(t, mayContainCodexCallOutputCandidate(body, "automation_update", "create_thread", "codex_apps_open_page"))
-			for _, normalize := range []func([]byte) ([]byte, bool){normalizeCodexPageContext, normalizeCodexAutomationBootstrap, normalizeCodexDelegationBootstrap} {
+			for _, normalize := range []func([]byte) ([]byte, bool){normalizeCodexUntrustedContext, normalizeCodexAutomationBootstrap, normalizeCodexDelegationBootstrap} {
 				got, changed := normalize(body)
 				require.False(t, changed)
 				require.Equal(t, body, got)
@@ -66,7 +66,7 @@ func TestCodexBootstrapPrecheckPreservesEscapedCandidateFields(t *testing.T) {
 	require.Equal(t, duplicate, string(got))
 
 	page := []byte(`{"\u0069nput":[{"\u0074ype":"\u0066unction_call_output","namespace":"agent","\u006eame":"codex_apps_selected_page_part_1_of_1","output":"Companion Page snapshot part 1 of 1:\n{\"page_id\":null}"}]}`)
-	got, changed = normalizeCodexPageContext(page)
+	got, changed = normalizeCodexUntrustedContext(page)
 	require.True(t, changed)
 	require.Equal(t, "message", gjson.GetBytes(got, "input.0.type").String())
 }
@@ -93,7 +93,7 @@ func codexBootstrapLargeNoopBody(items, textBytes int) []byte {
 func TestNormalizeCodexBootstrapLargeNoopAvoidsFullDecode(t *testing.T) {
 	body := codexBootstrapLargeNoopBody(256, 4096)
 	for name, normalize := range map[string]func([]byte) ([]byte, bool){
-		"page":       normalizeCodexPageContext,
+		"page":       normalizeCodexUntrustedContext,
 		"automation": normalizeCodexAutomationBootstrap,
 		"delegation": normalizeCodexDelegationBootstrap,
 	} {
