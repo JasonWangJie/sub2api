@@ -139,6 +139,63 @@ func TestOpenAINativeStreamKeepaliveThenFailoverContinuesWithNextAccount(t *test
 	require.Empty(t, rec.Result().Header.Values("X-Request-Id"), "headers were committed by the keepalive, not the second account")
 }
 
+func TestOpenAINativeStreamIncompleteKeepaliveIsDiscardedBeforeFailover(t *testing.T) {
+	svc := newKeepaliveForwardService(1)
+	c, rec := newKeepaliveForwardContext()
+	incomplete := strings.TrimSuffix(upstreamKeepaliveEvent, "\n")
+	_, firstErr := svc.handleStreamingResponse(c.Request.Context(), stalledKeepaliveResponse(incomplete), c,
+		&Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "model", "model")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, firstErr, &failoverErr)
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Empty(t, rec.Body.String())
+	require.False(t, c.Writer.Written())
+
+	secondResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"request-second"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_second"}}`,
+			`data: {"type":"response.output_text.delta","delta":"hello"}`,
+			`data: {"type":"response.completed","response":{"id":"resp_second","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			"",
+		}, "\n\n"))),
+	}
+	_, secondErr := svc.handleStreamingResponse(c.Request.Context(), secondResp, c,
+		&Account{ID: 2, Platform: PlatformOpenAI}, time.Now(), "model", "model")
+	require.NoError(t, secondErr)
+	firstFrame, _, ok := strings.Cut(rec.Body.String(), "\n\n")
+	require.True(t, ok)
+	require.True(t, strings.HasPrefix(firstFrame, `data: {"type":"response.created"`), "first SSE event: %q", firstFrame)
+	require.NotContains(t, firstFrame, "\n")
+	require.Equal(t, "request-second", rec.Result().Header.Get("X-Request-Id"))
+}
+
+func TestOpenAINativeStreamOversizedKeepaliveFailsOverWithoutAttemptBytes(t *testing.T) {
+	svc := newKeepaliveForwardService(0)
+	svc.cfg.Gateway.SSEEventMaxBytes = 2 * openAIFirstOutputStageMaxBytes
+	c, rec := newKeepaliveForwardContext()
+	comment := ":" + strings.Repeat("x", openAIFirstOutputStageMaxBytes/2) + "\n"
+	upstream := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"request-oversized"}},
+		Body: io.NopCloser(io.MultiReader(
+			strings.NewReader("event: keepalive\n"),
+			strings.NewReader(comment),
+			strings.NewReader(comment),
+			strings.NewReader(upstreamKeepaliveData+"\n\n"),
+		)),
+	}
+	_, err := svc.handleStreamingResponse(c.Request.Context(), upstream, c,
+		&Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "model", "model")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.Contains(t, string(failoverErr.ResponseBody), "staging limit exceeded")
+	require.Empty(t, rec.Body.String())
+	require.False(t, c.Writer.Written())
+}
+
 // Keepalive events after output started keep their place in the stream: not dropped, not repeated.
 func TestOpenAINativeStreamKeepaliveAfterOutputStaysInOrder(t *testing.T) {
 	svc := newKeepaliveForwardService(0)

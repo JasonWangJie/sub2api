@@ -552,20 +552,21 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// comment keepalive does: Codex resets its stream idle timer only on parsed
 	// SSE events, while the attempt's lifecycle events and account headers stay
 	// private until semantic output. The bytes do not count as client output.
-	keepaliveEventDirect := false
+	// Stage each heartbeat until its blank line so a timeout or EOF cannot leave
+	// part of the event attached to the next account's stream after failover.
+	var keepaliveFrame bytes.Buffer
 	forwardsKeepaliveDirect := func(eventType string) bool {
 		return eventType == "keepalive" && stageFirstOutput && !firstOutputStage.closed && !failureDelivered && !suppressCurrentEvent
 	}
-	writeKeepaliveDirect := func(value string) {
-		if clientDisconnected {
+	stageKeepaliveLine := func(line string) {
+		// Include this line's newline and the final blank line in the stage budget.
+		if firstOutputStage.Buffered()+int64(keepaliveFrame.Len()+len(line))+2 > openAIFirstOutputStageMaxBytes {
+			handlePendingWriteError(errOpenAIFirstOutputStageLimit)
 			return
 		}
-		n, err := w.Write([]byte(value))
-		recordOpenAIStreamKeepaliveBytes(c, n)
-		if err != nil {
-			clientDisconnected = true
-			logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-		}
+		keepaliveFrame.WriteString(line)
+		keepaliveFrame.WriteByte('\n')
+		eventInProgress = true
 	}
 	processSSELine := func(line string, queueDrained bool) {
 		if streamEarlyErr != nil {
@@ -576,9 +577,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			eventType = strings.TrimSpace(eventType)
 			suppressCurrentEvent = codexFailureTerminal && (eventType == "error" || (sawBareError && !sawResponseFailed && eventType != "response.failed"))
 			if forwardsKeepaliveDirect(eventType) {
-				keepaliveEventDirect = true
-				eventInProgress = true
-				writeKeepaliveDirect(line + "\n")
+				stageKeepaliveLine(line)
 				return
 			}
 		}
@@ -590,10 +589,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if streamTrace != nil {
 				streamTrace.ObserveSSE(dataBytes, eventType)
 			}
-			if keepaliveEventDirect || forwardsKeepaliveDirect(eventType) {
-				keepaliveEventDirect = true
-				eventInProgress = true
-				writeKeepaliveDirect(line + "\n")
+			if keepaliveFrame.Len() > 0 || forwardsKeepaliveDirect(eventType) {
+				stageKeepaliveLine(line)
 				return
 			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
@@ -882,17 +879,29 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			return
 		}
 
+		if keepaliveFrame.Len() > 0 && line != "" {
+			stageKeepaliveLine(line)
+			return
+		}
+
 		// A blank line dispatches a guarded event from the attempt-local stage.
 		if stageFirstOutput && line == "" {
 			pendingSSEEventType = ""
-			if keepaliveEventDirect {
-				keepaliveEventDirect = false
+			if keepaliveFrame.Len() > 0 {
 				eventInProgress = false
-				writeKeepaliveDirect("\n")
 				if !clientDisconnected {
-					flusher.Flush()
-					lastDownstreamWriteAt = time.Now()
+					keepaliveFrame.WriteByte('\n')
+					n, err := w.Write(keepaliveFrame.Bytes())
+					recordOpenAIStreamKeepaliveBytes(c, n)
+					if err != nil {
+						clientDisconnected = true
+						logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
+					} else {
+						flusher.Flush()
+						lastDownstreamWriteAt = time.Now()
+					}
 				}
+				keepaliveFrame.Reset()
 				return
 			}
 			if suppressCurrentEvent {
