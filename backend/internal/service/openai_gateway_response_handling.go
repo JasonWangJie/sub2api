@@ -725,6 +725,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			imageCounter.addSSEPayload(&payload)
 			searchCounter += countGrokNativeSearchCallsInSSEPayloadDedup(&payload, streamSearchSeen)
+			searchCounter = grokSearchCountWithTerminalPayload(searchCounter, &payload)
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
