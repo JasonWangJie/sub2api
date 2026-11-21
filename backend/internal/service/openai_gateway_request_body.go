@@ -1025,7 +1025,11 @@ func getOpenAIReasoningEffortFromReqBody(reqBody map[string]any, requestedModel 
 		return "", false
 	}
 
-	// Primary: reasoning.effort
+	if effort := latestResponsesInputEffortFromMap(reqBody); effort != "" {
+		return normalizeOpenAIReasoningEffortForModel(effort, requestedModel), true
+	}
+
+	// Primary top-level field: reasoning.effort
 	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
 		if effort, ok := reasoning["effort"].(string); ok {
 			return normalizeOpenAIReasoningEffortForModel(effort, requestedModel), true
@@ -1936,6 +1940,14 @@ func isOpenAICodexModel(model string) bool {
 // 非空候选；body 未携带 effort 时的模型后缀推导依次尝试每个候选——OAuth 的
 // normalizeCodexModel 会剥掉 upstreamModel 的 effort 后缀，只有原始模型名还留着。
 func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
+	if latest, _ := latestResponsesInputEffort(body); latest != "" {
+		return optionalTrimmedStringPtr(normalizeOpenAIReasoningEffortForModel(latest, firstNonEmpty(modelCandidates...)))
+	}
+	return extractOpenAIChatReasoningEffortFromBody(body, modelCandidates...)
+}
+
+// Chat Completions only forwards top-level reasoning settings.
+func extractOpenAIChatReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	reasoningEffort := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if reasoningEffort == "" {
 		reasoningEffort = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
@@ -1959,28 +1971,30 @@ const responsesConfigurationUpdate = "configuration_update"
 
 // Responses clients can keep the top-level effort fixed for prompt caching.
 // Each input update takes effect from its position until another sets effort.
-func latestResponsesInputEffort(body []byte) string {
+func latestResponsesInputEffort(body []byte) (string, int) {
 	if !bytes.Contains(body, []byte(responsesConfigurationUpdate)) && !JSONMayEscapePlainASCII(body) {
-		return ""
+		return "", -1
 	}
 	input := parseRawJSONView(body).Get("input")
 	if !input.IsArray() {
-		return ""
+		return "", -1
 	}
 	var latest string
-	input.ForEach(func(_, item gjson.Result) bool {
+	index := -1
+	input.ForEach(func(key, item gjson.Result) bool {
 		if item.Get("type").Str == responsesConfigurationUpdate {
 			if effort := strings.TrimSpace(item.Get("reasoning.effort").Str); effort != "" {
 				latest = effort
+				index = int(key.Int())
 			}
 		}
 		return true
 	})
-	return latest
+	return latest, index
 }
 
 func explicitRequestedReasoningEffortFromBody(body []byte) string {
-	if latest := latestResponsesInputEffort(body); latest != "" {
+	if latest, _ := latestResponsesInputEffort(body); latest != "" {
 		return latest
 	}
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
@@ -2812,6 +2826,9 @@ func CanonicalRequestedReasoningEffortFromReqBody(reqBody map[string]any, modelC
 	if reqBody == nil {
 		return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
 	}
+	if latest := latestResponsesInputEffortFromMap(reqBody); latest != "" {
+		return optionalTrimmedStringPtr(normalizeReasoningEffortMappingSource(latest))
+	}
 	raw := ""
 	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
 		if effort, ok := reasoning["effort"].(string); ok {
@@ -2823,21 +2840,24 @@ func CanonicalRequestedReasoningEffortFromReqBody(reqBody map[string]any, modelC
 			raw = strings.TrimSpace(effort)
 		}
 	}
+	if raw != "" {
+		return optionalTrimmedStringPtr(normalizeReasoningEffortMappingSource(raw))
+	}
+	return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
+}
+
+func latestResponsesInputEffortFromMap(reqBody map[string]any) string {
 	items, _ := reqBody["input"].([]any)
 	for i := len(items) - 1; i >= 0; i-- {
 		item, _ := items[i].(map[string]any)
 		if item["type"] == responsesConfigurationUpdate {
 			reasoning, _ := item["reasoning"].(map[string]any)
 			if effort, _ := reasoning["effort"].(string); strings.TrimSpace(effort) != "" {
-				raw = effort
-				break
+				return strings.TrimSpace(effort)
 			}
 		}
 	}
-	if raw != "" {
-		return optionalTrimmedStringPtr(normalizeReasoningEffortMappingSource(raw))
-	}
-	return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
+	return ""
 }
 
 func normalizeOpenAIReasoningEffort(raw string) string {

@@ -25,6 +25,16 @@ import (
 )
 
 func TestOpenAIResponsesUsageReportsConfigurationUpdateEffort(t *testing.T) {
+	t.Run("no group ceiling", func(t *testing.T) {
+		testResponsesUsageConfigurationUpdate(t, "", "high")
+	})
+	t.Run("group ceiling", func(t *testing.T) {
+		testResponsesUsageConfigurationUpdate(t, "medium", "medium")
+	})
+}
+
+func testResponsesUsageConfigurationUpdate(t *testing.T, ceiling, wantForwarded string) {
+	t.Helper()
 	const input = `[{"role":"user","content":"hello"},{"type":"configuration_update","reasoning":{"effort":"high"}}]`
 	const body = `{"model":"gpt-6.1-sol","input":` + input + `,"reasoning":{"effort":"medium"}}`
 	upstream := newAstraProCapturedUpstream(&http.Response{
@@ -48,15 +58,21 @@ func TestOpenAIResponsesUsageReportsConfigurationUpdateEffort(t *testing.T) {
 	h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(nil), billing,
 		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 	c, rec := newAstraProFailoverContext(t, body)
+	key := c.MustGet(string(middleware.ContextKeyAPIKey)).(*service.APIKey)
+	key.Group.MaxReasoningEffort = ceiling
 	h.Responses(c)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	_, _, bodies := upstream.snapshot()
 	require.Len(t, bodies, 1)
 	require.Equal(t, "medium", gjson.GetBytes(bodies[0], "reasoning.effort").String())
-	require.JSONEq(t, input, gjson.GetBytes(bodies[0], "input").Raw)
+	wantInput := strings.Replace(input, `"high"`, fmt.Sprintf("%q", wantForwarded), 1)
+	require.JSONEq(t, wantInput, gjson.GetBytes(bodies[0], "input").Raw)
 	require.Len(t, usageRepo.created, 1)
-	log := dto.UsageLogFromService(<-usageRepo.created)
+	record := <-usageRepo.created
+	require.NotNil(t, record.ReasoningEffort)
+	require.Equal(t, wantForwarded, *record.ReasoningEffort)
+	log := dto.UsageLogFromService(record)
 	require.NotNil(t, log.ReasoningEffort)
 	require.Equal(t, "high", *log.ReasoningEffort)
 }

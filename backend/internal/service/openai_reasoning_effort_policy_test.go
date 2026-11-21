@@ -82,6 +82,35 @@ func TestCanonicalRequestedReasoningEffortFromConfigurationUpdates(t *testing.T)
 	}
 }
 
+func TestResponsesConfigurationUpdateEffortPolicy(t *testing.T) {
+	const model = "gpt-6.1-sol"
+	body := []byte(`{"model":"gpt-6.1-sol","reasoning":{"effort":"low"},"input":[
+		{"type":"configuration_update","reasoning":{"effort":"max"}},
+		{"type":"configuration_update","reasoning":{"effort":"high"}},
+		{"type":"configuration_update","text":{"verbosity":"low"}}]}`)
+	mappings := []ReasoningEffortMapping{{From: "high", To: "medium"}, {From: "max", To: ReasoningEffortMappingDeny}}
+	require.Equal(t, "high", *CanonicalRequestedReasoningEffort(body))
+	forwarded, changed, err := ApplyOpenAIReasoningEffortPolicy(body, "", mappings, "")
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "low", gjson.GetBytes(forwarded, "reasoning.effort").String())
+	require.Equal(t, "max", gjson.GetBytes(forwarded, "input.0.reasoning.effort").String())
+	require.Equal(t, "medium", gjson.GetBytes(forwarded, "input.1.reasoning.effort").String())
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(forwarded, &parsed))
+	require.Equal(t, "medium", *extractOpenAIReasoningEffortFromBody(forwarded, model))
+	require.Equal(t, "medium", *extractOpenAIReasoningEffort(parsed, model))
+	require.Equal(t, "low", *extractOpenAIChatReasoningEffortFromBody(forwarded, model))
+
+	wsBody, err := applyOpenAIWSReasoningEffortPolicy(body, &OpenAIWSIngressHooks{MaxReasoningEffort: "medium"})
+	require.NoError(t, err)
+	require.JSONEq(t, string(forwarded), string(wsBody))
+	_, err = applyOpenAIWSReasoningEffortPolicy(body, &OpenAIWSIngressHooks{
+		MaxReasoningEffort: "medium", MaxReasoningEffortOverLimit: ReasoningEffortOverLimitDeny,
+	})
+	require.True(t, IsReasoningEffortPolicyDenied(err))
+}
+
 func TestRequestedReasoningEffortContext(t *testing.T) {
 	t.Parallel()
 

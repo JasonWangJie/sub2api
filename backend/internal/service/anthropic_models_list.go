@@ -35,13 +35,31 @@ func (s *GatewayService) ExpandAnthropicLongContextModels(ctx context.Context, g
 				(len(routedAccountIDs) > 0 && !slices.Contains(routedAccountIDs, account.ID)) {
 				continue
 			}
-			metadata, ok := account.GetUpstreamModelMetadata(account.GetMappedModel(model))
 			variant := model + claudeCodeLongContextModelSuffix
-			if ok && metadata.ContextWindow >= 900_000 && !seen[strings.ToLower(variant)] {
+			if !seen[strings.ToLower(variant)] && supportsAnthropicLongContextAcrossRollout(&account, model) {
 				result = append(result, variant)
 				seen[strings.ToLower(variant)] = true
 			}
 		}
 	}
 	return result
+}
+
+// A model list has no request-specific rollout bucket. Advertise the extra
+// context window only when every enabled branch of this account supports it.
+func supportsAnthropicLongContextAcrossRollout(account *Account, model string) bool {
+	snapshot := account.GetUpstreamModelMetadataSnapshot()
+	if snapshot == nil {
+		return false
+	}
+	mapping := account.ResolveMappedModelDetailed(model)
+	percent := DefaultModelMappingPercent
+	if mapping.ExplicitChanged {
+		percent = account.GetModelMappingPercentForModel(mapping.ExplicitSource)
+	}
+	const longContextWindow = 900_000
+	if percent > 0 && snapshot.Models[strings.TrimSpace(mapping.Model)].ContextWindow < longContextWindow {
+		return false
+	}
+	return percent == DefaultModelMappingPercent || snapshot.Models[strings.TrimSpace(model)].ContextWindow >= longContextWindow
 }

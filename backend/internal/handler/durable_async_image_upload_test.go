@@ -154,7 +154,7 @@ func newSCUploadAdmissionTestRouter(t *testing.T, repo *asyncImageUploadHandlerR
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Next()
 	})
-	router.POST("/v1/uploads/images_sc", h.UploadSC)
+	router.POST("/v1/uploads/images_sc", middleware.RejectConflictingRequestFields(), h.UploadSC)
 	return router, storage
 }
 
@@ -181,11 +181,14 @@ func TestUploadSCChecksPostgresAdmissionBeforeFullImageDecode(t *testing.T) {
 	}}
 	router, storage := newSCUploadAdmissionTestRouter(t, repo, 2<<20)
 	req := multipartImageUploadRequest(t, []byte("definitely-not-an-image"), "image/png")
+	var read bytes.Buffer
+	req.Body = io.NopCloser(io.TeeReader(req.Body, &read))
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 
 	require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
 	require.Equal(t, 1, repo.admitCalls)
+	require.Zero(t, read.Len(), "a rate-limited upload must be rejected before reading its contents")
 	require.Zero(t, repo.reserveCalls)
 	require.Empty(t, storage.data, "rate-limited bytes must never reach image decoding or OSS")
 	require.Equal(t, "60", recorder.Header().Get("Retry-After"))

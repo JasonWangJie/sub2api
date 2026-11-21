@@ -133,6 +133,29 @@ func TestForwardSystemOneAppliesAccountModelMapping(t *testing.T) {
 	apiKey := &APIKey{Group: &Group{Platform: PlatformTypeSafe}}
 	usageFields := ChannelUsageFields{OriginalModel: result.Model, BillingModelSource: BillingModelSourceUpstream}
 	require.Equal(t, typesafe.JevLatestModel, svc.recordUsageBillingModel(context.Background(), apiKey, &result.ForwardResult, usageFields))
+
+	for _, tc := range []struct {
+		name       string
+		percent    int
+		byModel    map[string]int
+		wantBody   string
+		wantMapped string
+	}{
+		{"account rollout disabled", 0, nil, requestBody, ""},
+		{"model rollout disabled", 100, map[string]int{typesafe.JevLatestModel: 0}, requestBody, ""},
+		{"model rollout enabled", 0, map[string]int{typesafe.JevLatestModel: 100}, mappedBody, "decision-model-preview"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account.Credentials[ModelMappingPercentCredentialKey] = tc.percent
+			account.Credentials[ModelMappingPercentByModelCredentialKey] = tc.byModel
+			c := newSystemOneTestContext()
+			result, err := svc.ForwardSystemOne(c.Request.Context(), c, account, body)
+			require.NoError(t, err)
+			require.JSONEq(t, tc.wantBody, string(sentBody))
+			require.Equal(t, tc.wantMapped, result.UpstreamModel)
+			require.Equal(t, tc.wantMapped, c.GetString(OpsUpstreamModelKey))
+		})
+	}
 }
 
 func TestForwardSystemOneAllowsSuccessfulResponseWithoutModel(t *testing.T) {

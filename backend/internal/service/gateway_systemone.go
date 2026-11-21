@@ -44,7 +44,7 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 	if err != nil {
 		return nil, err
 	}
-	mappedModel := firstNonEmpty(account.GetMappedModel(typesafe.JevLatestModel), typesafe.JevLatestModel)
+	mappedModel := firstNonEmpty(account.GetMappedModelForRequest(ctx, typesafe.JevLatestModel), typesafe.JevLatestModel)
 	var upstreamModel string
 	if mappedModel != typesafe.JevLatestModel {
 		body, err = sjson.SetBytes(body, "model", mappedModel)

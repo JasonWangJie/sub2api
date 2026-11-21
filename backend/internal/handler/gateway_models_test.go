@@ -30,6 +30,7 @@ func TestGatewayModelsAnthropicLongContextVariants(t *testing.T) {
 		name          string
 		platform      string
 		mapping       map[string]any
+		rollout       map[string]any
 		metadata      map[string]service.UpstreamModelMetadata
 		allowlist     []string
 		routing       map[string][]int64
@@ -42,6 +43,20 @@ func TestGatewayModelsAnthropicLongContextVariants(t *testing.T) {
 			wantVariants: []string{"public[1m]"}, absent: []string{"upstream", "upstream[1m]", "hidden", "hidden[1m]", "short[1m]", "max-only[1m]", claude.DefaultModels[0].ID}},
 		{name: "wildcard mappings are not concrete variants", mapping: map[string]any{"public*": "upstream"},
 			metadata: map[string]service.UpstreamModelMetadata{"upstream": {ContextWindow: 1_000_000}}, absent: []string{"public*[1m]"}},
+		{name: "automatic variants require long context on every active rollout branch",
+			mapping: map[string]any{
+				"zero-long": "short", "zero-short": "long", "full": "long",
+				"partial-long": "long", "partial-source": "short", "partial-target": "long",
+				"manual": "short", "manual[1M]": "short",
+			},
+			rollout: map[string]any{"zero-*": 0, "partial-*": 50, "full": 100},
+			metadata: map[string]service.UpstreamModelMetadata{
+				"long": {ContextWindow: 1_000_000}, "short": {ContextWindow: 200_000},
+				"zero-long": {ContextWindow: 1_000_000}, "partial-long": {ContextWindow: 1_000_000},
+				"partial-source": {ContextWindow: 1_000_000},
+			},
+			wantVariants: []string{"zero-long[1m]", "full[1m]", "partial-long[1m]", "manual[1M]"},
+			absent:       []string{"zero-short[1m]", "partial-source[1m]", "partial-target[1m]", "manual[1m]"}},
 		{name: "source metadata cannot override mapped target", mapping: map[string]any{"public": "short"},
 			metadata: map[string]service.UpstreamModelMetadata{"public": {ContextWindow: 1_000_000}, "short": {ContextWindow: 200_000}}, absent: []string{"public[1m]"}},
 		{name: "no duplicate suffix", mapping: map[string]any{"public": "upstream", "public[1m]": "upstream", "other[1M]": "upstream"},
@@ -69,6 +84,10 @@ func TestGatewayModelsAnthropicLongContextVariants(t *testing.T) {
 				platform = service.PlatformAnthropic
 			}
 			account := service.Account{ID: 1, Platform: platform, Type: service.AccountTypeOAuth, Credentials: map[string]any{"model_mapping": test.mapping}}
+			if test.rollout != nil {
+				account.Type = service.AccountTypeAPIKey
+				account.Credentials[service.ModelMappingPercentByModelCredentialKey] = test.rollout
+			}
 			account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: test.metadata})
 			outsideAccount := service.Account{ID: 3, Platform: service.PlatformAnthropic}
 			outsideAccount.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"upstream": {ContextWindow: 1_000_000}}})

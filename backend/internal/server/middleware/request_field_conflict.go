@@ -33,6 +33,12 @@ import (
 // Responses WebSocket 的帧不经过这里，由 ResponsesWebSocket 对每一帧执行同一规则。
 func RejectConflictingRequestFields() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// The SC file upload does not submit model or billing parameters. Its handler
+		// checks upload size and admission before reading the multipart body.
+		if c.FullPath() == "/v1/uploads/images_sc" {
+			c.Next()
+			return
+		}
 		if c.Request == nil || c.Request.Body == nil || c.Request.Body == http.NoBody {
 			c.Next()
 			return

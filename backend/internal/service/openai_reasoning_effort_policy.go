@@ -531,7 +531,13 @@ func ApplyReasoningEffortPolicy(body []byte, maxEffort string, mappings []Reason
 	requestModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	result := body
 	changed := false
-	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
+	paths := []string{"reasoning.effort", "reasoning_effort", "output_config.effort"}
+	if _, index := latestResponsesInputEffort(body); index >= 0 {
+		// Earlier configuration updates describe past turns, which clients
+		// may replay for prompt caching. Apply policy to the current turn.
+		paths = append(paths, fmt.Sprintf("input.%d.reasoning.effort", index))
+	}
+	for _, path := range paths {
 		field := gjson.GetBytes(result, path)
 		if !field.Exists() || field.Type != gjson.String {
 			continue

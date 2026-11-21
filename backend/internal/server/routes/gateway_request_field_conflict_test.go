@@ -69,6 +69,8 @@ func TestGatewayRoutesRejectConflictingFieldsCoversGatewayRoutes(t *testing.T) {
 		{"/v1/chat/completions", `{` + duplicate + `}`},
 		{"/v1/embeddings", `{` + duplicate + `}`},
 		{"/v1/images/generations", `{` + duplicate + `}`},
+		{"/v1/images/generations_sc", `{` + duplicate + `}`},
+		{"/v1/images/generations_oa", `{` + duplicate + `}`},
 		{"/v1/videos/generations", `{` + duplicate + `}`},
 		{"/v1/systemone", `{` + duplicate + `}`},
 		{"/v1/contents/generations/tasks", `{` + duplicate + `}`},
@@ -88,6 +90,22 @@ func TestGatewayRoutesRejectConflictingFieldsCoversGatewayRoutes(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code, "POST %s should be rejected, got body: %s", tc.path, w.Body.String())
 		require.Contains(t, w.Body.String(), "more than once", "POST %s", tc.path)
 	}
+}
+
+func TestGatewayRoutesSCUploadChecksGroupBeforeReadingFile(t *testing.T) {
+	group := allowlistGroup(service.PlatformGemini, false)
+	group.ID = 1
+	group.AllowImageGeneration = true
+	router := newGatewayRoutesTestRouterWithGroup(group)
+	body := strings.NewReader("--boundary--\r\n")
+	size := body.Len()
+	req := httptest.NewRequest(http.MethodPost, "/v1/uploads/images_sc", body)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "async_image_generation_disabled")
+	require.Equal(t, size, body.Len(), "group admission should precede multipart reads")
 }
 
 // 白名单开启时，不在名单内的模型仍由白名单按原有格式拒绝（404），不会被这层
